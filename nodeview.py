@@ -305,9 +305,9 @@ class NodeView(QGraphicsView):
             zoom_factor = zoom_out_factor
 
         # Zoom na pozici kurzoru
-        old_pos = self.mapToScene(event.position().toPoint())
+        old_pos = self.mapToScene(event.pos())
         self.scale(zoom_factor, zoom_factor)
-        new_pos = self.mapToScene(event.position().toPoint())
+        new_pos = self.mapToScene(event.pos())
 
         delta = new_pos - old_pos
         self.translate(delta.x(), delta.y())
