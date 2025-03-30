@@ -151,7 +151,8 @@ class ModelInsertDialog(QDialog):
 
 
 def load_model_presets():
-    folder = "models_configs"
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    folder = os.path.join(BASE_DIR, "models_configs")
     presets = {}
     if not os.path.exists(folder):
         return presets
