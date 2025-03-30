@@ -1,9 +1,9 @@
 import sys
-from PyQt6.QtWidgets import (
-    QMainWindow, QApplication, QGraphicsScene, QToolBar, QDoubleSpinBox, QLabel, QFileDialog
+from PyQt5.QtWidgets import (
+    QMainWindow, QApplication, QGraphicsScene, QToolBar, QDoubleSpinBox, QLabel, QFileDialog, QAction
 )
-from PyQt6.QtGui import QAction
-from PyQt6.QtCore import Qt
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPalette, QColor
 from nodeview import NodeView
 from node import Node, Line
 from sceneio import export_scene, import_scene, export_world
@@ -25,7 +25,7 @@ class MainWindow(QMainWindow):
 
     def init_toolbar(self):
         tool_toolbar = QToolBar("Tool Selection")
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tool_toolbar)
+        self.addToolBar(Qt.TopToolBarArea, tool_toolbar)
 
         add_action = QAction("Node Creation Tool", self)
         add_action.triggered.connect(lambda: self.view.set_tool("create"))
@@ -43,9 +43,9 @@ class MainWindow(QMainWindow):
         add_model_action.triggered.connect(lambda: self.view.set_tool("add_model"))
         tool_toolbar.addAction(add_model_action)
 
-        # Nastavení zdi (vpravo)
+        # Nastavení zdi (vpravo
         wall_toolbar = QToolBar("Wall Settings")
-        self.addToolBar(Qt.ToolBarArea.RightToolBarArea, wall_toolbar)
+        self.addToolBar(Qt.RightToolBarArea, wall_toolbar)
 
         # Tloušťka zdi
         thickness_label = QLabel("Wall thickness (m):")
@@ -170,9 +170,27 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    QApplication.setStyle("Fusion")
+    dark_palette = QPalette()
+
+    dark_palette.setColor(QPalette.Window, QColor(53, 53, 53))
+    dark_palette.setColor(QPalette.WindowText, Qt.white)
+    dark_palette.setColor(QPalette.Base, QColor(35, 35, 35))
+    dark_palette.setColor(QPalette.AlternateBase, QColor(53, 53, 53))
+    dark_palette.setColor(QPalette.ToolTipBase, Qt.white)
+    dark_palette.setColor(QPalette.ToolTipText, Qt.white)
+    dark_palette.setColor(QPalette.Text, Qt.white)
+    dark_palette.setColor(QPalette.Button, QColor(53, 53, 53))
+    dark_palette.setColor(QPalette.ButtonText, Qt.white)
+    dark_palette.setColor(QPalette.BrightText, Qt.red)
+    dark_palette.setColor(QPalette.Link, QColor(42, 130, 218))
+    dark_palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
+    dark_palette.setColor(QPalette.HighlightedText, Qt.black)
+
+    app.setPalette(dark_palette)
     window = MainWindow()
     window.show()
-    sys.exit(app.exec())
+    sys.exit(app.exec_())
 
 
 

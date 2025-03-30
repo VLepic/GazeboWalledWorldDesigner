@@ -1,14 +1,14 @@
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsLineItem
-from PyQt6.QtGui import QBrush, QPen
-from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtWidgets import QGraphicsEllipseItem
+from PyQt5.QtWidgets import QGraphicsItem, QGraphicsLineItem
+from PyQt5.QtGui import QBrush, QPen
+from PyQt5.QtCore import QPointF, Qt
+from PyQt5.QtWidgets import QGraphicsEllipseItem
 
 
 class Node(QGraphicsEllipseItem):
     def __init__(self, x, y, radius=5):
         super().__init__(-radius, -radius, radius * 2, radius * 2)
-        self.setBrush(QBrush(Qt.GlobalColor.red))
-        self.setPen(QPen(Qt.GlobalColor.black))
+        self.setBrush(QBrush(Qt.red))
+        self.setPen(QPen(Qt.black))
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsScenePositionChanges, True)
         self.setPos(x, y)
@@ -44,16 +44,16 @@ class Node(QGraphicsEllipseItem):
 
     def highlight(self, active: bool):
         if active:
-            self.setBrush(QBrush(Qt.GlobalColor.blue))
+            self.setBrush(QBrush(Qt.blue))
         else:
-            self.setBrush(QBrush(Qt.GlobalColor.red))
+            self.setBrush(QBrush(Qt.red))
 
 class Line(QGraphicsLineItem):
     def __init__(self, node1, node2, width=2):
         super().__init__()
         self.node1 = node1
         self.node2 = node2
-        self.setPen(QPen(Qt.GlobalColor.green, width))
+        self.setPen(QPen(Qt.green, width))
         self.update_position()
 
     def update_position(self):

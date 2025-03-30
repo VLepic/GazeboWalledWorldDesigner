@@ -1,6 +1,6 @@
-from PyQt6.QtCore import Qt, QPointF, QTimer
-from PyQt6.QtWidgets import QGraphicsView, QGraphicsRectItem, QGraphicsEllipseItem, QGraphicsLineItem, QApplication, QGraphicsItem, QGraphicsSimpleTextItem
-from PyQt6.QtGui import QPen, QPainter, QColor, QTransform, QBrush
+from PyQt5.QtCore import Qt, QPointF, QTimer
+from PyQt5.QtWidgets import QGraphicsView, QGraphicsRectItem, QGraphicsEllipseItem, QGraphicsLineItem, QApplication, QGraphicsItem, QGraphicsSimpleTextItem
+from PyQt5.QtGui import QPen, QPainter, QColor, QTransform, QBrush
 import math
 from modeldialog import ModelInsertDialog
 from node import Node, Line
@@ -75,13 +75,13 @@ class NodeView(QGraphicsView):
         pos = self.mapToScene(event.pos())
         items = self.scene().items(pos)
 
-        if event.button() == Qt.MouseButton.MiddleButton:
+        if event.button() == Qt.MiddleButton:
             self._panning = True
             self._pan_start = event.pos()
-            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            self.setCursor(Qt.ClosedHandCursor)
 
         if self.tool == "create":
-            if event.button() == Qt.MouseButton.LeftButton:
+            if event.button() == Qt.LeftButton:
                 x, y = pos.x(), pos.y()
                 if self.snap_to_grid:
                     grid_size = self.grid_spacing_m * self.pixels_per_meter
@@ -91,7 +91,7 @@ class NodeView(QGraphicsView):
                 node = Node(x, y, self.radius)
                 self.scene().addItem(node)
                 self.ensure_node_visible(x, y)
-            elif event.button() == Qt.MouseButton.RightButton:
+            elif event.button() == Qt.RightButton:
                 for item in items:
                     if isinstance(item, Node):
                         item.remove_all_connections(self.scene())
@@ -99,13 +99,13 @@ class NodeView(QGraphicsView):
                         break
 
         elif self.tool == "add_model":
-            if event.button() == Qt.MouseButton.LeftButton:
+            if event.button() == Qt.LeftButton:
                 pos = self.mapToScene(event.pos())
                 x = pos.x() / self.pixels_per_meter
                 y = pos.y() / self.pixels_per_meter
 
                 QTimer.singleShot(0, lambda: self.open_model_dialog(x, y))
-            elif event.button() == Qt.MouseButton.RightButton:
+            elif event.button() == Qt.RightButton:
                 for item in self.scene().items(pos):
                     if hasattr(item, "model_index"):
                         index = item.model_index
@@ -121,7 +121,7 @@ class NodeView(QGraphicsView):
         elif self.tool == "connect":
             for item in items:
                 if isinstance(item, Node):
-                    if event.button() == Qt.MouseButton.LeftButton:
+                    if event.button() == Qt.LeftButton:
                         if self.first_node is None:
                             self.first_node = item
                             item.highlight(True)  # zvýraznění
@@ -136,7 +136,7 @@ class NodeView(QGraphicsView):
                             self.first_node.highlight(False)
                             self.first_node = None
 
-                    elif event.button() == Qt.MouseButton.RightButton:
+                    elif event.button() == Qt.RightButton:
                         item.remove_all_connections(self.scene())
                         if self.first_node == item:
                             item.highlight(False)
@@ -191,15 +191,15 @@ class NodeView(QGraphicsView):
         for item in self.scene().items():
             if isinstance(item, QGraphicsLineItem) and item.zValue() == -100:
                 self.scene().removeItem(item)
-        grid_color = QColor(Qt.GlobalColor.lightGray)
+        grid_color = QColor(Qt.lightGray)
         grid_color.setAlpha(80)
         pen_grid = QPen(grid_color)
         pen_grid.setWidth(1)
-        pen_grid.setStyle(Qt.PenStyle.DotLine)
+        pen_grid.setStyle(Qt.DotLine)
 
 
-        pen_axis = QPen(Qt.GlobalColor.gray)
-        pen_axis.setStyle(Qt.PenStyle.DashLine)
+        pen_axis = QPen(Qt.gray)
+        pen_axis.setStyle(Qt.DashLine)
         pen_axis.setWidth(2)
 
         grid_size = int(self.grid_spacing_m * self.pixels_per_meter)
@@ -228,13 +228,13 @@ class NodeView(QGraphicsView):
         axis_y.setZValue(-100)
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Escape:
+        if event.key() == Qt.Key_Escape:
             if self.first_node:
                 self.first_node.highlight(False)
                 self.first_node = None
 
 
-        elif event.key() == Qt.Key.Key_E:
+        elif event.key() == Qt.Key_E:
             connections = []
             for item in self.scene().items():
                 if isinstance(item, Node):
@@ -249,13 +249,13 @@ class NodeView(QGraphicsView):
             self.status_bar.showMessage(f"{len(connections)} wall(s) displayed (preview)")
 
 
-        elif event.key() == Qt.Key.Key_G:
+        elif event.key() == Qt.Key_G:
             self.snap_to_grid = not self.snap_to_grid
             state = "ON" if self.snap_to_grid else "OFF"
             self.status_bar.showMessage(f"Snap to Grid: {state}")
 
 
-        elif event.key() == Qt.Key.Key_R:
+        elif event.key() == Qt.Key_R:
             count = 0
             for item in self.scene().items():
                 if (
@@ -289,9 +289,9 @@ class NodeView(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.MiddleButton:
+        if event.button() == Qt.MiddleButton:
             self._panning = False
-            self.setCursor(Qt.CursorShape.ArrowCursor)
+            self.setCursor(Qt.ArrowCursor)
         else:
             super().mouseReleaseEvent(event)
 
@@ -336,8 +336,8 @@ class NodeView(QGraphicsView):
                 continue
 
             rect = QGraphicsRectItem(-length / 2, -radius, length, self.preview_thickness_px)
-            rect.setBrush(QBrush(Qt.GlobalColor.darkGray))
-            rect.setPen(QPen(Qt.GlobalColor.transparent))
+            rect.setBrush(QBrush(Qt.darkGray))
+            rect.setPen(QPen(Qt.transparent))
             rect.setPos(mid_x, mid_y)
             rect.setRotation(angle_deg)
             rect.setZValue(1)
@@ -349,8 +349,8 @@ class NodeView(QGraphicsView):
 
         for x, y in used_nodes:
             circle = QGraphicsEllipseItem(-radius, -radius, 2 * radius, 2 * radius)
-            circle.setBrush(QBrush(Qt.GlobalColor.gray))
-            circle.setPen(QPen(Qt.GlobalColor.transparent))
+            circle.setBrush(QBrush(Qt.gray))
+            circle.setPen(QPen(Qt.transparent))
             circle.setPos(x, y)
             circle.setZValue(1)  # nejvyšší vrstva
             self.scene().addItem(circle)
@@ -370,15 +370,15 @@ class NodeView(QGraphicsView):
         y_px = model["pose"][1] * self.pixels_per_meter
 
         marker = ModelMarkerItem(index, self, -10, -10, 20, 20)
-        marker.setBrush(QBrush(Qt.GlobalColor.blue))
-        marker.setPen(QPen(Qt.GlobalColor.black))
+        marker.setBrush(QBrush(Qt.blue))
+        marker.setPen(QPen(Qt.black))
         marker.setZValue(2)
         marker.setPos(x_px, y_px)
 
         self.scene().addItem(marker)
 
         label = QGraphicsSimpleTextItem(model["name"])
-        label.setBrush(QBrush(Qt.GlobalColor.white))
+        label.setBrush(QBrush(Qt.white))
         label.setZValue(2)
         label.setParentItem(marker)
         label.setPos(12, -12)

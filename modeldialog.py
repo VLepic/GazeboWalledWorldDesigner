@@ -1,5 +1,4 @@
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QLineEdit, QDialogButtonBox, QDoubleSpinBox, QComboBox, QLabel, QPushButton, QMessageBox
-from PyQt6.QtGui import QDoubleValidator
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QLineEdit, QDialogButtonBox, QDoubleSpinBox, QComboBox, QLabel, QPushButton, QMessageBox
 import os, json
 
 class ModelInsertDialog(QDialog):
