@@ -94,7 +94,8 @@ class ModelInsertDialog(QDialog):
     def save_preset(self):
         import os, json
 
-        folder = "models_configs"
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        folder = os.path.join(BASE_DIR, "models_configs")
         os.makedirs(folder, exist_ok=True)
 
         name = self.name_input.text().strip()
