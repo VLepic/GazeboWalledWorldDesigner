@@ -1,6 +1,6 @@
 import sys
 from PyQt6.QtWidgets import (
-    QMainWindow, QApplication, QGraphicsScene, QToolBar, QDoubleSpinBox, QLabel, QFileDialog
+    QMainWindow, QApplication, QGraphicsScene, QToolBar, QDoubleSpinBox, QLabel, QFileDialog, QGroupBox, QFormLayout
 )
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt
@@ -24,6 +24,7 @@ class MainWindow(QMainWindow):
         self.init_toolbar()
 
     def init_toolbar(self):
+        # --- Horní toolbar ---
         tool_toolbar = QToolBar("Tool Selection")
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tool_toolbar)
 
@@ -39,73 +40,9 @@ class MainWindow(QMainWindow):
         move_action.triggered.connect(lambda: self.view.set_tool("move"))
         tool_toolbar.addAction(move_action)
 
-        add_model_action = QAction("Add Model", self)
+        add_model_action = QAction("Model Tool", self)
         add_model_action.triggered.connect(lambda: self.view.set_tool("add_model"))
         tool_toolbar.addAction(add_model_action)
-
-        # Nastavení zdi (vpravo)
-        wall_toolbar = QToolBar("Wall Settings")
-        self.addToolBar(Qt.ToolBarArea.RightToolBarArea, wall_toolbar)
-
-        # Tloušťka zdi
-        thickness_label = QLabel("Wall thickness (m):")
-        wall_toolbar.addWidget(thickness_label)
-
-        self.thickness_spin = QDoubleSpinBox()
-        self.thickness_spin.setRange(0.01, 1.0)
-        self.thickness_spin.setSingleStep(0.01)
-        self.thickness_spin.setValue(self.view.wall_thickness)
-        self.thickness_spin.setSuffix(" m")
-        self.thickness_spin.valueChanged.connect(self.update_wall_thickness)
-        wall_toolbar.addWidget(self.thickness_spin)
-
-        # Výška zdi
-        height_label = QLabel("Wall height (m):")
-        wall_toolbar.addWidget(height_label)
-
-        self.height_spin = QDoubleSpinBox()
-        self.height_spin.setRange(0.1, 5.0)
-        self.height_spin.setSingleStep(0.1)
-        self.height_spin.setValue(self.view.wall_height)
-        self.height_spin.setSuffix(" m")
-        self.height_spin.valueChanged.connect(self.update_wall_height)
-        wall_toolbar.addWidget(self.height_spin)
-
-        # Mřížka - rozteč
-        grid_label = QLabel("Grid spacing (m):")
-        wall_toolbar.addWidget(grid_label)
-
-        self.grid_spin = QDoubleSpinBox()
-        self.grid_spin.setRange(0.05, 5.0)
-        self.grid_spin.setSingleStep(0.05)
-        self.grid_spin.setValue(self.view.grid_spacing_m)
-        self.grid_spin.setSuffix(" m")
-        self.grid_spin.valueChanged.connect(self.update_grid_spacing)
-        wall_toolbar.addWidget(self.grid_spin)
-
-        # Node size
-        radius_label = QLabel("Node size (px):")
-        wall_toolbar.addWidget(radius_label)
-
-        self.radius_spin = QDoubleSpinBox()
-        self.radius_spin.setRange(2, 20)
-        self.radius_spin.setSingleStep(1)
-        self.radius_spin.setValue(self.view.radius)
-        self.radius_spin.setSuffix(" px")
-        self.radius_spin.valueChanged.connect(self.update_node_radius)
-        wall_toolbar.addWidget(self.radius_spin)
-
-        # Line width
-        line_label = QLabel("Line width (px):")
-        wall_toolbar.addWidget(line_label)
-
-        self.line_width_spin = QDoubleSpinBox()
-        self.line_width_spin.setRange(1, 10)
-        self.line_width_spin.setSingleStep(1)
-        self.line_width_spin.setValue(self.view.line_width)
-        self.line_width_spin.setSuffix(" px")
-        self.line_width_spin.valueChanged.connect(self.update_line_width)
-        wall_toolbar.addWidget(self.line_width_spin)
 
         save_action = QAction("Save to json", self)
         save_action.triggered.connect(self.save_scene)
@@ -118,6 +55,87 @@ class MainWindow(QMainWindow):
         export_action = QAction("Export .world", self)
         export_action.triggered.connect(self.export_world_file)
         tool_toolbar.addAction(export_action)
+
+        # --- Pravý toolbar ---
+        wall_toolbar = QToolBar("Wall and Grid Settings")
+        self.addToolBar(Qt.ToolBarArea.RightToolBarArea, wall_toolbar)
+
+        # --- Wall Settings Group ---
+        wall_group = QGroupBox("Wall Settings")
+        wall_layout = QFormLayout()
+
+        self.thickness_spin = QDoubleSpinBox()
+        self.thickness_spin.setRange(0.01, 1.5)
+        self.thickness_spin.setSingleStep(0.01)
+        self.thickness_spin.setValue(self.view.wall_thickness)
+        self.thickness_spin.setSuffix(" m")
+        self.thickness_spin.valueChanged.connect(self.update_wall_thickness)
+        wall_layout.addRow("Wall thickness (m):", self.thickness_spin)
+
+        self.height_spin = QDoubleSpinBox()
+        self.height_spin.setRange(0.1, 10.0)
+        self.height_spin.setSingleStep(0.1)
+        self.height_spin.setValue(self.view.wall_height)
+        self.height_spin.setSuffix(" m")
+        self.height_spin.valueChanged.connect(self.update_wall_height)
+        wall_layout.addRow("Wall height (m):", self.height_spin)
+
+        wall_group.setLayout(wall_layout)
+        wall_toolbar.addWidget(wall_group)
+
+        # --- Grid Settings Group ---
+        grid_group = QGroupBox("Grid Settings")
+        grid_layout = QFormLayout()
+
+        self.grid_spin = QDoubleSpinBox()
+        self.grid_spin.setRange(0.05, 10.0)
+        self.grid_spin.setSingleStep(0.05)
+        self.grid_spin.setValue(self.view.grid_spacing_m)
+        self.grid_spin.setSuffix(" m")
+        self.grid_spin.valueChanged.connect(self.update_grid_spacing)
+        grid_layout.addRow("Grid spacing (m):", self.grid_spin)
+
+        self.grid_line_spin = QDoubleSpinBox()
+        self.grid_line_spin.setRange(1, 10)
+        self.grid_line_spin.setSingleStep(1)
+        self.grid_line_spin.setValue(self.view.grid_line_width)
+        self.grid_line_spin.setSuffix(" px")
+        self.grid_line_spin.valueChanged.connect(self.update_grid_line_width)
+        grid_layout.addRow("Grid line width (px):", self.grid_line_spin)
+
+        self.axis_line_spin = QDoubleSpinBox()
+        self.axis_line_spin.setRange(1, 10)
+        self.axis_line_spin.setSingleStep(1)
+        self.axis_line_spin.setValue(self.view.axis_line_width)
+        self.axis_line_spin.setSuffix(" px")
+        self.axis_line_spin.valueChanged.connect(self.update_axis_line_width)
+        grid_layout.addRow("Axis line width (px):", self.axis_line_spin)
+
+        grid_group.setLayout(grid_layout)
+        wall_toolbar.addWidget(grid_group)
+
+        # --- Display Settings Group ---
+        display_group = QGroupBox("Display Settings")
+        display_layout = QFormLayout()
+
+        self.radius_spin = QDoubleSpinBox()
+        self.radius_spin.setRange(2, 50)
+        self.radius_spin.setSingleStep(1)
+        self.radius_spin.setValue(self.view.radius)
+        self.radius_spin.setSuffix(" px")
+        self.radius_spin.valueChanged.connect(self.update_node_radius)
+        display_layout.addRow("Node size (px):", self.radius_spin)
+
+        self.line_width_spin = QDoubleSpinBox()
+        self.line_width_spin.setRange(1, 50)
+        self.line_width_spin.setSingleStep(1)
+        self.line_width_spin.setValue(self.view.line_width)
+        self.line_width_spin.setSuffix(" px")
+        self.line_width_spin.valueChanged.connect(self.update_line_width)
+        display_layout.addRow("Line width (px):", self.line_width_spin)
+
+        display_group.setLayout(display_layout)
+        wall_toolbar.addWidget(display_group)
 
     def update_node_radius(self, value):
         self.view.radius = value
@@ -166,6 +184,16 @@ class MainWindow(QMainWindow):
         self.line_width_spin.setValue(self.view.line_width)
         self.thickness_spin.setValue(self.view.wall_thickness)
         self.height_spin.setValue(self.view.wall_height)
+        self.grid_line_spin.setValue(self.view.grid_line_width)
+        self.axis_line_spin.setValue(self.view.axis_line_width)
+
+    def update_grid_line_width(self, value):
+        self.view.grid_line_width = value
+        self.view.draw_background()
+
+    def update_axis_line_width(self, value):
+        self.view.axis_line_width = value
+        self.view.draw_background()
 
 
 if __name__ == "__main__":

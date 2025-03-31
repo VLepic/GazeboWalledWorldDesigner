@@ -43,6 +43,8 @@ class NodeView(QGraphicsView):
         self._pan_start = QPointF()
         self.external_models = []
         self.model_markers = []
+        self.grid_line_width = 1
+        self.axis_line_width = 2
 
         self.wall_height = 2.0
         self.wall_thickness = 0.2
@@ -124,9 +126,8 @@ class NodeView(QGraphicsView):
                     if event.button() == Qt.MouseButton.LeftButton:
                         if self.first_node is None:
                             self.first_node = item
-                            item.highlight(True)  # zvýraznění
+                            item.highlight(True)
                         elif self.first_node != item:
-                            # Zkontroluj, zda už spojení neexistuje
                             exists = any(conn[0] == item for conn in self.first_node.connections)
                             if not exists:
                                 line = Line(self.first_node, item, self.line_width)
@@ -142,6 +143,20 @@ class NodeView(QGraphicsView):
                             item.highlight(False)
                             self.first_node = None
                     break
+
+            if event.button() == Qt.MouseButton.RightButton:
+                for item in self.scene().items(pos):
+                    if isinstance(item, Line):
+                        node1 = item.node1
+                        node2 = item.node2
+
+                        node1.connections = [(n, l) for (n, l) in node1.connections if l != item]
+                        node2.connections = [(n, l) for (n, l) in node2.connections if l != item]
+
+                        self.scene().removeItem(item)
+                        self.status_bar.showMessage("One wall/connection removed.")
+                        return
+
         else:
             super().mousePressEvent(event)
 
@@ -149,8 +164,6 @@ class NodeView(QGraphicsView):
         dialog = ModelInsertDialog(x, y, parent=self.window())
         if dialog.exec():
             model = dialog.result_data
-            self.external_models.append(model)
-            index = len(self.external_models) - 1  # index v seznamu
 
             if self.status_bar:
                 self.status_bar.showMessage(
@@ -194,17 +207,16 @@ class NodeView(QGraphicsView):
         grid_color = QColor(Qt.GlobalColor.lightGray)
         grid_color.setAlpha(80)
         pen_grid = QPen(grid_color)
-        pen_grid.setWidth(1)
+        pen_grid.setWidthF(self.grid_line_width)
         pen_grid.setStyle(Qt.PenStyle.DotLine)
 
 
         pen_axis = QPen(Qt.GlobalColor.gray)
         pen_axis.setStyle(Qt.PenStyle.DashLine)
-        pen_axis.setWidth(2)
+        pen_axis.setWidthF(self.axis_line_width)
 
         grid_size = int(self.grid_spacing_m * self.pixels_per_meter)
 
-        # velikost zobrazeného okna
         visible_rect = self.mapToScene(self.viewport().rect()).boundingRect()
 
         left = int(visible_rect.left()) - (int(visible_rect.left()) % grid_size)
@@ -227,6 +239,8 @@ class NodeView(QGraphicsView):
         axis_y = self.scene().addLine(0, top, 0, bottom, pen_axis)
         axis_y.setZValue(-100)
 
+
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
             if self.first_node:
@@ -239,7 +253,7 @@ class NodeView(QGraphicsView):
             for item in self.scene().items():
                 if isinstance(item, Node):
                     for other_node, _ in item.connections:
-                        if id(item) < id(other_node):  # unifikované spojení
+                        if id(item) < id(other_node):
                             connections.append((
                                 (item.pos().x(), item.pos().y()),
                                 (other_node.pos().x(), other_node.pos().y())
@@ -313,7 +327,6 @@ class NodeView(QGraphicsView):
         self.translate(delta.x(), delta.y())
 
     def draw_preview_walls(self, connections):
-        # Smazat předchozí náhledy
         for item in self.scene().items():
             if isinstance(item, QGraphicsRectItem) and item.zValue() == 1:
                 self.scene().removeItem(item)

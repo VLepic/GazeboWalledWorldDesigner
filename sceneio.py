@@ -11,7 +11,10 @@ def export_scene(view, filepath):
             "wall_height": view.wall_height,
             "grid_spacing": view.grid_spacing_m,
             "node_radius": view.radius,
-            "line_width": view.line_width
+            "line_width": view.line_width,
+            "grid_line_width": view.grid_line_width,
+            "axis_line_width": view.axis_line_width
+
         }
     }
 
@@ -51,6 +54,8 @@ def import_scene(view, filepath):
     view.radius = data["settings"].get("node_radius", 5)
     view.line_width = data["settings"].get("line_width", 2)
     view.external_models = data.get("external_models", [])
+    view.grid_line_width = data["settings"].get("grid_line_width", view.grid_line_width)
+    view.axis_line_width = data["settings"].get("axis_line_width", view.axis_line_width)
 
     node_objs = []
 
