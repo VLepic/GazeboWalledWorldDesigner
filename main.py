@@ -44,6 +44,10 @@ class MainWindow(QMainWindow):
         add_model_action.triggered.connect(lambda: self.view.set_tool("add_model"))
         tool_toolbar.addAction(add_model_action)
 
+        shape_tool_action = QAction("Shape Tool", self)
+        shape_tool_action.triggered.connect(lambda: self.view.set_tool("shape"))
+        tool_toolbar.addAction(shape_tool_action)
+
         save_action = QAction("Save to json", self)
         save_action.triggered.connect(self.save_scene)
         tool_toolbar.addAction(save_action)

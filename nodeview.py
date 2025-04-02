@@ -3,7 +3,10 @@ from PyQt6.QtWidgets import QGraphicsView, QGraphicsRectItem, QGraphicsEllipseIt
 from PyQt6.QtGui import QPen, QPainter, QColor, QTransform, QBrush
 import math
 from modeldialog import ModelInsertDialog
+from shapedialog import ShapeInsertDialog
 from node import Node, Line
+from shapeitem import ShapeItem
+
 
 class ModelMarkerItem(QGraphicsEllipseItem):
     def __init__(self, index, view, *args):
@@ -45,6 +48,7 @@ class NodeView(QGraphicsView):
         self.model_markers = []
         self.grid_line_width = 1
         self.axis_line_width = 2
+        self.shapes = []
 
         self.wall_height = 2.0
         self.wall_thickness = 0.2
@@ -118,6 +122,21 @@ class NodeView(QGraphicsView):
                         return
 
 
+        elif self.tool == "shape":
+            if event.button() == Qt.MouseButton.LeftButton:
+                pos = self.mapToScene(event.pos())
+                x = pos.x() / self.pixels_per_meter
+                y = pos.y() / self.pixels_per_meter
+                QTimer.singleShot(0, lambda: self.open_shape_dialog(x, y))
+            if event.button() == Qt.MouseButton.RightButton:
+                items = self.scene().items(pos)
+                for item in items:
+                    if isinstance(item, ShapeItem):
+                        self.scene().removeItem(item)
+                        if item in self.shapes:
+                            self.shapes.remove(item)
+                        break
+
 
 
         elif self.tool == "connect":
@@ -159,6 +178,27 @@ class NodeView(QGraphicsView):
 
         else:
             super().mousePressEvent(event)
+
+    def open_shape_dialog(self, x, y):
+        from shapedialog import ShapeInsertDialog
+        dialog = ShapeInsertDialog(x, y, parent=self.window())
+        if dialog.exec():
+            data = dialog.result_data
+            shape_item = ShapeItem(
+                shape_type=data["shape"],
+                name=data["name"],
+                height=data["height"],
+                z_start=data["pose"][2],
+                size=0.5 * self.pixels_per_meter  # scale vizuálního objektu
+            )
+            shape_item.setZValue(1)
+            shape_item.setPos(x * self.pixels_per_meter, y * self.pixels_per_meter)
+            self.scene().addItem(shape_item)
+            self.shapes.append(shape_item)
+            if self.status_bar:
+                self.status_bar.showMessage(
+                    f"Shape '{data['name']}' added at ({x:.2f}, {y:.2f}), height {data['height']}m"
+                )
 
     def open_model_dialog(self, x, y):
         dialog = ModelInsertDialog(x, y, parent=self.window())

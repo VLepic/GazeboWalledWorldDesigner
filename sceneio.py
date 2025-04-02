@@ -1,10 +1,12 @@
 import json
 from node import Node, Line
+from shapeitem import ShapeItem
 
 def export_scene(view, filepath):
     data = {
         "nodes": [],
         "connections": [],
+        "shapes": [],
         "external_models": view.external_models,
         "settings": {
             "wall_thickness": view.wall_thickness,
@@ -29,6 +31,21 @@ def export_scene(view, filepath):
             node_list.append(pos_m)
 
     data["nodes"] = node_list
+
+    for item in view.scene().items():
+        if isinstance(item, ShapeItem):
+            pos = item.scenePos()
+            shape_data = {
+                "type": item.shape_type,
+                "name": item.name,
+                "size": item.size,
+                "x": pos.x() / view.pixels_per_meter,
+                "y": pos.y() / view.pixels_per_meter,
+                "rotation_deg": item.rotation(),
+                "z_start": item.z_start,
+                "z_end": item.z_end,
+            }
+            data["shapes"].append(shape_data)
 
     for item in node_map:
         for other, _ in item.connections:
@@ -59,6 +76,20 @@ def import_scene(view, filepath):
 
     node_objs = []
 
+    for shape in data.get("shapes", []):
+        item = ShapeItem(
+            shape["type"],
+            shape["name"],
+            height=shape["z_end"] - shape["z_start"],
+            z_start=shape["z_start"],
+            size=shape["size"]
+        )
+        x = shape["x"] * view.pixels_per_meter
+        y = shape["y"] * view.pixels_per_meter
+        item.setPos(x, y)
+        item.setRotation(shape["rotation_deg"])
+        view.scene().addItem(item)
+
     for x_m, y_m in data["nodes"]:
         x = x_m * view.pixels_per_meter
         y = y_m * view.pixels_per_meter
@@ -82,8 +113,6 @@ def export_world(view, filepath):
     lines = []
     node_map = {}
     nodes = []
-
-    # Seber uzly a jejich indexy
     for item in view.scene().items():
         if isinstance(item, Node):
             pos = item.pos()
@@ -186,6 +215,69 @@ def export_world(view, filepath):
             """
 
     model_includes = ""
+
+    for item in view.scene().items():
+        if isinstance(item, ShapeItem):
+            pos = item.scenePos()
+            x = pos.x() / view.pixels_per_meter
+            y = pos.y() / view.pixels_per_meter
+            z = (item.z_start + item.z_end) / 2
+            height = item.z_end - item.z_start
+            yaw = math.radians(item.rotation())
+            size = item.size / view.pixels_per_meter
+
+            if item.shape_type == "Cylinder":
+                model = f"""
+                  <model name="{item.name}">
+                    <static>true</static>
+                    <link name="link">
+                      <pose>{x:.3f} {y:.3f} {z:.3f} 0 0 {yaw:.3f}</pose>
+                      <collision name="collision">
+                        <geometry>
+                          <cylinder>
+                            <radius>{size:.3f}</radius>
+                            <length>{height:.3f}</length>
+                          </cylinder>
+                        </geometry>
+                      </collision>
+                      <visual name="visual">
+                        <geometry>
+                          <cylinder>
+                            <radius>{size:.3f}</radius>
+                            <length>{height:.3f}</length>
+                          </cylinder>
+                        </geometry>
+                      </visual>
+                    </link>
+                  </model>
+                """
+                model_includes += model
+
+            elif item.shape_type == "Square":
+                model = f"""
+                  <model name="{item.name}">
+                    <static>true</static>
+                    <link name="link">
+                      <pose>{x:.3f} {y:.3f} {z:.3f} 0 0 {yaw:.3f}</pose>
+                      <collision name="collision">
+                        <geometry>
+                          <box>
+                            <size>{2 * size:.3f} {2 * size:.3f} {height:.3f}</size>
+                          </box>
+                        </geometry>
+                      </collision>
+                      <visual name="visual">
+                        <geometry>
+                          <box>
+                            <size>{2 * size:.3f} {2 * size:.3f} {height:.3f}</size>
+                          </box>
+                        </geometry>
+                      </visual>
+                    </link>
+                  </model>
+                """
+                model_includes += model
+
     for model in view.external_models:
         x, y, z, r, p, yaw = model["pose"]
         model_includes += f"""

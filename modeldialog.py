@@ -20,7 +20,7 @@ class ModelInsertDialog(QDialog):
         self.z_input.setValue(0.5)
 
         self.yaw_input = QDoubleSpinBox()
-        self.yaw_input.setRange(-6.283, 6.283)  # přibližně -2π až 2π
+        self.yaw_input.setRange(-6.283, 6.283)
         self.yaw_input.setDecimals(3)
         self.yaw_input.setSingleStep(0.1)
         self.yaw_input.setValue(0.0)
