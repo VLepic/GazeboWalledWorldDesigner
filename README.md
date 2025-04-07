@@ -1,6 +1,6 @@
 # Gazebo Walled World Designer
 
-A graphical application for designing simulation environments for **Gazebo Classic**, built using **PyQt6**.
+A **graphical** application for designing simulation environments with complex walled layouts for **Gazebo Classic**, built using **PyQt6**.
 
 ![Nodes and Walls](images/main_ui.png)
 
@@ -8,15 +8,16 @@ A graphical application for designing simulation environments for **Gazebo Class
 
 ## 🔧 Features Overview
 
-| Feature             | Description                                                   |
-|---------------------|---------------------------------------------------------------|
-| Node Creation       | Place nodes freely on the canvas                              |
-| Grid snapping       | Place nodes precisely using configurable grid                 |
-| Wall Drawing        | Connect nodes to create walls                                 |
-| Shape Drawing       | Insert geometric shapes like squares and cylinders            |
-| External Models     | Import models using a URI (e.g., `model://sun`)               |
-| JSON Import/Export  | Save/load full scene including positions, shapes and models   |
-| SDF Export          | Export to `.world` format for use in Gazebo Classic           |
+| Feature             | Description                                                     |
+|---------------------|-----------------------------------------------------------------|
+| Node Creation       | Freely place nodes on the canvas                                |
+| Grid Snapping       | Snap nodes to a configurable grid for precise placement         |
+| Wall Drawing        | Connect nodes to create walls                                   |
+| Shape Drawing       | Insert geometric shapes like squares and cylinders              |
+| External Models     | Add models using a URI (e.g., `model://sun`)                    |
+| Model Presets       | Save frequently used models as presets for quick reuse          |
+| JSON Import/Export  | Save or load the full scene, including shapes and models        |
+| SDF Export          | Export the scene to `.world` format for use in Gazebo Classic   |
 
 ---
 
@@ -92,6 +93,7 @@ python main.py
   - **Name** (must be unique; duplicate names may prevent spawning in Gazebo)
   - URI (e.g., `model://sun`)
   - Pose (X, Y, Z, Yaw)
+  - Model presets / save, load and delete model presets for quick reuse
 
 ![Model Dialog](images/model_dialog.png)
 
