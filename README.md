@@ -81,7 +81,7 @@ python main.py
 - Objects can be rotated and resized by dragging colored tabs after selecting shape using the move tool:
     -  red circle for rotation
     -  yellow square to resize
-    -  
+
 ![Nodes and Walls](images/move_shape.gif)
 
 ## 🧊 External Models
