@@ -64,6 +64,13 @@ python main.py
 
 ![Nodes and Walls](images/delete_walls.gif)
 
+### 🧱 Display Walls
+- Press the `E` key to display walls as solid rectangles with actual thickness  
+- Press the `R` key to revert back to green line display mode
+
+
+![Shape Dialog](images/display_walls.png)
+
 ## 🌀 Shape Tool (Square / Cylinder)
 
 ### ➕ Add Shape
@@ -110,3 +117,9 @@ python main.py
 - Click `Export World` button
 - Generates an SDF `.world` file with all shapes and models
 
+## 🛠️ Project Settings
+The right-hand panel provides configurable project settings, which are saved along with the scene to the `.json` file. These include:
+
+- Wall thickness and height  
+- Grid configuration (spacing, thickness of grid and axis)  
+- Display settings (e.g., node and line size)
