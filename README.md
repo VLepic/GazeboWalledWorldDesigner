@@ -2,6 +2,8 @@
 
 A graphical application for designing simulation environments for **Gazebo Classic**, built using **PyQt6**.
 
+![Nodes and Walls](images/main_ui.png)
+
 ---
 
 ## 🔧 Features Overview
@@ -54,10 +56,12 @@ python main.py
 - Select the *Wall Tool*
 - Click two nodes in sequence
 
-### 🗑️ Remove Node or Wall
-- Right-click the item using the appropriate tool
-
 ![Nodes and Walls](images/nodes_and_walls.gif)
+
+### 🗑️ Remove Node or Wall
+- Right-click the wall or node using the appropriate tool
+
+![Nodes and Walls](images/delete_walls.gif)
 
 ## 🌀 Shape Tool (Square / Cylinder)
 
@@ -70,11 +74,14 @@ python main.py
   - Shape height (height of the object top) and Z height start (height of the objects bottom) (Shape-height - Z-height-start = height of the shape)
   - Rotation (Yaw) in radians
   - Height and Size in metres
+
+ ![Shape Dialog](images/shape_dialog.png)
+  
 - Objects can be rotated and resized by dragging colored tabs after selecting shape using the move tool:
     -  red circle for rotation
     -  yellow square to resize
-
-![Shape Dialog](images/shape_dialog.png)
+    -  
+![Nodes and Walls](images/move_shape.gif)
 
 ## 🧊 External Models
 
