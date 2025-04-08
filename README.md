@@ -26,7 +26,7 @@ A **graphical** application for designing simulation environments with complex w
 ### 1. Clone and Run
 Clone repository
 ```bash
-git clone https://github.com/YourName/GazeboWalledWorldDesigner.git
+git clone https://github.com/VLepic/GazeboWalledWorldDesigner.git
 ```
 Enter directory
 ```bash
