@@ -69,7 +69,7 @@ python main.py
 - Press the `R` key to revert back to green line display mode
 
 
-![Shape Dialog](images/display_walls.png)
+![Shape Dialog](images/display_walls.gif)
 
 ## 🌀 Shape Tool (Square / Cylinder)
 
