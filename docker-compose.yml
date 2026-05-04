@@ -1,0 +1,10 @@
+services:
+  web:
+    build:
+      context: ./web
+    ports:
+      - "127.0.0.1:4173:4173"
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
