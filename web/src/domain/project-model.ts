@@ -1,6 +1,7 @@
 export type ShapeKind = "Square" | "Cylinder";
 export type SlabKind = "Rectangle" | "Circle";
 export type RoofType = "Flat" | "Gable" | "Shed" | "Hip";
+export type WallTopMode = "FixedHeight" | "FollowRoof";
 export type MeasurementUnit = "cm" | "dm" | "m";
 
 export interface Vec2 {
@@ -46,6 +47,7 @@ export interface Wall {
   id: string;
   levelId: string;
   wallTypeId: string;
+  topMode: WallTopMode;
   startNodeId: string;
   endNodeId: string;
 }
@@ -200,6 +202,7 @@ export function createWall(overrides: Partial<Wall> = {}): Wall {
     id: overrides.id ?? createId("wall"),
     levelId: overrides.levelId ?? "",
     wallTypeId: overrides.wallTypeId ?? "",
+    topMode: overrides.topMode ?? "FixedHeight",
     startNodeId: overrides.startNodeId ?? "",
     endNodeId: overrides.endNodeId ?? "",
   };

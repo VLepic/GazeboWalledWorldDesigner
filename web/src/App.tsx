@@ -57,6 +57,7 @@ import {
   type MeasurementUnit,
   type NodeData,
   type Project,
+  type WallTopMode,
   type RoofType,
   type Shape,
   type Slab,
@@ -544,6 +545,7 @@ export default function App() {
   const [stairToolRiserHeightM, setStairToolRiserHeightM] = useState(0.17);
   const [stairToolTreadDepthM, setStairToolTreadDepthM] = useState(0.28);
   const [stairToolLandingLengthM, setStairToolLandingLengthM] = useState(1.2);
+  const [newWallsFollowRoof, setNewWallsFollowRoof] = useState(true);
 
   const projectSummary = describeProject(project);
   const projectValidation = validateProject(project);
@@ -1575,6 +1577,7 @@ export default function App() {
         createWall(current, {
           levelId: activeLevelId,
           wallTypeId: activeWallTypeId,
+          topMode: newWallsFollowRoof ? "FollowRoof" : "FixedHeight",
           startNodeId,
           endNodeId,
         }),
@@ -1643,6 +1646,7 @@ export default function App() {
         return createWall(endResult.project, {
           levelId,
           wallTypeId,
+          topMode: newWallsFollowRoof ? "FollowRoof" : "FixedHeight",
           startNodeId: startResult.nodeId,
           endNodeId: endResult.nodeId,
         });
@@ -2097,6 +2101,7 @@ export default function App() {
         createWall(current, {
           levelId: activeLevelId,
           wallTypeId: activeWallTypeId,
+          topMode: newWallsFollowRoof ? "FollowRoof" : "FixedHeight",
           startNodeId: startNode.id,
           endNodeId: endNode.id,
         }),
@@ -2753,6 +2758,21 @@ export default function App() {
                   {wallType.name} ({formatNumber(wallType.thicknessM)} m)
                 </option>
               ))}
+            </select>
+          </label>
+          <label className="field-label">
+            <span>Wall Top</span>
+            <select
+              value={selectedWall.topMode}
+              onChange={(event) =>
+                handleUpdateSelectedWall(
+                  { topMode: event.target.value as WallTopMode },
+                  `Updated wall top mode to ${event.target.value}.`,
+                )
+              }
+            >
+              <option value="FixedHeight">Fixed Height</option>
+              <option value="FollowRoof">Follow Roof</option>
             </select>
           </label>
           <div className="button-row">
@@ -3739,6 +3759,13 @@ export default function App() {
                     Remove Wall Type
                   </button>
                 </div>
+                <button
+                  type="button"
+                  className={newWallsFollowRoof ? "toggle-button is-active" : "toggle-button"}
+                  onClick={() => setNewWallsFollowRoof((current) => !current)}
+                >
+                  Follow Roof
+                </button>
               </FloatingWindow>
             ) : null}
 
@@ -4485,6 +4512,21 @@ export default function App() {
                           {wallType.name} ({formatNumber(wallType.thicknessM)} m)
                         </option>
                       ))}
+                    </select>
+                  </label>
+                  <label className="field-label">
+                    <span>Wall Top</span>
+                    <select
+                      value={selectedWall.topMode}
+                      onChange={(event) =>
+                        handleUpdateSelectedWall(
+                          { topMode: event.target.value as WallTopMode },
+                          `Updated wall top mode to ${event.target.value}.`,
+                        )
+                      }
+                    >
+                      <option value="FixedHeight">Fixed Height</option>
+                      <option value="FollowRoof">Follow Roof</option>
                     </select>
                   </label>
                   <div className="button-row">

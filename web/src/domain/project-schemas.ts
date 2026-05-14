@@ -17,6 +17,7 @@ import type {
   Stair,
   Vec2,
   Wall,
+  WallTopMode,
   WallType,
   WindowOpening,
 } from "./project-model";
@@ -29,6 +30,7 @@ const nonEmptyStringSchema = z.string().trim().min(1);
 export const shapeKindSchema = z.enum(["Square", "Cylinder"]) satisfies z.ZodType<ShapeKind>;
 export const slabKindSchema = z.enum(["Rectangle", "Circle"]) satisfies z.ZodType<SlabKind>;
 export const roofTypeSchema = z.enum(["Flat", "Gable", "Shed", "Hip"]) satisfies z.ZodType<RoofType>;
+export const wallTopModeSchema = z.enum(["FixedHeight", "FollowRoof"]) satisfies z.ZodType<WallTopMode>;
 export const measurementUnitSchema = z.enum(["cm", "dm", "m"]) satisfies z.ZodType<MeasurementUnit>;
 
 export const vec2Schema = z.object({
@@ -74,6 +76,7 @@ export const wallSchema = z.object({
   id: nonEmptyStringSchema,
   levelId: nonEmptyStringSchema,
   wallTypeId: nonEmptyStringSchema,
+  topMode: wallTopModeSchema,
   startNodeId: nonEmptyStringSchema,
   endNodeId: nonEmptyStringSchema,
 }) satisfies z.ZodType<Wall>;

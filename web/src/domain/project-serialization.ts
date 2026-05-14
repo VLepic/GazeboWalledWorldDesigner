@@ -32,10 +32,11 @@ import type {
   SlabKind,
   Stair,
   Wall,
+  WallTopMode,
   WallType,
   WindowOpening,
 } from "./project-model";
-import { projectSchema, roofTypeSchema, shapeKindSchema, slabKindSchema } from "./project-schemas";
+import { projectSchema, roofTypeSchema, shapeKindSchema, slabKindSchema, wallTopModeSchema } from "./project-schemas";
 
 const finiteNumberInputSchema = z.coerce.number().finite();
 const booleanInputSchema = z.boolean();
@@ -432,6 +433,16 @@ function parseWalls(
           warnings,
           `walls[${index}]`,
         ),
+        topMode:
+          pickParsedValue(
+            source,
+            (value) => {
+              const parsed = wallTopModeSchema.safeParse(value);
+              return parsed.success ? parsed.data : undefined;
+            },
+            "topMode",
+            "top_mode",
+          ) ?? ("FixedHeight" satisfies WallTopMode),
         startNodeId,
         endNodeId,
       }),
@@ -458,6 +469,7 @@ function parseWalls(
         createWall({
           levelId: fallbackLevelId,
           wallTypeId: fallbackWallTypeId,
+          topMode: "FixedHeight",
           startNodeId,
           endNodeId,
         }),
@@ -504,6 +516,16 @@ function parseWalls(
           warnings,
           `connections[${index}]`,
         ),
+        topMode:
+          pickParsedValue(
+            source,
+            (value) => {
+              const parsed = wallTopModeSchema.safeParse(value);
+              return parsed.success ? parsed.data : undefined;
+            },
+            "topMode",
+            "top_mode",
+          ) ?? ("FixedHeight" satisfies WallTopMode),
         startNodeId,
         endNodeId,
       }),

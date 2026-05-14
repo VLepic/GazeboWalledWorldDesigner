@@ -1,3 +1,6 @@
+import {
+  createVec2,
+} from "./project-model";
 import type {
   Project,
   Shape,
@@ -5,6 +8,12 @@ import type {
   Stair,
   Vec2,
 } from "./project-model";
+import {
+  getRoofHeightAtPoint,
+  solveProjectRoofs,
+  solveRoofFromSlab,
+  solveWallSegmentsAgainstRoof,
+} from "./roof-solver";
 import type {
   Preview3DRenderMode,
   Preview3DSurfaceMode,
@@ -256,12 +265,19 @@ export function buildPreview3DScene(
   const nodeById = new Map(project.nodes.map((node) => [node.id, node] as const));
   const wallOpeningsByWallId = new Map<string, WallOpeningRender[]>();
   const nodeWallAggregates = new Map<string, NodeWallAggregate>();
+  const roofsByLevelId = new Map<string, ReturnType<typeof solveProjectRoofs>>();
 
   const boxes: Preview3DBoxPrimitive[] = [];
   const cylinders: Preview3DCylinderPrimitive[] = [];
   const markers: Preview3DMarkerPrimitive[] = [];
   const meshes: Preview3DMeshPrimitive[] = [];
   const worldPoints: Vec3[] = [];
+
+  solveProjectRoofs(project).forEach((roof) => {
+    const currentRoofs = roofsByLevelId.get(roof.levelId) ?? [];
+    currentRoofs.push(roof);
+    roofsByLevelId.set(roof.levelId, currentRoofs);
+  });
 
   const registerPoints = (points: Vec3[]) => {
     worldPoints.push(...points);
@@ -335,6 +351,63 @@ export function buildPreview3DScene(
     addBoxPrimitive(center, thicknessM, heightM, Math.max(length, 0.01), yawRad, color);
   };
 
+  const addSlopedWallSection = (
+    thicknessM: number,
+    bottomHeightM: number,
+    startTopHeightM: number,
+    endTopHeightM: number,
+    start: Vec3,
+    end: Vec3,
+    color: RgbColor,
+  ) => {
+    const deltaX = end.x - start.x;
+    const deltaZ = end.z - start.z;
+    const lengthM = Math.hypot(deltaX, deltaZ);
+    if (lengthM < 0.0001) {
+      return;
+    }
+
+    const halfThicknessM = thicknessM / 2;
+    const normalX = -deltaZ / lengthM;
+    const normalZ = deltaX / lengthM;
+    const startLeft = vec3(start.x + normalX * halfThicknessM, bottomHeightM, start.z + normalZ * halfThicknessM);
+    const startRight = vec3(start.x - normalX * halfThicknessM, bottomHeightM, start.z - normalZ * halfThicknessM);
+    const endRight = vec3(end.x - normalX * halfThicknessM, bottomHeightM, end.z - normalZ * halfThicknessM);
+    const endLeft = vec3(end.x + normalX * halfThicknessM, bottomHeightM, end.z + normalZ * halfThicknessM);
+    const topStartLeft = vec3(startLeft.x, startTopHeightM, startLeft.z);
+    const topStartRight = vec3(startRight.x, startTopHeightM, startRight.z);
+    const topEndRight = vec3(endRight.x, endTopHeightM, endRight.z);
+    const topEndLeft = vec3(endLeft.x, endTopHeightM, endLeft.z);
+
+    addMeshPrimitive(
+      [
+        startLeft,
+        startRight,
+        endRight,
+        endLeft,
+        topStartLeft,
+        topStartRight,
+        topEndRight,
+        topEndLeft,
+      ],
+      [
+        0, 2, 1,
+        0, 3, 2,
+        0, 1, 5,
+        0, 5, 4,
+        1, 2, 6,
+        1, 6, 5,
+        2, 3, 7,
+        2, 7, 6,
+        3, 0, 4,
+        3, 4, 7,
+        4, 5, 6,
+        4, 6, 7,
+      ],
+      color,
+    );
+  };
+
   const addShapePrimitive = (shape: Shape, levelElevationM: number, color: RgbColor) => {
     const center = vec3(
       shape.pose.position.x,
@@ -363,100 +436,28 @@ export function buildPreview3DScene(
     }
 
     if (slab.roofType !== "Flat") {
-      const halfWidth = slab.widthM / 2;
-      const halfDepth = slab.depthM / 2;
-      const eaveY = levelElevationM + slab.zOffsetM + slab.thicknessM;
-      const peakY = eaveY + slab.roofRiseM;
-      const x0 = slab.pose.position.x - halfWidth;
-      const x1 = slab.pose.position.x + halfWidth;
-      const z0 = -slab.pose.position.y - halfDepth;
-      const z1 = -slab.pose.position.y + halfDepth;
+      const solvedRoof = solveRoofFromSlab(slab, levelElevationM);
+      if (!solvedRoof) {
+        return;
+      }
+
       const roofColor = shadeColor(color, 0.78);
-
-      if (slab.roofType === "Shed") {
-        const slopeAcrossWidth = slab.widthM <= slab.depthM;
-        const vertices = slopeAcrossWidth
-          ? [
-              vec3(x0, peakY, z0),
-              vec3(x1, eaveY, z0),
-              vec3(x1, eaveY, z1),
-              vec3(x0, peakY, z1),
-            ]
-          : [
-              vec3(x0, eaveY, z0),
-              vec3(x1, eaveY, z0),
-              vec3(x1, peakY, z1),
-              vec3(x0, peakY, z1),
-            ];
-        addMeshPrimitive(vertices, [0, 1, 2, 0, 2, 3], roofColor);
-        return;
-      }
-
-      if (slab.roofType === "Gable") {
-        const ridgeAlongWidth = slab.widthM >= slab.depthM;
-        if (ridgeAlongWidth) {
-          addMeshPrimitive(
-            [
-              vec3(x0, peakY, -slab.pose.position.y),
-              vec3(x1, peakY, -slab.pose.position.y),
-              vec3(x0, eaveY, z0),
-              vec3(x1, eaveY, z0),
-              vec3(x1, eaveY, z1),
-              vec3(x0, eaveY, z1),
-            ],
-            [
-              2, 3, 1,
-              2, 1, 0,
-              0, 1, 4,
-              1, 5, 4,
-              3, 2, 5,
-              3, 5, 4,
-            ],
-            roofColor,
-          );
-          return;
-        }
-
-        addMeshPrimitive(
-          [
-            vec3(x0, eaveY, z0),
-            vec3(x1, eaveY, z0),
-            vec3(x1, eaveY, z1),
-            vec3(x0, eaveY, z1),
-            vec3(slab.pose.position.x, peakY, z0),
-            vec3(slab.pose.position.x, peakY, z1),
-          ],
-          [
-            0, 1, 4,
-            1, 2, 4,
-            3, 5, 2,
-            3, 2, 0,
-            0, 4, 5,
-            0, 5, 3,
-            1, 2, 5,
-            1, 5, 4,
-          ],
-          roofColor,
+      solvedRoof.faces.forEach((face) => {
+        const vertices = face.polygonLocal.map((localPoint, index) =>
+          vec3(
+            face.polygonWorld[index].x,
+            face.planeOuter.uCoeff * localPoint.x +
+              face.planeOuter.vCoeff * localPoint.y +
+              face.planeOuter.constantM,
+            -face.polygonWorld[index].y,
+          ),
         );
-        return;
-      }
-
-      addMeshPrimitive(
-        [
-          vec3(x0, eaveY, z0),
-          vec3(x1, eaveY, z0),
-          vec3(x1, eaveY, z1),
-          vec3(x0, eaveY, z1),
-          vec3(slab.pose.position.x, peakY, -slab.pose.position.y),
-        ],
-        [
-          0, 1, 4,
-          1, 2, 4,
-          2, 3, 4,
-          3, 0, 4,
-        ],
-        roofColor,
-      );
+        const indices: number[] = [];
+        for (let index = 1; index < vertices.length - 1; index += 1) {
+          indices.push(0, index, index + 1);
+        }
+        addMeshPrimitive(vertices, indices, roofColor);
+      });
       return;
     }
 
@@ -759,6 +760,64 @@ export function buildPreview3DScene(
     const wallOpenings = (wallOpeningsByWallId.get(wall.id) ?? [])
       .slice()
       .sort((left, right) => left.offsetM - right.offsetM);
+    const levelRoofs = roofsByLevelId.get(wall.levelId) ?? [];
+
+    if (wall.topMode === "FollowRoof") {
+      const matchingRoof = levelRoofs.find((roof) => {
+        const wallSegments = solveWallSegmentsAgainstRoof(
+          roof,
+          createVec2(startWorld.x, -startWorld.z),
+          createVec2(endWorld.x, -endWorld.z),
+        );
+        return wallSegments.length > 0;
+      });
+
+      if (matchingRoof) {
+        const roofWallSegments = solveWallSegmentsAgainstRoof(
+          matchingRoof,
+          createVec2(startWorld.x, -startWorld.z),
+          createVec2(endWorld.x, -endWorld.z),
+        );
+        const adjustedRoofWallSegments = roofWallSegments.map((segment, index) => {
+          if (index === 0) {
+            const extendedStart = createVec2(wallStart.x, -wallStart.z);
+            const extendedStartHeightM =
+              getRoofHeightAtPoint(matchingRoof, extendedStart, "inner") ?? segment.startHeightM;
+            return {
+              ...segment,
+              start: extendedStart,
+              startHeightM: extendedStartHeightM,
+            };
+          }
+
+          if (index === roofWallSegments.length - 1) {
+            const extendedEnd = createVec2(wallEnd.x, -wallEnd.z);
+            const extendedEndHeightM =
+              getRoofHeightAtPoint(matchingRoof, extendedEnd, "inner") ?? segment.endHeightM;
+            return {
+              ...segment,
+              end: extendedEnd,
+              endHeightM: extendedEndHeightM,
+            };
+          }
+
+          return segment;
+        });
+
+        adjustedRoofWallSegments.forEach((segment) => {
+          addSlopedWallSection(
+            wallType.thicknessM,
+            level.elevationM,
+            segment.startHeightM,
+            segment.endHeightM,
+            vec3(segment.start.x, level.elevationM, -segment.start.y),
+            vec3(segment.end.x, level.elevationM, -segment.end.y),
+            wallColor,
+          );
+        });
+        continue;
+      }
+    }
 
     if (wallOpenings.length === 0) {
       addSectionBox(

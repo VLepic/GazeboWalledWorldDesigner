@@ -49,6 +49,7 @@ export interface CreateNodeInput {
 export interface CreateWallInput {
   levelId: string;
   wallTypeId: string;
+  topMode?: Wall["topMode"];
   startNodeId: string;
   endNodeId: string;
 }
@@ -140,6 +141,13 @@ function expectSlab(project: Project, slabId: string) {
   }
 
   return slab;
+}
+
+function wallHasOpenings(project: Project, wallId: string) {
+  return (
+    project.doors.some((door) => door.wallId === wallId) ||
+    project.windows.some((windowOpening) => windowOpening.wallId === wallId)
+  );
 }
 
 function validateSlabSurface(
@@ -410,6 +418,9 @@ function validateDoorAgainstWall(
   expectPositive(heightM, "Door height");
 
   const { wall, wallType } = getWallGeometry(project, wallId);
+  if (wall.topMode === "FollowRoof") {
+    throw new ProjectCommandError("Doors on roof-following walls are not supported yet.");
+  }
 
   if (heightM > wallType.heightM + 0.0001) {
     throw new ProjectCommandError("Door height cannot exceed the height of its host wall.");
@@ -432,6 +443,9 @@ function validateWindowAgainstWall(
   expectNonNegative(sillHeightM, "Window sill height");
 
   const { wall, wallType } = getWallGeometry(project, wallId);
+  if (wall.topMode === "FollowRoof") {
+    throw new ProjectCommandError("Windows on roof-following walls are not supported yet.");
+  }
   if (sillHeightM + heightM > wallType.heightM + 0.0001) {
     throw new ProjectCommandError("Window opening must fit below the top of its host wall.");
   }
@@ -695,6 +709,7 @@ export function createWall(project: Project, input: CreateWallInput) {
   const segmentInputs = segmentNodeIds.slice(0, -1).map((startNodeId, index) => ({
     levelId: input.levelId,
     wallTypeId: input.wallTypeId,
+    topMode: input.topMode ?? "FixedHeight",
     startNodeId,
     endNodeId: segmentNodeIds[index + 1],
   }));
@@ -717,6 +732,7 @@ export function createWall(project: Project, input: CreateWallInput) {
         buildWall({
           levelId: segmentInput.levelId,
           wallTypeId: segmentInput.wallTypeId,
+          topMode: segmentInput.topMode,
           startNodeId: segmentInput.startNodeId,
           endNodeId: segmentInput.endNodeId,
         }),
@@ -772,12 +788,14 @@ export function insertNodeIntoWall(project: Project, wallId: string, position: V
       buildWall({
         levelId: wall.levelId,
         wallTypeId: wall.wallTypeId,
+        topMode: wall.topMode,
         startNodeId: wall.startNodeId,
         endNodeId: insertedNode.id,
       }),
       buildWall({
         levelId: wall.levelId,
         wallTypeId: wall.wallTypeId,
+        topMode: wall.topMode,
         startNodeId: insertedNode.id,
         endNodeId: wall.endNodeId,
       }),
@@ -829,6 +847,11 @@ export function updateWall(project: Project, wallId: string, patch: UpdateWallIn
 
   expectLevel(nextProject, candidate.levelId);
   expectWallType(nextProject, candidate.wallTypeId);
+
+  const nextTopMode = patch.topMode ?? currentWall.topMode;
+  if (nextTopMode === "FollowRoof" && wallHasOpenings(nextProject, wallId)) {
+    throw new ProjectCommandError("Walls with doors or windows cannot follow the roof yet.");
+  }
 
   const startNode = expectNode(nextProject, candidate.startNodeId);
   const endNode = expectNode(nextProject, candidate.endNodeId);
