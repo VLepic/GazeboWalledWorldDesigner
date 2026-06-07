@@ -100,6 +100,11 @@ function pickString(source: Record<string, unknown>, ...keys: string[]) {
   return undefined;
 }
 
+function normalizeHexColor(value: unknown) {
+  const parsed = z.string().trim().regex(/^#[0-9a-fA-F]{6}$/).safeParse(value);
+  return parsed.success ? parsed.data.toLowerCase() : undefined;
+}
+
 function pickBoolean(source: Record<string, unknown>, ...keys: string[]) {
   for (const key of keys) {
     const parsed = booleanInputSchema.safeParse(source[key]);
@@ -769,11 +774,60 @@ function parseDoors(data: unknown, wallIds: string[], warnings: string[]) {
     const widthM = pickNumber(source, "widthM", "width_m", "width") ?? 0.9;
     const heightM = pickNumber(source, "heightM", "height_m", "height") ?? 2.1;
     const offsetM = pickNumber(source, "offsetM", "offset_m", "offset") ?? 0;
+    const design3DSource = asObject(source.design3D ?? source.design_3d ?? source.door3D ?? source.door_3d);
+    const kind =
+      (design3DSource && pickParsedValue(design3DSource, (value) => {
+        const parsed = z.enum(["Normal", "Garage"]).safeParse(value);
+        return parsed.success ? parsed.data : undefined;
+      }, "kind")) ?? "Normal";
+    const frameThicknessM =
+      (design3DSource && pickNumber(design3DSource, "frameThicknessM", "frame_thickness_m")) ?? 0.08;
+    const frameColorHex =
+      (design3DSource &&
+        (normalizeHexColor(design3DSource.frameColorHex) ??
+          normalizeHexColor(design3DSource.frame_color_hex))) ??
+      "#c4cbd6";
+    const doorColorHex =
+      (design3DSource &&
+        (normalizeHexColor(design3DSource.doorColorHex) ??
+          normalizeHexColor(design3DSource.door_color_hex))) ??
+      "#8a5b3d";
+    const wallDepthOffsetM =
+      (design3DSource && pickNumber(design3DSource, "wallDepthOffsetM", "wall_depth_offset_m")) ?? 0;
+    const openState =
+      (design3DSource && pickParsedValue(design3DSource, (value) => {
+        const parsed = z.enum(["Closed", "Open"]).safeParse(value);
+        return parsed.success ? parsed.data : undefined;
+      }, "openState", "open_state")) ?? "Closed";
+    const hingeSide =
+      (design3DSource && pickParsedValue(design3DSource, (value) => {
+        const parsed = z.enum(["Left", "Right"]).safeParse(value);
+        return parsed.success ? parsed.data : undefined;
+      }, "hingeSide", "hinge_side")) ?? "Left";
+    const swingDirection =
+      (design3DSource && pickParsedValue(design3DSource, (value) => {
+        const parsed = z.enum(["Inward", "Outward"]).safeParse(value);
+        return parsed.success ? parsed.data : undefined;
+      }, "swingDirection", "swing_direction")) ?? "Inward";
 
     if (widthM <= 0 || heightM <= 0 || offsetM < 0) {
       warnings.push(`doors[${index}]: skipped door with invalid dimensions.`);
       continue;
     }
+
+    const design3D =
+      design3DSource && frameThicknessM > 0 && Number.isFinite(wallDepthOffsetM)
+        ? {
+            kind,
+            frameThicknessM,
+            frameColorHex,
+            doorColorHex,
+            wallDepthOffsetM,
+            openState,
+            hingeSide,
+            swingDirection,
+          }
+        : null;
 
     doors.push(
       createDoorOpening({
@@ -782,6 +836,7 @@ function parseDoors(data: unknown, wallIds: string[], warnings: string[]) {
         widthM,
         heightM,
         offsetM,
+        design3D,
       }),
     );
   }
@@ -789,8 +844,16 @@ function parseDoors(data: unknown, wallIds: string[], warnings: string[]) {
   return doors;
 }
 
-function parseWindows(data: unknown, wallIds: string[], warnings: string[]) {
+function parseWindows(
+  data: unknown,
+  walls: Project["walls"],
+  wallTypes: Project["wallTypes"],
+  warnings: string[],
+) {
   const windows: WindowOpening[] = [];
+  const wallIds = walls.map((wall) => wall.id);
+  const wallById = new Map(walls.map((wall) => [wall.id, wall]));
+  const wallTypeById = new Map(wallTypes.map((wallType) => [wallType.id, wallType]));
 
   for (const [index, item] of asArray(data).entries()) {
     const source = asObject(item);
@@ -818,11 +881,64 @@ function parseWindows(data: unknown, wallIds: string[], warnings: string[]) {
     const heightM = pickNumber(source, "heightM", "height_m", "height") ?? 1.2;
     const sillHeightM = pickNumber(source, "sillHeightM", "sill_height_m", "sillHeight", "sill_height") ?? 0.9;
     const offsetM = pickNumber(source, "offsetM", "offset_m", "offset") ?? 0;
+    const design3DSource = asObject(source.design3D ?? source.design_3d ?? source.window3D ?? source.window_3d);
+    const glassThicknessM =
+      (design3DSource && pickNumber(design3DSource, "glassThicknessM", "glass_thickness_m")) ?? 0.02;
+    const frameThicknessM =
+      (design3DSource && pickNumber(design3DSource, "frameThicknessM", "frame_thickness_m")) ?? 0.08;
+    const verticalDivisions =
+      (design3DSource && pickNumber(design3DSource, "verticalDivisions", "vertical_divisions")) ?? 0;
+    const horizontalDivisions =
+      (design3DSource && pickNumber(design3DSource, "horizontalDivisions", "horizontal_divisions")) ?? 0;
+    const frameColorHex =
+      (design3DSource &&
+        (normalizeHexColor(design3DSource.frameColorHex) ??
+          normalizeHexColor(design3DSource.frame_color_hex))) ??
+      "#c4cbd6";
+    const wallDepthOffsetMDirect =
+      design3DSource &&
+      pickNumber(design3DSource, "wallDepthOffsetM", "wall_depth_offset_m");
+    const legacyWallDepthPosition =
+      design3DSource &&
+      pickNumber(design3DSource, "wallDepthPosition", "wall_depth_position");
+    const hostWall = wallById.get(wallId);
+    const hostWallThicknessM =
+      (hostWall && wallTypeById.get(hostWall.wallTypeId)?.thicknessM) ?? null;
+    const legacyMaxOffsetM =
+      hostWallThicknessM !== null
+        ? Math.max((hostWallThicknessM - glassThicknessM) / 2, 0)
+        : null;
+    const wallDepthOffsetM =
+      wallDepthOffsetMDirect ??
+      (legacyWallDepthPosition !== undefined &&
+      legacyWallDepthPosition !== null &&
+      legacyWallDepthPosition >= 0 &&
+      legacyWallDepthPosition <= 1 &&
+      legacyMaxOffsetM !== null
+        ? (legacyWallDepthPosition * 2 - 1) * legacyMaxOffsetM
+        : 0);
 
     if (widthM <= 0 || heightM <= 0 || sillHeightM < 0 || offsetM < 0) {
       warnings.push(`windows[${index}]: skipped window with invalid dimensions.`);
       continue;
     }
+
+    const design3D =
+      design3DSource &&
+      glassThicknessM > 0 &&
+      frameThicknessM > 0 &&
+      verticalDivisions >= 0 &&
+      horizontalDivisions >= 0 &&
+      Number.isFinite(wallDepthOffsetM)
+        ? {
+            glassThicknessM,
+            frameThicknessM,
+            verticalDivisions: Math.round(verticalDivisions),
+            horizontalDivisions: Math.round(horizontalDivisions),
+            wallDepthOffsetM,
+            frameColorHex,
+          }
+        : null;
 
     windows.push(
       createWindowOpening({
@@ -832,6 +948,7 @@ function parseWindows(data: unknown, wallIds: string[], warnings: string[]) {
         heightM,
         sillHeightM,
         offsetM,
+        design3D,
       }),
     );
   }
@@ -1197,7 +1314,7 @@ export function parseProjectData(data: unknown): ProjectParseResult {
   );
   const wallIds = projectBase.walls.map((wall) => wall.id);
   projectBase.doors = parseDoors(root.doors, wallIds, warnings);
-  projectBase.windows = parseWindows(root.windows, wallIds, warnings);
+  projectBase.windows = parseWindows(root.windows, projectBase.walls, projectBase.wallTypes, warnings);
   projectBase.stairs = parseStairs(root.stairs, levelIds, warnings);
   projectBase.shapes = parseShapes(root.shapes, levelIds, settings.pixelsPerMeter, warnings);
   projectBase.slabs = parseSlabs(root.slabs, levelIds, warnings);
@@ -1275,5 +1392,5 @@ export async function readProjectFile(file: File) {
 }
 
 export function createProjectFileBlob(project: Project) {
-  return new Blob([stringifyProject(project)], { type: "application/json" });
+  return new Blob([stringifyProject(project)], { type: "application/vnd.wawod.project+json" });
 }

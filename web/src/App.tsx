@@ -43,8 +43,13 @@ import {
   updateSlab,
 } from "./domain/project-commands";
 import {
+  type Door3DHingeSide,
+  type Door3DOpenState,
+  type Door3DSwingDirection,
+  type DoorDesign3D,
   type DoorOpening,
   type WindowOpening,
+  type WindowDesign3D,
   createExternalModel as buildExternalModel,
   createNodeData,
   createPose2D,
@@ -107,6 +112,24 @@ const editorTools: EditorTool[] = [
   "Roof",
   "Model",
 ];
+
+const editorTools3D: EditorTool[] = ["Measure", "Door", "Window"];
+
+function toCentimeters(valueM: number) {
+  return Number((valueM * 100).toFixed(1));
+}
+
+function toMetersFromCentimeters(valueCm: number) {
+  return Number((valueCm / 100).toFixed(4));
+}
+
+function clampValue(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getWindowDepthOffsetLimitM(wallThicknessM: number, glassThicknessM: number) {
+  return Math.max((wallThicknessM - Math.max(glassThicknessM, 0)) / 2, 0);
+}
 
 interface SelectionClipboardPayload {
   nodes: NodeData[];
@@ -264,7 +287,7 @@ function toProjectFileName(projectName: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
-  return normalized.length > 0 ? `${normalized}.json` : "wawod-studio.json";
+  return normalized.length > 0 ? `${normalized}.wawod` : "wawod-studio.wawod";
 }
 
 function getDoorWorldEndpoints(project: Project, door: DoorOpening) {
@@ -530,9 +553,23 @@ export default function App() {
   });
   const [doorToolWidthM, setDoorToolWidthM] = useState(0.9);
   const [doorToolHeightM, setDoorToolHeightM] = useState(2.1);
+  const [door3DKind, setDoor3DKind] = useState<DoorDesign3D["kind"]>("Normal");
+  const [door3DFrameThicknessM, setDoor3DFrameThicknessM] = useState(0.08);
+  const [door3DFrameColorHex, setDoor3DFrameColorHex] = useState("#c4cbd6");
+  const [door3DDoorColorHex, setDoor3DDoorColorHex] = useState("#8a5b3d");
+  const [door3DWallDepthOffsetM, setDoor3DWallDepthOffsetM] = useState(0);
+  const [door3DOpenState, setDoor3DOpenState] = useState<Door3DOpenState>("Closed");
+  const [door3DHingeSide, setDoor3DHingeSide] = useState<Door3DHingeSide>("Left");
+  const [door3DSwingDirection, setDoor3DSwingDirection] = useState<Door3DSwingDirection>("Inward");
   const [windowToolWidthM, setWindowToolWidthM] = useState(1.2);
   const [windowToolHeightM, setWindowToolHeightM] = useState(1.2);
   const [windowToolSillHeightM, setWindowToolSillHeightM] = useState(0.9);
+  const [window3DGlassThicknessM, setWindow3DGlassThicknessM] = useState(0.02);
+  const [window3DFrameThicknessM, setWindow3DFrameThicknessM] = useState(0.08);
+  const [window3DFrameColorHex, setWindow3DFrameColorHex] = useState("#c4cbd6");
+  const [window3DVerticalDivisions, setWindow3DVerticalDivisions] = useState(0);
+  const [window3DHorizontalDivisions, setWindow3DHorizontalDivisions] = useState(0);
+  const [window3DWallDepthOffsetM, setWindow3DWallDepthOffsetM] = useState(0);
   const [measureToolUnit, setMeasureToolUnit] = useState<MeasurementUnit>("m");
   const [measureToolPermanent, setMeasureToolPermanent] = useState(false);
   const [shapeToolKind, setShapeToolKind] = useState<Shape["kind"]>("Square");
@@ -546,15 +583,22 @@ export default function App() {
   const [stairToolTreadDepthM, setStairToolTreadDepthM] = useState(0.28);
   const [stairToolLandingLengthM, setStairToolLandingLengthM] = useState(1.2);
   const [newWallsFollowRoof, setNewWallsFollowRoof] = useState(true);
+  const last2DToolRef = useRef<EditorTool>("Move");
+  const last3DToolRef = useRef<EditorTool>("Window");
 
   const projectSummary = describeProject(project);
   const projectValidation = validateProject(project);
   const availableEditorTools = useMemo(
-    () =>
-      wallAuthoringMode === "AutoWall"
+    () => {
+      if (viewportMode === "3d") {
+        return editorTools3D;
+      }
+
+      return wallAuthoringMode === "AutoWall"
         ? editorTools.filter((tool) => tool !== "Node")
-        : editorTools,
-    [wallAuthoringMode],
+        : editorTools;
+    },
+    [viewportMode, wallAuthoringMode],
   );
   const hiddenLevelIdSet2D = useMemo(() => new Set(hiddenLevelIds2D), [hiddenLevelIds2D]);
   const hiddenLevelIdSet3D = useMemo(() => new Set(hiddenLevelIds3D), [hiddenLevelIds3D]);
@@ -658,6 +702,15 @@ export default function App() {
     selectedDoorWall
       ? project.wallTypes.find((wallType) => wallType.id === selectedDoorWall.wallTypeId) ?? null
       : null;
+  const selectedDoorEffective3DDesign =
+    selectedDoor?.design3D ?? createCurrentDoor3DDesign();
+  const selectedDoorDepthOffsetLimitM =
+    selectedDoorWallType
+      ? getWindowDepthOffsetLimitM(
+          selectedDoorWallType.thicknessM,
+          Math.max(selectedDoorEffective3DDesign.frameThicknessM * 0.5, 0.02),
+        )
+      : null;
   const selectedWindowWall =
     selectedWindow
       ? project.walls.find((wall) => wall.id === selectedWindow.wallId) ?? null
@@ -665,6 +718,15 @@ export default function App() {
   const selectedWindowWallType =
     selectedWindowWall
       ? project.wallTypes.find((wallType) => wallType.id === selectedWindowWall.wallTypeId) ?? null
+      : null;
+  const selectedWindowEffective3DDesign =
+    selectedWindow?.design3D ?? createCurrentWindow3DDesign();
+  const selectedWindowDepthOffsetLimitM =
+    selectedWindowWallType
+      ? getWindowDepthOffsetLimitM(
+          selectedWindowWallType.thicknessM,
+          selectedWindowEffective3DDesign.glassThicknessM,
+        )
       : null;
   const selectedStairLevel =
     selectedStair
@@ -700,6 +762,37 @@ export default function App() {
       setCursorWorld(null);
     }
   }, [setCursorWorld, viewportMode]);
+
+  useEffect(() => {
+    if (viewportMode === "2d" && !editorTools3D.includes(activeTool)) {
+      last2DToolRef.current = activeTool;
+    }
+
+    if (viewportMode === "3d" && editorTools3D.includes(activeTool)) {
+      last3DToolRef.current = activeTool;
+    }
+  }, [activeTool, viewportMode]);
+
+  const previousViewportModeRef = useRef(viewportMode);
+  useEffect(() => {
+    const previousMode = previousViewportModeRef.current;
+    previousViewportModeRef.current = viewportMode;
+
+    if (previousMode === viewportMode) {
+      return;
+    }
+
+    if (viewportMode === "3d") {
+      if (!editorTools3D.includes(activeTool)) {
+        setActiveTool(last3DToolRef.current);
+      }
+      return;
+    }
+
+    if (editorTools3D.includes(activeTool)) {
+      setActiveTool(last2DToolRef.current);
+    }
+  }, [activeTool, setActiveTool, viewportMode]);
 
   useEffect(() => {
     if (wallAuthoringMode === "AutoWall" && activeTool === "Node") {
@@ -1700,6 +1793,104 @@ export default function App() {
     }
   }
 
+  function createCurrentWindow3DDesign(): WindowDesign3D {
+    return {
+      glassThicknessM: window3DGlassThicknessM,
+      frameThicknessM: window3DFrameThicknessM,
+      frameColorHex: window3DFrameColorHex,
+      verticalDivisions: Math.max(0, Math.round(window3DVerticalDivisions)),
+      horizontalDivisions: Math.max(0, Math.round(window3DHorizontalDivisions)),
+      wallDepthOffsetM: window3DWallDepthOffsetM,
+    };
+  }
+
+  function createCurrentDoor3DDesign(): DoorDesign3D {
+    return {
+      kind: door3DKind,
+      frameThicknessM: door3DFrameThicknessM,
+      frameColorHex: door3DFrameColorHex,
+      doorColorHex: door3DDoorColorHex,
+      wallDepthOffsetM: door3DWallDepthOffsetM,
+      openState: door3DOpenState,
+      hingeSide: door3DHingeSide,
+      swingDirection: door3DSwingDirection,
+    };
+  }
+
+  function handleApplyDoor3DInsert(doorId: string) {
+    try {
+      const design3D = createCurrentDoor3DDesign();
+      applyCommand((current) => updateDoor(current, doorId, { design3D }));
+      setSingleSelection({ kind: "door", id: doorId });
+      reportSuccess("Inserted 3D door into the selected opening.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "3D door insert failed.";
+      reportError(message);
+    }
+  }
+
+  function handleRemoveDoor3DInsert(doorId: string) {
+    try {
+      applyCommand((current) => updateDoor(current, doorId, { design3D: null }));
+      reportSuccess("Removed 3D door from the selected opening.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "3D door removal failed.";
+      reportError(message);
+    }
+  }
+
+  function handleSelectDoor3D(doorId: string) {
+    const targetDoor = project.doors.find((doorOpening) => doorOpening.id === doorId);
+    if (!targetDoor) {
+      return;
+    }
+
+    setActiveTool("Door");
+    setSingleSelection({ kind: "door", id: doorId });
+    reportSuccess(`Selected door opening "${doorId}" for 3D editing.`);
+  }
+
+  function handleApplyWindow3DInsert(windowId: string) {
+    try {
+      const design3D = createCurrentWindow3DDesign();
+      applyCommand((current) => updateWindow(current, windowId, { design3D }));
+      setSingleSelection({ kind: "window", id: windowId });
+      reportSuccess("Inserted 3D window into the selected opening.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "3D window insert failed.";
+      reportError(message);
+    }
+  }
+
+  function handleRemoveWindow3DInsert(windowId: string) {
+    try {
+      applyCommand((current) => updateWindow(current, windowId, { design3D: null }));
+      reportSuccess("Removed 3D window from the selected opening.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "3D window removal failed.";
+      reportError(message);
+    }
+  }
+
+  function handleSelectWindow3D(windowId: string) {
+    const targetWindow = project.windows.find((windowOpening) => windowOpening.id === windowId);
+    if (!targetWindow) {
+      return;
+    }
+
+    setActiveTool("Window");
+    setSingleSelection({ kind: "window", id: windowId });
+    reportSuccess(`Selected window opening "${windowId}" for 3D editing.`);
+  }
+
+  function handleClear3DOpeningSelection() {
+    if (currentSelection?.kind !== "window" && currentSelection?.kind !== "door") {
+      return;
+    }
+
+    clearSelection();
+  }
+
   function handleDeleteMeasurement(measurementId: string) {
     try {
       applyCommand((current) => deleteMeasurement(current, measurementId));
@@ -1930,6 +2121,62 @@ export default function App() {
       const nextMessage = error instanceof Error ? error.message : "Window update failed.";
       reportError(nextMessage);
     }
+  }
+
+  function handleCommitWindow3DToolDesign(
+    patch: Partial<WindowDesign3D>,
+    message = "Updated 3D window design.",
+  ) {
+    if (!selectedWindow) {
+      const nextDesign: WindowDesign3D = {
+        ...createCurrentWindow3DDesign(),
+        ...patch,
+      };
+
+      setWindow3DGlassThicknessM(nextDesign.glassThicknessM);
+      setWindow3DFrameThicknessM(nextDesign.frameThicknessM);
+      setWindow3DFrameColorHex(nextDesign.frameColorHex);
+      setWindow3DVerticalDivisions(nextDesign.verticalDivisions);
+      setWindow3DHorizontalDivisions(nextDesign.horizontalDivisions);
+      setWindow3DWallDepthOffsetM(nextDesign.wallDepthOffsetM);
+      return;
+    }
+
+    const nextDesign: WindowDesign3D = {
+      ...(selectedWindow.design3D ?? createCurrentWindow3DDesign()),
+      ...patch,
+    };
+
+    handleUpdateSelectedWindow({ design3D: nextDesign }, message);
+  }
+
+  function handleCommitDoor3DToolDesign(
+    patch: Partial<DoorDesign3D>,
+    message = "Updated 3D door design.",
+  ) {
+    if (!selectedDoor) {
+      const nextDesign: DoorDesign3D = {
+        ...createCurrentDoor3DDesign(),
+        ...patch,
+      };
+
+      setDoor3DKind(nextDesign.kind);
+      setDoor3DFrameThicknessM(nextDesign.frameThicknessM);
+      setDoor3DFrameColorHex(nextDesign.frameColorHex);
+      setDoor3DDoorColorHex(nextDesign.doorColorHex);
+      setDoor3DWallDepthOffsetM(nextDesign.wallDepthOffsetM);
+      setDoor3DOpenState(nextDesign.openState);
+      setDoor3DHingeSide(nextDesign.hingeSide);
+      setDoor3DSwingDirection(nextDesign.swingDirection);
+      return;
+    }
+
+    const nextDesign: DoorDesign3D = {
+      ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
+      ...patch,
+    };
+
+    handleUpdateSelectedDoor({ design3D: nextDesign }, message);
   }
 
   function handleUpdateSelectedStair(patch: Partial<Stair>, message: string) {
@@ -2384,47 +2631,365 @@ export default function App() {
       activeTool === "Roof" ||
       viewportMode === "3d");
 
-  const showContextWindow = floatingWindowVisibility.context && currentSelection !== null;
+  const showContextWindow =
+    floatingWindowVisibility.context &&
+    currentSelection !== null &&
+    !(
+      viewportMode === "3d" &&
+      ((activeTool === "Window" && currentSelection.kind === "window") ||
+        (activeTool === "Door" && currentSelection.kind === "door"))
+    );
 
   function renderToolWindowContent() {
     if (viewportMode === "3d") {
-      return (
-        <div className="field-stack">
-          <label className="field-label">
-            <span>3D Join Mode</span>
-            <select
-              value={preview3D.renderMode}
-              onChange={(event) =>
-                setPreview3D({
-                  renderMode: event.target.value as typeof preview3D.renderMode,
-                })
-              }
-            >
-              <option value="ArchitecturalJoin">Architectural Join</option>
-              <option value="NodePost">Node Post</option>
-            </select>
-          </label>
-          <label className="field-label">
-            <span>3D Surface Mode</span>
-            <select
-              value={preview3D.surfaceMode}
-              onChange={(event) =>
-                setPreview3D({
-                  surfaceMode: event.target.value as typeof preview3D.surfaceMode,
-                })
-              }
-            >
-              <option value="LevelColor">Color By Level</option>
-              <option value="GrayOpaque">Gray Opaque</option>
-            </select>
-          </label>
-          <div className="button-row">
-            <button type="button" onClick={resetPreview3D}>
-              Reset 3D Camera
-            </button>
+      if (activeTool === "Measure") {
+        return (
+          <div className="field-stack">
+            <label className="field-label">
+              <span>Units</span>
+              <select
+                value={measureToolUnit}
+                onChange={(event) => setMeasureToolUnit(event.target.value as MeasurementUnit)}
+              >
+                <option value="cm">cm</option>
+                <option value="dm">dm</option>
+                <option value="m">m</option>
+              </select>
+            </label>
+            <p className="muted">
+              3D measuring will use a different interaction flow than 2D plan dimensions.
+              For now this tool menu keeps only the measurement unit ready.
+            </p>
           </div>
-        </div>
-      );
+        );
+      }
+
+      if (activeTool === "Door") {
+        const effectiveDoor3DDesign = selectedDoor?.design3D ?? createCurrentDoor3DDesign();
+        const depthOffsetLimitCm =
+          selectedDoorDepthOffsetLimitM !== null
+            ? toCentimeters(selectedDoorDepthOffsetLimitM)
+            : null;
+        return (
+          <div className="field-grid">
+            {selectedDoor ? (
+              <>
+                <div className="stat-row">
+                  <span>Selected Opening</span>
+                  <strong>{selectedDoor.id}</strong>
+                </div>
+                <div className="stat-row">
+                  <span>Host Wall</span>
+                  <strong>{selectedDoor.wallId}</strong>
+                </div>
+                <div className="stat-row">
+                  <span>Opening Size</span>
+                  <strong>
+                    {formatNumber(selectedDoor.widthM)} x {formatNumber(selectedDoor.heightM)} m
+                  </strong>
+                </div>
+              </>
+            ) : null}
+            <label className="field-label">
+              <span>Door Type</span>
+              <select
+                value={effectiveDoor3DDesign.kind}
+                onChange={(event) =>
+                  handleCommitDoor3DToolDesign(
+                    { kind: event.target.value as DoorDesign3D["kind"] },
+                    "Updated 3D door type.",
+                  )
+                }
+              >
+                <option value="Normal">Normal</option>
+                <option value="Garage">Garage</option>
+              </select>
+            </label>
+            <label className="field-label">
+              <span>State</span>
+              <select
+                value={effectiveDoor3DDesign.openState}
+                onChange={(event) =>
+                  handleCommitDoor3DToolDesign(
+                    { openState: event.target.value as Door3DOpenState },
+                    "Updated 3D door state.",
+                  )
+                }
+              >
+                <option value="Closed">Closed</option>
+                <option value="Open">Open</option>
+              </select>
+            </label>
+            <label className="field-label">
+              <span>Frame Thickness (m)</span>
+              <DraftNumberInput
+                step="0.01"
+                min="0.005"
+                value={effectiveDoor3DDesign.frameThicknessM}
+                onCommit={(nextValue) => {
+                  if (nextValue > 0) {
+                    handleCommitDoor3DToolDesign(
+                      { frameThicknessM: nextValue },
+                      "Updated 3D door frame thickness.",
+                    );
+                  }
+                }}
+              />
+            </label>
+            <label className="field-label">
+              <span>Depth Offset From Wall Center (cm)</span>
+              <DraftNumberInput
+                step="0.5"
+                min={depthOffsetLimitCm !== null ? String(-depthOffsetLimitCm) : undefined}
+                max={depthOffsetLimitCm !== null ? String(depthOffsetLimitCm) : undefined}
+                value={toCentimeters(effectiveDoor3DDesign.wallDepthOffsetM)}
+                onCommit={(nextValue) => {
+                  const nextOffsetM =
+                    depthOffsetLimitCm !== null
+                      ? clampValue(
+                          toMetersFromCentimeters(nextValue),
+                          -selectedDoorDepthOffsetLimitM!,
+                          selectedDoorDepthOffsetLimitM!,
+                        )
+                      : toMetersFromCentimeters(nextValue);
+                  handleCommitDoor3DToolDesign(
+                    { wallDepthOffsetM: nextOffsetM },
+                    "Updated 3D door depth offset.",
+                  );
+                }}
+              />
+            </label>
+            <label className="field-label">
+              <span>Frame Color</span>
+              <input
+                type="color"
+                value={effectiveDoor3DDesign.frameColorHex}
+                onChange={(event) =>
+                  handleCommitDoor3DToolDesign(
+                    { frameColorHex: event.target.value },
+                    "Updated 3D door frame color.",
+                  )
+                }
+              />
+            </label>
+            <label className="field-label">
+              <span>Door Color</span>
+              <input
+                type="color"
+                value={effectiveDoor3DDesign.doorColorHex}
+                onChange={(event) =>
+                  handleCommitDoor3DToolDesign(
+                    { doorColorHex: event.target.value },
+                    "Updated 3D door color.",
+                  )
+                }
+              />
+            </label>
+            {effectiveDoor3DDesign.kind === "Normal" ? (
+              <>
+                <label className="field-label">
+                  <span>Hinge Side</span>
+                  <select
+                    value={effectiveDoor3DDesign.hingeSide}
+                    onChange={(event) =>
+                      handleCommitDoor3DToolDesign(
+                        { hingeSide: event.target.value as Door3DHingeSide },
+                        "Updated 3D door hinge side.",
+                      )
+                    }
+                  >
+                    <option value="Left">Left</option>
+                    <option value="Right">Right</option>
+                  </select>
+                </label>
+                <label className="field-label">
+                  <span>Swing Direction</span>
+                  <select
+                    value={effectiveDoor3DDesign.swingDirection}
+                    onChange={(event) =>
+                      handleCommitDoor3DToolDesign(
+                        { swingDirection: event.target.value as Door3DSwingDirection },
+                        "Updated 3D door swing direction.",
+                      )
+                    }
+                  >
+                    <option value="Inward">Inward</option>
+                    <option value="Outward">Outward</option>
+                  </select>
+                </label>
+              </>
+            ) : null}
+            {selectedDoor ? (
+              <div className="window-tool-action-row">
+                <button
+                  type="button"
+                  className="toolbar-button"
+                  onClick={() => handleRemoveDoor3DInsert(selectedDoor.id)}
+                >
+                  Delete Door
+                </button>
+                <button
+                  type="button"
+                  className="toolbar-button"
+                  onClick={() => handleDeleteDoor(selectedDoor.id)}
+                >
+                  Delete Opening
+                </button>
+              </div>
+            ) : null}
+          </div>
+        );
+      }
+
+      if (activeTool === "Window") {
+        const effectiveWindow3DDesign = selectedWindow?.design3D ?? createCurrentWindow3DDesign();
+        const depthOffsetLimitCm =
+          selectedWindowDepthOffsetLimitM !== null
+            ? toCentimeters(selectedWindowDepthOffsetLimitM)
+            : null;
+        return (
+          <div className="field-grid">
+            {selectedWindow ? (
+              <>
+                <div className="stat-row">
+                  <span>Selected Opening</span>
+                  <strong>{selectedWindow.id}</strong>
+                </div>
+                <div className="stat-row">
+                  <span>Host Wall</span>
+                  <strong>{selectedWindow.wallId}</strong>
+                </div>
+                <div className="stat-row">
+                  <span>Opening Size</span>
+                  <strong>
+                    {formatNumber(selectedWindow.widthM)} x {formatNumber(selectedWindow.heightM)} m
+                  </strong>
+                </div>
+              </>
+            ) : null}
+            <label className="field-label">
+              <span>Glass Thickness (m)</span>
+              <DraftNumberInput
+                step="0.005"
+                min="0.001"
+                value={effectiveWindow3DDesign.glassThicknessM}
+                onCommit={(nextValue) => {
+                  if (nextValue > 0) {
+                    handleCommitWindow3DToolDesign(
+                      { glassThicknessM: nextValue },
+                      "Updated 3D window glass thickness.",
+                    );
+                  }
+                }}
+              />
+            </label>
+            <label className="field-label">
+              <span>Frame Thickness (m)</span>
+              <DraftNumberInput
+                step="0.01"
+                min="0.005"
+                value={effectiveWindow3DDesign.frameThicknessM}
+                onCommit={(nextValue) => {
+                  if (nextValue > 0) {
+                    handleCommitWindow3DToolDesign(
+                      { frameThicknessM: nextValue },
+                      "Updated 3D window frame thickness.",
+                    );
+                  }
+                }}
+              />
+            </label>
+            <label className="field-label">
+              <span>Frame Color</span>
+              <input
+                type="color"
+                value={effectiveWindow3DDesign.frameColorHex}
+                onChange={(event) =>
+                  handleCommitWindow3DToolDesign(
+                    { frameColorHex: event.target.value },
+                    "Updated 3D window frame color.",
+                  )
+                }
+              />
+            </label>
+            <label className="field-label">
+              <span>Vertical Divisions</span>
+              <DraftNumberInput
+                step="1"
+                min="0"
+                value={effectiveWindow3DDesign.verticalDivisions}
+                onCommit={(nextValue) => {
+                  if (nextValue >= 0) {
+                    handleCommitWindow3DToolDesign(
+                      { verticalDivisions: Math.max(0, Math.round(nextValue)) },
+                      "Updated 3D window vertical divisions.",
+                    );
+                  }
+                }}
+              />
+            </label>
+            <label className="field-label">
+              <span>Horizontal Divisions</span>
+              <DraftNumberInput
+                step="1"
+                min="0"
+                value={effectiveWindow3DDesign.horizontalDivisions}
+                onCommit={(nextValue) => {
+                  if (nextValue >= 0) {
+                    handleCommitWindow3DToolDesign(
+                      { horizontalDivisions: Math.max(0, Math.round(nextValue)) },
+                      "Updated 3D window horizontal divisions.",
+                    );
+                  }
+                }}
+              />
+            </label>
+            <label className="field-label">
+              <span>Depth Offset From Wall Center (cm)</span>
+              <DraftNumberInput
+                step="0.5"
+                min={depthOffsetLimitCm !== null ? String(-depthOffsetLimitCm) : undefined}
+                max={depthOffsetLimitCm !== null ? String(depthOffsetLimitCm) : undefined}
+                value={toCentimeters(effectiveWindow3DDesign.wallDepthOffsetM)}
+                onCommit={(nextValue) => {
+                  const nextOffsetM =
+                    depthOffsetLimitCm !== null
+                      ? clampValue(
+                          toMetersFromCentimeters(nextValue),
+                          -selectedWindowDepthOffsetLimitM!,
+                          selectedWindowDepthOffsetLimitM!,
+                        )
+                      : toMetersFromCentimeters(nextValue);
+                  handleCommitWindow3DToolDesign(
+                    { wallDepthOffsetM: nextOffsetM },
+                    "Updated 3D window depth offset.",
+                  );
+                }}
+              />
+            </label>
+            {selectedWindow ? (
+              <div className="window-tool-action-row">
+                <button
+                  type="button"
+                  className="toolbar-button"
+                  onClick={() => handleRemoveWindow3DInsert(selectedWindow.id)}
+                >
+                  Delete Window
+                </button>
+                <button
+                  type="button"
+                  className="toolbar-button"
+                  onClick={() => handleDeleteWindow(selectedWindow.id)}
+                >
+                  Delete Opening
+                </button>
+              </div>
+            ) : null}
+          </div>
+        );
+      }
+
+      return <p className="muted">Select a 3D tool to configure it here.</p>;
     }
 
     if (activeTool === "Door") {
@@ -2898,11 +3463,76 @@ export default function App() {
                   handleUpdateSelectedWindow({ offsetM: value }, "Updated window position."),
                 )
               }
-            />
-          </label>
+              />
+            </label>
+          {viewportMode === "3d" ? (
+            <>
+              <label className="field-label">
+                <span>Glass Thickness (m)</span>
+                <input
+                  type="number"
+                  step="0.005"
+                  min="0.001"
+                  value={selectedWindow.design3D?.glassThicknessM ?? window3DGlassThicknessM}
+                  onChange={(event) =>
+                    commitNumericInput(event.target.valueAsNumber, (value) =>
+                      handleUpdateSelectedWindow(
+                        {
+                          design3D: {
+                            ...(selectedWindow.design3D ?? createCurrentWindow3DDesign()),
+                            glassThicknessM: value,
+                          },
+                        },
+                        "Updated 3D window glass thickness.",
+                      ),
+                    )
+                  }
+                />
+              </label>
+              <label className="field-label">
+                <span>Frame Thickness (m)</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.005"
+                  value={selectedWindow.design3D?.frameThicknessM ?? window3DFrameThicknessM}
+                  onChange={(event) =>
+                    commitNumericInput(event.target.valueAsNumber, (value) =>
+                      handleUpdateSelectedWindow(
+                        {
+                          design3D: {
+                            ...(selectedWindow.design3D ?? createCurrentWindow3DDesign()),
+                            frameThicknessM: value,
+                          },
+                        },
+                        "Updated 3D window frame thickness.",
+                      ),
+                    )
+                  }
+                />
+              </label>
+            </>
+          ) : null}
           <div className="button-row">
-            <button type="button" onClick={() => handleDeleteWindow(selectedWindow.id)}>
-              Delete Window
+            {viewportMode === "3d" ? (
+              <button
+                type="button"
+                className="toolbar-button"
+                onClick={() =>
+                  selectedWindow.design3D
+                    ? handleRemoveWindow3DInsert(selectedWindow.id)
+                    : handleApplyWindow3DInsert(selectedWindow.id)
+                }
+              >
+                {selectedWindow.design3D ? "Delete Window" : "Insert 3D Window"}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="toolbar-button"
+              onClick={() => handleDeleteWindow(selectedWindow.id)}
+            >
+              Delete Opening
             </button>
           </div>
         </div>
@@ -3138,7 +3768,7 @@ export default function App() {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".json,application/json"
+        accept=".wawod,.json,application/json"
         hidden
         onChange={handleImportChange}
       />
@@ -3423,6 +4053,16 @@ export default function App() {
                 project={visibleProject3D}
                 preview3D={preview3D}
                 onPreview3DChange={setPreview3D}
+                activeTool={activeTool}
+                selectedDoorId={selectedDoor?.id ?? null}
+                onSelectDoor={handleSelectDoor3D}
+                onInsertDoor3D={handleApplyDoor3DInsert}
+                selectedWindowId={selectedWindow?.id ?? null}
+                onSelectWindow={handleSelectWindow3D}
+                onClearOpeningSelection={handleClear3DOpeningSelection}
+                onInsertWindow3D={handleApplyWindow3DInsert}
+                door3DToolDesign={createCurrentDoor3DDesign()}
+                window3DToolDesign={createCurrentWindow3DDesign()}
               />
             )}
 
@@ -3881,7 +4521,7 @@ export default function App() {
 
             {showToolWindow ? (
               <FloatingWindow
-                title={viewportMode === "3d" ? "3D View" : `${activeTool} Tool`}
+                title={viewportMode === "3d" ? `${activeTool} Tool` : `${activeTool} Tool`}
                 kicker="Tool"
                 position={floatingWindowPositions.tool}
                 width={320}
@@ -4616,10 +5256,208 @@ export default function App() {
                         readOnly
                       />
                     </label>
+                    {viewportMode === "3d" ? (
+                      <>
+                        <label className="field-label">
+                          <span>Door Type</span>
+                          <select
+                            value={selectedDoor.design3D?.kind ?? door3DKind}
+                            onChange={(event) =>
+                              handleUpdateSelectedDoor(
+                                {
+                                  design3D: {
+                                    ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
+                                    kind: event.target.value as DoorDesign3D["kind"],
+                                  },
+                                },
+                                "Updated 3D door type.",
+                              )
+                            }
+                          >
+                            <option value="Normal">Normal</option>
+                            <option value="Garage">Garage</option>
+                          </select>
+                        </label>
+                        <label className="field-label">
+                          <span>State</span>
+                          <select
+                            value={selectedDoor.design3D?.openState ?? door3DOpenState}
+                            onChange={(event) =>
+                              handleUpdateSelectedDoor(
+                                {
+                                  design3D: {
+                                    ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
+                                    openState: event.target.value as Door3DOpenState,
+                                  },
+                                },
+                                "Updated 3D door state.",
+                              )
+                            }
+                          >
+                            <option value="Closed">Closed</option>
+                            <option value="Open">Open</option>
+                          </select>
+                        </label>
+                        <label className="field-label">
+                          <span>Frame Thickness (m)</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0.005"
+                            value={selectedDoor.design3D?.frameThicknessM ?? door3DFrameThicknessM}
+                            onChange={(event) =>
+                              commitNumericInput(event.target.valueAsNumber, (value) =>
+                                handleUpdateSelectedDoor(
+                                  {
+                                    design3D: {
+                                      ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
+                                      frameThicknessM: value,
+                                    },
+                                  },
+                                  "Updated 3D door frame thickness.",
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="field-label">
+                          <span>Depth Offset From Wall Center (cm)</span>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min={
+                              selectedDoorDepthOffsetLimitM !== null
+                                ? String(-toCentimeters(selectedDoorDepthOffsetLimitM))
+                                : undefined
+                            }
+                            max={
+                              selectedDoorDepthOffsetLimitM !== null
+                                ? String(toCentimeters(selectedDoorDepthOffsetLimitM))
+                                : undefined
+                            }
+                            value={toCentimeters(
+                              selectedDoor.design3D?.wallDepthOffsetM ?? door3DWallDepthOffsetM,
+                            )}
+                            onChange={(event) =>
+                              commitNumericInput(event.target.valueAsNumber, (value) =>
+                                handleUpdateSelectedDoor(
+                                  {
+                                    design3D: {
+                                      ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
+                                      wallDepthOffsetM:
+                                        selectedDoorDepthOffsetLimitM !== null
+                                          ? clampValue(
+                                              toMetersFromCentimeters(value),
+                                              -selectedDoorDepthOffsetLimitM,
+                                              selectedDoorDepthOffsetLimitM,
+                                            )
+                                          : toMetersFromCentimeters(value),
+                                    },
+                                  },
+                                  "Updated 3D door depth offset.",
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="field-label">
+                          <span>Frame Color</span>
+                          <input
+                            type="color"
+                            value={selectedDoor.design3D?.frameColorHex ?? door3DFrameColorHex}
+                            onChange={(event) =>
+                              handleUpdateSelectedDoor(
+                                {
+                                  design3D: {
+                                    ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
+                                    frameColorHex: event.target.value,
+                                  },
+                                },
+                                "Updated 3D door frame color.",
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="field-label">
+                          <span>Door Color</span>
+                          <input
+                            type="color"
+                            value={selectedDoor.design3D?.doorColorHex ?? door3DDoorColorHex}
+                            onChange={(event) =>
+                              handleUpdateSelectedDoor(
+                                {
+                                  design3D: {
+                                    ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
+                                    doorColorHex: event.target.value,
+                                  },
+                                },
+                                "Updated 3D door color.",
+                              )
+                            }
+                          />
+                        </label>
+                        {(selectedDoor.design3D?.kind ?? door3DKind) === "Normal" ? (
+                          <>
+                            <label className="field-label">
+                              <span>Hinge Side</span>
+                              <select
+                                value={selectedDoor.design3D?.hingeSide ?? door3DHingeSide}
+                                onChange={(event) =>
+                                  handleUpdateSelectedDoor(
+                                    {
+                                      design3D: {
+                                        ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
+                                        hingeSide: event.target.value as Door3DHingeSide,
+                                      },
+                                    },
+                                    "Updated 3D door hinge side.",
+                                  )
+                                }
+                              >
+                                <option value="Left">Left</option>
+                                <option value="Right">Right</option>
+                              </select>
+                            </label>
+                            <label className="field-label">
+                              <span>Swing Direction</span>
+                              <select
+                                value={selectedDoor.design3D?.swingDirection ?? door3DSwingDirection}
+                                onChange={(event) =>
+                                  handleUpdateSelectedDoor(
+                                    {
+                                      design3D: {
+                                        ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
+                                        swingDirection: event.target.value as Door3DSwingDirection,
+                                      },
+                                    },
+                                    "Updated 3D door swing direction.",
+                                  )
+                                }
+                              >
+                                <option value="Inward">Inward</option>
+                                <option value="Outward">Outward</option>
+                              </select>
+                            </label>
+                          </>
+                        ) : null}
+                      </>
+                    ) : null}
                   </div>
                   <div className="button-row">
+                    {viewportMode === "3d" ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          selectedDoor.design3D
+                            ? handleRemoveDoor3DInsert(selectedDoor.id)
+                            : handleApplyDoor3DInsert(selectedDoor.id)
+                        }
+                      >
+                        {selectedDoor.design3D ? "Delete Door" : "Insert 3D Door"}
+                      </button>
+                    ) : null}
                     <button type="button" onClick={() => handleDeleteDoor(selectedDoor.id)}>
-                      Delete Door
+                      Delete Opening
                     </button>
                   </div>
                 </section>
@@ -4740,8 +5578,170 @@ export default function App() {
                         readOnly
                       />
                     </label>
+                    {viewportMode === "3d" ? (
+                      <>
+                        <label className="field-label">
+                          <span>Glass Thickness (m)</span>
+                          <input
+                            type="number"
+                            step="0.005"
+                            min="0.001"
+                            value={selectedWindow.design3D?.glassThicknessM ?? window3DGlassThicknessM}
+                            onChange={(event) =>
+                              commitNumericInput(event.target.valueAsNumber, (value) =>
+                                handleUpdateSelectedWindow(
+                                  {
+                                    design3D: {
+                                      ...(selectedWindow.design3D ?? createCurrentWindow3DDesign()),
+                                      glassThicknessM: value,
+                                    },
+                                  },
+                                  "Updated 3D window glass thickness.",
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="field-label">
+                          <span>Frame Thickness (m)</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0.005"
+                            value={selectedWindow.design3D?.frameThicknessM ?? window3DFrameThicknessM}
+                            onChange={(event) =>
+                              commitNumericInput(event.target.valueAsNumber, (value) =>
+                                handleUpdateSelectedWindow(
+                                  {
+                                    design3D: {
+                                      ...(selectedWindow.design3D ?? createCurrentWindow3DDesign()),
+                                      frameThicknessM: value,
+                                    },
+                                  },
+                                  "Updated 3D window frame thickness.",
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="field-label">
+                          <span>Frame Color</span>
+                          <input
+                            type="color"
+                            value={selectedWindow.design3D?.frameColorHex ?? window3DFrameColorHex}
+                            onChange={(event) =>
+                              handleUpdateSelectedWindow(
+                                {
+                                  design3D: {
+                                    ...(selectedWindow.design3D ?? createCurrentWindow3DDesign()),
+                                    frameColorHex: event.target.value,
+                                  },
+                                },
+                                "Updated 3D window frame color.",
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="field-label">
+                          <span>Vertical Divisions</span>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            value={selectedWindow.design3D?.verticalDivisions ?? window3DVerticalDivisions}
+                            onChange={(event) =>
+                              commitNumericInput(event.target.valueAsNumber, (value) =>
+                                handleUpdateSelectedWindow(
+                                  {
+                                    design3D: {
+                                      ...(selectedWindow.design3D ?? createCurrentWindow3DDesign()),
+                                      verticalDivisions: Math.max(0, Math.round(value)),
+                                    },
+                                  },
+                                  "Updated 3D window vertical divisions.",
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="field-label">
+                          <span>Horizontal Divisions</span>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            value={selectedWindow.design3D?.horizontalDivisions ?? window3DHorizontalDivisions}
+                            onChange={(event) =>
+                              commitNumericInput(event.target.valueAsNumber, (value) =>
+                                handleUpdateSelectedWindow(
+                                  {
+                                    design3D: {
+                                      ...(selectedWindow.design3D ?? createCurrentWindow3DDesign()),
+                                      horizontalDivisions: Math.max(0, Math.round(value)),
+                                    },
+                                  },
+                                  "Updated 3D window horizontal divisions.",
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="field-label">
+                          <span>Depth Offset From Wall Center (cm)</span>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min={
+                              selectedWindowDepthOffsetLimitM !== null
+                                ? String(-toCentimeters(selectedWindowDepthOffsetLimitM))
+                                : undefined
+                            }
+                            max={
+                              selectedWindowDepthOffsetLimitM !== null
+                                ? String(toCentimeters(selectedWindowDepthOffsetLimitM))
+                                : undefined
+                            }
+                            value={toCentimeters(
+                              selectedWindow.design3D?.wallDepthOffsetM ?? window3DWallDepthOffsetM,
+                            )}
+                            onChange={(event) =>
+                              commitNumericInput(event.target.valueAsNumber, (value) =>
+                                handleUpdateSelectedWindow(
+                                  {
+                                    design3D: {
+                                      ...(selectedWindow.design3D ?? createCurrentWindow3DDesign()),
+                                      wallDepthOffsetM:
+                                        selectedWindowDepthOffsetLimitM !== null
+                                          ? clampValue(
+                                              toMetersFromCentimeters(value),
+                                              -selectedWindowDepthOffsetLimitM,
+                                              selectedWindowDepthOffsetLimitM,
+                                            )
+                                          : toMetersFromCentimeters(value),
+                                    },
+                                  },
+                                  "Updated 3D window depth offset.",
+                                ),
+                              )
+                            }
+                          />
+                        </label>
+                      </>
+                    ) : null}
                   </div>
                   <div className="button-row">
+                    {viewportMode === "3d" ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          selectedWindow.design3D
+                            ? handleRemoveWindow3DInsert(selectedWindow.id)
+                            : handleApplyWindow3DInsert(selectedWindow.id)
+                        }
+                      >
+                        {selectedWindow.design3D ? "Remove 3D Window" : "Insert 3D Window"}
+                      </button>
+                    ) : null}
                     <button type="button" onClick={() => handleDeleteWindow(selectedWindow.id)}>
                       Delete Window
                     </button>

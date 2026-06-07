@@ -58,6 +58,32 @@ export interface DoorOpening {
   widthM: number;
   heightM: number;
   offsetM: number;
+  design3D?: DoorDesign3D | null;
+}
+
+export type DoorDesign3DKind = "Normal" | "Garage";
+export type Door3DOpenState = "Closed" | "Open";
+export type Door3DHingeSide = "Left" | "Right";
+export type Door3DSwingDirection = "Inward" | "Outward";
+
+export interface DoorDesign3D {
+  kind: DoorDesign3DKind;
+  frameThicknessM: number;
+  frameColorHex: string;
+  doorColorHex: string;
+  wallDepthOffsetM: number;
+  openState: Door3DOpenState;
+  hingeSide: Door3DHingeSide;
+  swingDirection: Door3DSwingDirection;
+}
+
+export interface WindowDesign3D {
+  glassThicknessM: number;
+  frameThicknessM: number;
+  verticalDivisions: number;
+  horizontalDivisions: number;
+  wallDepthOffsetM: number;
+  frameColorHex: string;
 }
 
 export interface WindowOpening {
@@ -67,6 +93,7 @@ export interface WindowOpening {
   heightM: number;
   sillHeightM: number;
   offsetM: number;
+  design3D?: WindowDesign3D | null;
 }
 
 export interface Stair {
@@ -215,6 +242,7 @@ export function createDoorOpening(overrides: Partial<DoorOpening> = {}): DoorOpe
     widthM: overrides.widthM ?? 0.9,
     heightM: overrides.heightM ?? 2.1,
     offsetM: overrides.offsetM ?? 0,
+    design3D: overrides.design3D ?? null,
   };
 }
 
@@ -226,6 +254,7 @@ export function createWindowOpening(overrides: Partial<WindowOpening> = {}): Win
     heightM: overrides.heightM ?? 1.2,
     sillHeightM: overrides.sillHeightM ?? 0.9,
     offsetM: overrides.offsetM ?? 0,
+    design3D: overrides.design3D ?? null,
   };
 }
 

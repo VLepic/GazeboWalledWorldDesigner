@@ -32,6 +32,10 @@ export const slabKindSchema = z.enum(["Rectangle", "Circle"]) satisfies z.ZodTyp
 export const roofTypeSchema = z.enum(["Flat", "Gable", "Shed", "Hip"]) satisfies z.ZodType<RoofType>;
 export const wallTopModeSchema = z.enum(["FixedHeight", "FollowRoof"]) satisfies z.ZodType<WallTopMode>;
 export const measurementUnitSchema = z.enum(["cm", "dm", "m"]) satisfies z.ZodType<MeasurementUnit>;
+export const doorDesign3DKindSchema = z.enum(["Normal", "Garage"]);
+export const door3DOpenStateSchema = z.enum(["Closed", "Open"]);
+export const door3DHingeSideSchema = z.enum(["Left", "Right"]);
+export const door3DSwingDirectionSchema = z.enum(["Inward", "Outward"]);
 
 export const vec2Schema = z.object({
   x: finiteNumberSchema,
@@ -87,6 +91,19 @@ export const doorOpeningSchema = z.object({
   widthM: positiveNumberSchema,
   heightM: positiveNumberSchema,
   offsetM: nonNegativeNumberSchema,
+  design3D: z
+    .object({
+      kind: doorDesign3DKindSchema,
+      frameThicknessM: positiveNumberSchema,
+      frameColorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+      doorColorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+      wallDepthOffsetM: z.number().finite(),
+      openState: door3DOpenStateSchema,
+      hingeSide: door3DHingeSideSchema,
+      swingDirection: door3DSwingDirectionSchema,
+    })
+    .nullable()
+    .optional(),
 }) satisfies z.ZodType<DoorOpening>;
 
 export const windowOpeningSchema = z.object({
@@ -96,6 +113,17 @@ export const windowOpeningSchema = z.object({
   heightM: positiveNumberSchema,
   sillHeightM: nonNegativeNumberSchema,
   offsetM: nonNegativeNumberSchema,
+  design3D: z
+    .object({
+      glassThicknessM: positiveNumberSchema,
+      frameThicknessM: positiveNumberSchema,
+      verticalDivisions: z.number().int().nonnegative(),
+      horizontalDivisions: z.number().int().nonnegative(),
+      wallDepthOffsetM: z.number().finite(),
+      frameColorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+    })
+    .nullable()
+    .optional(),
 }) satisfies z.ZodType<WindowOpening>;
 
 export const stairSchema = z.object({
