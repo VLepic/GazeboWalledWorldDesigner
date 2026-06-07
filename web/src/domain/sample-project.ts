@@ -4,6 +4,7 @@ import {
   createLevel,
   createNodeData,
   createPose2D,
+  createRoofLayer,
   createShape,
   createSlab,
   createVec2,
@@ -35,6 +36,11 @@ const partitionWall = createWallType({
   name: "Partition",
   thicknessM: 0.12,
   heightM: 2.8,
+});
+
+const roofLayer = createRoofLayer({
+  id: "roof_layer_default",
+  name: "Roofs",
 });
 
 const nodeA = createNodeData({
@@ -74,6 +80,8 @@ export const sampleProject: Project = {
   },
   levels: [groundLevel, mezzanineLevel],
   wallTypes: [structuralWall, partitionWall],
+  roofLayers: [roofLayer],
+  roofSketches: [],
   nodes: [nodeA, nodeB, nodeC, nodeD],
   walls: [
     createWall({

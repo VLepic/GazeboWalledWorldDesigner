@@ -26,6 +26,7 @@ export type SelectableEntityKind =
   | "stair"
   | "shape"
   | "slab"
+  | "roofEdge"
   | "externalModel";
 export type SlabMode = "Rectangle" | "Circle";
 
@@ -163,6 +164,10 @@ function isSelectionValid(selection: EditorSelection | null, project: Project) {
       return project.shapes.some((shape) => shape.id === selection.id);
     case "slab":
       return project.slabs.some((slab) => slab.id === selection.id);
+    case "roofEdge":
+      return project.roofSketches.some((sketch) =>
+        sketch.edges.some((edge) => edge.id === selection.id),
+      );
     case "door":
       return project.doors.some((door) => door.id === selection.id);
     case "window":
@@ -201,7 +206,7 @@ function isSelectionCompatibleWithTool(selection: EditorSelection | null, tool: 
     case "Slab":
       return selection.kind === "slab";
     case "Roof":
-      return selection.kind === "slab";
+      return selection.kind === "roofEdge";
     case "Model":
       return selection.kind === "externalModel";
   }

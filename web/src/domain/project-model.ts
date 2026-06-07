@@ -3,6 +3,9 @@ export type SlabKind = "Rectangle" | "Circle";
 export type RoofType = "Flat" | "Gable" | "Shed" | "Hip";
 export type WallTopMode = "FixedHeight" | "FollowRoof";
 export type MeasurementUnit = "cm" | "dm" | "m";
+export type RoofVertexElevationMode = "Explicit" | "Computed";
+export type RoofEdgeRole = "Generic" | "LowerEave" | "UpperEave" | "Ridge" | "Hip" | "Valley";
+export type RoofConstraintDirection = "AwayFromReference" | "TowardReference";
 
 export interface Vec2 {
   x: number;
@@ -35,6 +38,68 @@ export interface WallType {
   name: string;
   thicknessM: number;
   heightM: number;
+}
+
+export interface RoofLayer {
+  id: string;
+  name: string;
+  visible2D: boolean;
+  visible3D: boolean;
+}
+
+export interface RoofVertex {
+  id: string;
+  position: Vec2;
+  elevationMode: RoofVertexElevationMode;
+  elevationM?: number;
+}
+
+export interface RoofEdge {
+  id: string;
+  startVertexId: string;
+  endVertexId: string;
+  role: RoofEdgeRole;
+}
+
+export type RoofConstraint =
+  | {
+      kind: "VertexHeight";
+      id: string;
+      vertexId: string;
+      elevationM: number;
+    }
+  | {
+      kind: "EdgeHeight";
+      id: string;
+      edgeId: string;
+      elevationM: number;
+    }
+  | {
+      kind: "FaceSlope";
+      id: string;
+      faceId: string;
+      angleDeg: number;
+      referenceEdgeId: string;
+      direction: RoofConstraintDirection;
+    };
+
+export interface RoofFaceDefinition {
+  id: string;
+  vertexIds: string[];
+  edgeIds: string[];
+  constraintIds: string[];
+}
+
+export interface RoofSketch {
+  id: string;
+  name: string;
+  layerId: string;
+  baseElevationM: number;
+  thicknessM: number;
+  vertices: RoofVertex[];
+  edges: RoofEdge[];
+  faces: RoofFaceDefinition[];
+  constraints: RoofConstraint[];
 }
 
 export interface NodeData {
@@ -158,6 +223,8 @@ export interface Project {
   settings: ProjectSettings;
   levels: Level[];
   wallTypes: WallType[];
+  roofLayers: RoofLayer[];
+  roofSketches: RoofSketch[];
   nodes: NodeData[];
   walls: Wall[];
   doors: DoorOpening[];
@@ -213,6 +280,29 @@ export function createWallType(overrides: Partial<WallType> = {}): WallType {
     name: overrides.name ?? "Wall Type 1",
     thicknessM: overrides.thicknessM ?? 0.2,
     heightM: overrides.heightM ?? 2,
+  };
+}
+
+export function createRoofLayer(overrides: Partial<RoofLayer> = {}): RoofLayer {
+  return {
+    id: overrides.id ?? createId("roof_layer"),
+    name: overrides.name ?? "Roofs",
+    visible2D: overrides.visible2D ?? true,
+    visible3D: overrides.visible3D ?? true,
+  };
+}
+
+export function createRoofSketch(overrides: Partial<RoofSketch> = {}): RoofSketch {
+  return {
+    id: overrides.id ?? createId("roof"),
+    name: overrides.name ?? "roof",
+    layerId: overrides.layerId ?? "",
+    baseElevationM: overrides.baseElevationM ?? 0,
+    thicknessM: overrides.thicknessM ?? 0.2,
+    vertices: overrides.vertices ?? [],
+    edges: overrides.edges ?? [],
+    faces: overrides.faces ?? [],
+    constraints: overrides.constraints ?? [],
   };
 }
 
@@ -333,6 +423,8 @@ export function createEmptyProject(overrides: Partial<Project> = {}): Project {
     settings: overrides.settings ?? { ...DEFAULT_PROJECT_SETTINGS },
     levels: overrides.levels ?? [],
     wallTypes: overrides.wallTypes ?? [],
+    roofLayers: overrides.roofLayers ?? [],
+    roofSketches: overrides.roofSketches ?? [],
     nodes: overrides.nodes ?? [],
     walls: overrides.walls ?? [],
     doors: overrides.doors ?? [],
@@ -351,6 +443,11 @@ export function ensureProjectDefaults(project: Project): Project {
   const levels = project.levels.length > 0 ? [...project.levels] : [createLevel()];
   const wallTypes =
     project.wallTypes.length > 0 ? [...project.wallTypes] : [createWallType()];
+  const roofLayers =
+    project.roofLayers.length > 0
+      ? [...project.roofLayers]
+      : [createRoofLayer({ id: "roof_layer_default", name: "Roofs" })];
+  const roofLayerIds = new Set(roofLayers.map((layer) => layer.id));
 
   return {
     ...project,
@@ -359,6 +456,8 @@ export function ensureProjectDefaults(project: Project): Project {
     settings: { ...DEFAULT_PROJECT_SETTINGS, ...project.settings },
     levels,
     wallTypes,
+    roofLayers,
+    roofSketches: project.roofSketches.filter((sketch) => roofLayerIds.has(sketch.layerId)),
   };
 }
 
@@ -378,6 +477,8 @@ export function describeProject(project: Project) {
   return [
     `${project.levels.length} level(s)`,
     `${project.wallTypes.length} wall type(s)`,
+    `${project.roofLayers.length} roof layer(s)`,
+    `${project.roofSketches.length} roof sketch(es)`,
     `${project.nodes.length} node(s)`,
     `${project.walls.length} wall(s)`,
     `${project.doors.length} door(s)`,

@@ -5,6 +5,7 @@ import {
   createLevel as buildLevel,
   createMeasurement as buildMeasurement,
   createNodeData,
+  createRoofSketch as buildRoofSketch,
   createShape as buildShape,
   createSlab as buildSlab,
   createStair as buildStair,
@@ -23,6 +24,7 @@ import type {
   MeasurementUnit,
   Project,
   ProjectSettings,
+  RoofSketch,
   Shape,
   Slab,
   Stair,
@@ -74,6 +76,8 @@ export type CreateStairInput = Omit<Stair, "id"> & { id?: string };
 export type UpdateStairInput = Partial<Omit<Stair, "id">>;
 export type CreateShapeInput = Omit<Shape, "id"> & { id?: string };
 export type UpdateShapeInput = Partial<Omit<Shape, "id">>;
+export type CreateRoofSketchInput = Omit<RoofSketch, "id"> & { id?: string };
+export type UpdateRoofSketchInput = Partial<Omit<RoofSketch, "id">>;
 export type CreateSlabInput = Omit<Slab, "id" | "roofType" | "roofRiseM"> & {
   id?: string;
   roofType?: Slab["roofType"];
@@ -134,6 +138,15 @@ function expectShape(project: Project, shapeId: string) {
   return shape;
 }
 
+function expectRoofSketch(project: Project, roofSketchId: string) {
+  const roofSketch = project.roofSketches.find((item) => item.id === roofSketchId);
+  if (!roofSketch) {
+    throw new ProjectCommandError(`Roof sketch "${roofSketchId}" does not exist.`);
+  }
+
+  return roofSketch;
+}
+
 function expectSlab(project: Project, slabId: string) {
   const slab = project.slabs.find((item) => item.id === slabId);
   if (!slab) {
@@ -141,6 +154,15 @@ function expectSlab(project: Project, slabId: string) {
   }
 
   return slab;
+}
+
+function expectRoofLayer(project: Project, roofLayerId: string) {
+  const roofLayer = project.roofLayers.find((item) => item.id === roofLayerId);
+  if (!roofLayer) {
+    throw new ProjectCommandError(`Roof layer "${roofLayerId}" does not exist.`);
+  }
+
+  return roofLayer;
 }
 
 function wallHasOpenings(project: Project, wallId: string) {
@@ -276,6 +298,82 @@ function validateStairInput(project: Project, input: Omit<Stair, "id">, labelPre
   if (Math.abs(input.endElevationM - level.elevationM) < 0.0001) {
     throw new ProjectCommandError(`${labelPrefix} end elevation must differ from the host level elevation.`);
   }
+}
+
+function validateRoofSketchInput(project: Project, input: Omit<RoofSketch, "id">, labelPrefix = "Roof sketch") {
+  expectRoofLayer(project, input.layerId);
+  ensureNonEmptyName(input.name, `${labelPrefix} name`);
+  expectFinite(input.baseElevationM, `${labelPrefix} base elevation`);
+  expectPositive(input.thicknessM, `${labelPrefix} thickness`);
+
+  if (input.vertices.length < 2) {
+    throw new ProjectCommandError(`${labelPrefix} must have at least two vertices.`);
+  }
+
+  const vertexIds = new Set(input.vertices.map((vertex) => vertex.id));
+  if (vertexIds.size !== input.vertices.length) {
+    throw new ProjectCommandError(`${labelPrefix} vertices must have unique ids.`);
+  }
+
+  input.vertices.forEach((vertex, index) => {
+    expectFinite(vertex.position.x, `${labelPrefix} vertex ${index + 1} X`);
+    expectFinite(vertex.position.y, `${labelPrefix} vertex ${index + 1} Y`);
+    if (vertex.elevationM !== undefined) {
+      expectFinite(vertex.elevationM, `${labelPrefix} vertex ${index + 1} elevation`);
+    }
+  });
+
+  const edgeIds = new Set(input.edges.map((edge) => edge.id));
+  if (edgeIds.size !== input.edges.length) {
+    throw new ProjectCommandError(`${labelPrefix} edges must have unique ids.`);
+  }
+
+  input.edges.forEach((edge, index) => {
+    if (
+      !vertexIds.has(edge.startVertexId) ||
+      !vertexIds.has(edge.endVertexId) ||
+      edge.startVertexId === edge.endVertexId
+    ) {
+      throw new ProjectCommandError(`${labelPrefix} edge ${index + 1} has invalid vertices.`);
+    }
+  });
+
+  const faceIds = new Set(input.faces.map((face) => face.id));
+  if (faceIds.size !== input.faces.length) {
+    throw new ProjectCommandError(`${labelPrefix} faces must have unique ids.`);
+  }
+
+  const constraintIds = new Set(input.constraints.map((constraint) => constraint.id));
+  if (constraintIds.size !== input.constraints.length) {
+    throw new ProjectCommandError(`${labelPrefix} constraints must have unique ids.`);
+  }
+
+  input.constraints.forEach((constraint, index) => {
+    if (constraint.kind === "VertexHeight" && !vertexIds.has(constraint.vertexId)) {
+      throw new ProjectCommandError(`${labelPrefix} constraint ${index + 1} references an invalid vertex.`);
+    }
+    if (constraint.kind === "EdgeHeight" && !edgeIds.has(constraint.edgeId)) {
+      throw new ProjectCommandError(`${labelPrefix} constraint ${index + 1} references an invalid edge.`);
+    }
+    if (
+      constraint.kind === "FaceSlope" &&
+      (!faceIds.has(constraint.faceId) || !edgeIds.has(constraint.referenceEdgeId))
+    ) {
+      throw new ProjectCommandError(`${labelPrefix} constraint ${index + 1} references invalid face or edge.`);
+    }
+  });
+
+  input.faces.forEach((face, index) => {
+    if (face.vertexIds.length < 3 || face.vertexIds.some((vertexId) => !vertexIds.has(vertexId))) {
+      throw new ProjectCommandError(`${labelPrefix} face ${index + 1} has invalid vertices.`);
+    }
+    if (face.edgeIds.some((edgeId) => !edgeIds.has(edgeId))) {
+      throw new ProjectCommandError(`${labelPrefix} face ${index + 1} has invalid edges.`);
+    }
+    if (face.constraintIds.some((constraintId) => !constraintIds.has(constraintId))) {
+      throw new ProjectCommandError(`${labelPrefix} face ${index + 1} has invalid constraints.`);
+    }
+  });
 }
 
 function hasSameNodePosition(left: Vec2, right: Vec2) {
@@ -1162,6 +1260,83 @@ export function deleteShape(project: Project, shapeId: string) {
   return normalizeProject({
     ...nextProject,
     shapes: nextProject.shapes.filter((shape) => shape.id !== shapeId),
+  });
+}
+
+export function createRoofSketch(project: Project, input: CreateRoofSketchInput) {
+  const nextProject = normalizeProject(project);
+  validateRoofSketchInput(nextProject, input);
+
+  return normalizeProject({
+    ...nextProject,
+    roofSketches: [
+      ...nextProject.roofSketches,
+      buildRoofSketch({
+        ...input,
+        vertices: input.vertices.map((vertex) => ({ ...vertex, position: { ...vertex.position } })),
+        edges: input.edges.map((edge) => ({ ...edge })),
+        faces: input.faces.map((face) => ({
+          ...face,
+          vertexIds: [...face.vertexIds],
+          edgeIds: [...face.edgeIds],
+          constraintIds: [...face.constraintIds],
+        })),
+        constraints: input.constraints.map((constraint) => ({ ...constraint })),
+      }),
+    ],
+  });
+}
+
+export function updateRoofSketch(
+  project: Project,
+  roofSketchId: string,
+  patch: UpdateRoofSketchInput,
+) {
+  const nextProject = normalizeProject(project);
+  const currentRoofSketch = expectRoofSketch(nextProject, roofSketchId);
+  const candidate: Omit<RoofSketch, "id"> = {
+    layerId: patch.layerId ?? currentRoofSketch.layerId,
+    name: patch.name ?? currentRoofSketch.name,
+    baseElevationM: patch.baseElevationM ?? currentRoofSketch.baseElevationM,
+    thicknessM: patch.thicknessM ?? currentRoofSketch.thicknessM,
+    vertices: (patch.vertices ?? currentRoofSketch.vertices).map((vertex) => ({
+      ...vertex,
+      position: { ...vertex.position },
+    })),
+    edges: (patch.edges ?? currentRoofSketch.edges).map((edge) => ({ ...edge })),
+    faces: (patch.faces ?? currentRoofSketch.faces).map((face) => ({
+      ...face,
+      vertexIds: [...face.vertexIds],
+      edgeIds: [...face.edgeIds],
+      constraintIds: [...face.constraintIds],
+    })),
+    constraints: (patch.constraints ?? currentRoofSketch.constraints).map((constraint) => ({
+      ...constraint,
+    })),
+  };
+
+  validateRoofSketchInput(nextProject, candidate);
+
+  return normalizeProject({
+    ...nextProject,
+    roofSketches: nextProject.roofSketches.map((roofSketch) =>
+      roofSketch.id === roofSketchId
+        ? {
+            ...currentRoofSketch,
+            ...candidate,
+          }
+        : roofSketch,
+    ),
+  });
+}
+
+export function deleteRoofSketch(project: Project, roofSketchId: string) {
+  const nextProject = normalizeProject(project);
+  expectRoofSketch(nextProject, roofSketchId);
+
+  return normalizeProject({
+    ...nextProject,
+    roofSketches: nextProject.roofSketches.filter((roofSketch) => roofSketch.id !== roofSketchId),
   });
 }
 

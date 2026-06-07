@@ -8,6 +8,8 @@ import {
   createMeasurement,
   createNodeData,
   createPose2D,
+  createRoofLayer,
+  createRoofSketch,
   createShape,
   createSlab,
   createStair,
@@ -25,6 +27,14 @@ import type {
   NodeData,
   Project,
   ProjectSettings,
+  RoofConstraint,
+  RoofEdge,
+  RoofEdgeRole,
+  RoofFaceDefinition,
+  RoofLayer,
+  RoofSketch,
+  RoofVertex,
+  RoofVertexElevationMode,
   RoofType,
   Shape,
   ShapeKind,
@@ -36,7 +46,15 @@ import type {
   WallType,
   WindowOpening,
 } from "./project-model";
-import { projectSchema, roofTypeSchema, shapeKindSchema, slabKindSchema, wallTopModeSchema } from "./project-schemas";
+import {
+  projectSchema,
+  roofEdgeRoleSchema,
+  roofTypeSchema,
+  roofVertexElevationModeSchema,
+  shapeKindSchema,
+  slabKindSchema,
+  wallTopModeSchema,
+} from "./project-schemas";
 
 const finiteNumberInputSchema = z.coerce.number().finite();
 const booleanInputSchema = z.boolean();
@@ -325,6 +343,248 @@ function parseWallTypes(
   }
 
   return wallTypes;
+}
+
+function parseRoofLayers(data: unknown, warnings: string[]) {
+  const roofLayers: RoofLayer[] = [];
+
+  for (const [index, item] of asArray(data).entries()) {
+    const source = asObject(item);
+    if (!source) {
+      warnings.push(`roofLayers[${index}]: skipped invalid roof layer entry.`);
+      continue;
+    }
+
+    roofLayers.push(
+      createRoofLayer({
+        id: pickString(source, "id") ?? createId("roof_layer"),
+        name: pickString(source, "name") ?? `Roof Layer ${index + 1}`,
+        visible2D: pickBoolean(source, "visible2D", "visible_2d") ?? true,
+        visible3D: pickBoolean(source, "visible3D", "visible_3d") ?? true,
+      }),
+    );
+  }
+
+  if (roofLayers.length === 0) {
+    roofLayers.push(createRoofLayer({ id: "roof_layer_default", name: "Roofs" }));
+  }
+
+  return roofLayers;
+}
+
+function parseRoofConstraints(data: unknown, warnings: string[], itemLabel: string) {
+  const constraints: RoofConstraint[] = [];
+
+  for (const [index, value] of asArray(data).entries()) {
+    const source = asObject(value);
+    if (!source) {
+      warnings.push(`${itemLabel}.constraints[${index}]: skipped invalid constraint.`);
+      continue;
+    }
+
+    const kind = pickString(source, "kind");
+    if (kind === "VertexHeight") {
+      const vertexId = pickString(source, "vertexId", "vertex_id");
+      const elevationM = pickNumber(source, "elevationM", "elevation_m", "heightM", "height_m");
+      if (!vertexId || elevationM === undefined) {
+        warnings.push(`${itemLabel}.constraints[${index}]: skipped invalid vertex height constraint.`);
+        continue;
+      }
+
+      constraints.push({ kind, id: pickString(source, "id") ?? createId("roof_constraint"), vertexId, elevationM });
+      continue;
+    }
+
+    if (kind === "EdgeHeight") {
+      const edgeId = pickString(source, "edgeId", "edge_id");
+      const elevationM = pickNumber(source, "elevationM", "elevation_m", "heightM", "height_m");
+      if (!edgeId || elevationM === undefined) {
+        warnings.push(`${itemLabel}.constraints[${index}]: skipped invalid edge height constraint.`);
+        continue;
+      }
+
+      constraints.push({ kind, id: pickString(source, "id") ?? createId("roof_constraint"), edgeId, elevationM });
+      continue;
+    }
+
+    if (kind === "FaceSlope") {
+      const faceId = pickString(source, "faceId", "face_id");
+      const referenceEdgeId = pickString(source, "referenceEdgeId", "reference_edge_id");
+      const angleDeg = pickNumber(source, "angleDeg", "angle_deg", "slopeDeg", "slope_deg");
+      const rawDirection = pickString(source, "direction");
+      const direction = rawDirection === "TowardReference" ? "TowardReference" : "AwayFromReference";
+      if (!faceId || !referenceEdgeId || angleDeg === undefined) {
+        warnings.push(`${itemLabel}.constraints[${index}]: skipped invalid face slope constraint.`);
+        continue;
+      }
+
+      constraints.push({
+        kind,
+        id: pickString(source, "id") ?? createId("roof_constraint"),
+        faceId,
+        referenceEdgeId,
+        angleDeg,
+        direction,
+      });
+      continue;
+    }
+
+    warnings.push(`${itemLabel}.constraints[${index}]: skipped unsupported constraint kind.`);
+  }
+
+  return constraints;
+}
+
+function parseRoofSketches(
+  data: unknown,
+  roofLayerIds: string[],
+  warnings: string[],
+) {
+  const roofSketches: RoofSketch[] = [];
+  const fallbackLayerId = roofLayerIds[0] ?? "roof_layer_default";
+
+  for (const [index, item] of asArray(data).entries()) {
+    const source = asObject(item);
+    const itemLabel = `roofSketches[${index}]`;
+    if (!source) {
+      warnings.push(`${itemLabel}: skipped invalid roof sketch entry.`);
+      continue;
+    }
+
+    const vertices: RoofVertex[] = [];
+    for (const [vertexIndex, vertexValue] of asArray(source.vertices).entries()) {
+      const vertexSource = asObject(vertexValue);
+      if (!vertexSource) {
+        warnings.push(`${itemLabel}.vertices[${vertexIndex}]: skipped invalid vertex.`);
+        continue;
+      }
+
+      const position = pickVec2(vertexSource);
+      if (!position) {
+        warnings.push(`${itemLabel}.vertices[${vertexIndex}]: skipped vertex without coordinates.`);
+        continue;
+      }
+
+      const elevationMode =
+        pickParsedValue(
+          vertexSource,
+          (value) => {
+            const parsed = roofVertexElevationModeSchema.safeParse(value);
+            return parsed.success ? parsed.data : undefined;
+          },
+          "elevationMode",
+          "elevation_mode",
+        ) ?? ("Explicit" satisfies RoofVertexElevationMode);
+      const elevationM = pickNumber(vertexSource, "elevationM", "elevation_m", "heightM", "height_m");
+      vertices.push({
+        id: pickString(vertexSource, "id") ?? createId("roof_vertex"),
+        position,
+        elevationMode,
+        elevationM,
+      });
+    }
+
+    const vertexIds = new Set(vertices.map((vertex) => vertex.id));
+    const edges: RoofEdge[] = [];
+    for (const [edgeIndex, edgeValue] of asArray(source.edges).entries()) {
+      const edgeSource = asObject(edgeValue);
+      if (!edgeSource) {
+        warnings.push(`${itemLabel}.edges[${edgeIndex}]: skipped invalid edge.`);
+        continue;
+      }
+
+      const startVertexId = pickString(edgeSource, "startVertexId", "start_vertex_id", "start");
+      const endVertexId = pickString(edgeSource, "endVertexId", "end_vertex_id", "end");
+      if (!startVertexId || !endVertexId || !vertexIds.has(startVertexId) || !vertexIds.has(endVertexId)) {
+        warnings.push(`${itemLabel}.edges[${edgeIndex}]: skipped edge with invalid vertices.`);
+        continue;
+      }
+
+      const role =
+        pickParsedValue(
+          edgeSource,
+          (value) => {
+            const parsed = roofEdgeRoleSchema.safeParse(value);
+            return parsed.success ? parsed.data : undefined;
+          },
+          "role",
+        ) ?? ("Generic" satisfies RoofEdgeRole);
+      edges.push({
+        id: pickString(edgeSource, "id") ?? createId("roof_edge"),
+        startVertexId,
+        endVertexId,
+        role,
+      });
+    }
+
+    const edgeIds = new Set(edges.map((edge) => edge.id));
+    const constraints = parseRoofConstraints(source.constraints, warnings, itemLabel);
+    const constraintIds = new Set(constraints.map((constraint) => constraint.id));
+    const faces: RoofFaceDefinition[] = [];
+    for (const [faceIndex, faceValue] of asArray(source.faces).entries()) {
+      const faceSource = asObject(faceValue);
+      if (!faceSource) {
+        warnings.push(`${itemLabel}.faces[${faceIndex}]: skipped invalid face.`);
+        continue;
+      }
+
+      const ids = asArray(faceSource.vertexIds ?? faceSource.vertex_ids)
+        .map((value) => nonEmptyStringInputSchema.safeParse(value))
+        .filter((parsed): parsed is z.ZodSafeParseSuccess<string> => parsed.success)
+        .map((parsed) => parsed.data);
+      const faceEdgeIds = asArray(faceSource.edgeIds ?? faceSource.edge_ids)
+        .map((value) => nonEmptyStringInputSchema.safeParse(value))
+        .filter((parsed): parsed is z.ZodSafeParseSuccess<string> => parsed.success)
+        .map((parsed) => parsed.data)
+        .filter((id) => edgeIds.has(id));
+      const faceConstraintIds = asArray(faceSource.constraintIds ?? faceSource.constraint_ids)
+        .map((value) => nonEmptyStringInputSchema.safeParse(value))
+        .filter((parsed): parsed is z.ZodSafeParseSuccess<string> => parsed.success)
+        .map((parsed) => parsed.data)
+        .filter((id) => constraintIds.has(id));
+
+      if (ids.length < 3 || ids.some((id) => !vertexIds.has(id))) {
+        warnings.push(`${itemLabel}.faces[${faceIndex}]: skipped face with invalid vertices.`);
+        continue;
+      }
+
+      faces.push({
+        id: pickString(faceSource, "id") ?? createId("roof_face"),
+        vertexIds: ids,
+        edgeIds: faceEdgeIds,
+        constraintIds: faceConstraintIds,
+      });
+    }
+
+    const thicknessM = pickNumber(source, "thicknessM", "thickness_m", "thickness") ?? 0.2;
+    if (vertices.length < 2 || edges.length === 0 || thicknessM <= 0) {
+      warnings.push(`${itemLabel}: skipped roof sketch with insufficient geometry.`);
+      continue;
+    }
+
+    roofSketches.push(
+      createRoofSketch({
+        id: pickString(source, "id") ?? createId("roof"),
+        name: pickString(source, "name") ?? `roof_${index + 1}`,
+        layerId: resolveReference(
+          source.layerId ?? source.layer_id ?? source.layer,
+          roofLayerIds,
+          fallbackLayerId,
+          "roof layer",
+          warnings,
+          itemLabel,
+        ),
+        baseElevationM: pickNumber(source, "baseElevationM", "base_elevation_m", "base_elevation") ?? 0,
+        thicknessM,
+        vertices,
+        edges,
+        faces,
+        constraints,
+      }),
+    );
+  }
+
+  return roofSketches;
 }
 
 function parseNodes(data: unknown, levelIds: string[], warnings: string[]) {
@@ -1092,6 +1352,55 @@ function parseMeasurements(data: unknown, levelIds: string[], warnings: string[]
 function repairProject(project: Project, warnings: string[]) {
   const levelIds = new Set(project.levels.map((level) => level.id));
   const wallTypeIds = new Set(project.wallTypes.map((wallType) => wallType.id));
+  const roofLayerIds = new Set(project.roofLayers.map((roofLayer) => roofLayer.id));
+
+  project.roofSketches = project.roofSketches.filter((sketch) => {
+    const vertexIds = new Set(sketch.vertices.map((vertex) => vertex.id));
+    const edgeIds = new Set(sketch.edges.map((edge) => edge.id));
+    const constraintIds = new Set(sketch.constraints.map((constraint) => constraint.id));
+    const hasValidLayer = roofLayerIds.has(sketch.layerId);
+    const hasValidDimensions = sketch.thicknessM > 0 && Number.isFinite(sketch.baseElevationM);
+    const hasValidEdges = sketch.edges.every(
+      (edge) =>
+        vertexIds.has(edge.startVertexId) &&
+        vertexIds.has(edge.endVertexId) &&
+        edge.startVertexId !== edge.endVertexId,
+    );
+    const hasValidConstraints = sketch.constraints.every((constraint) => {
+      if (constraint.kind === "VertexHeight") {
+        return vertexIds.has(constraint.vertexId);
+      }
+      if (constraint.kind === "EdgeHeight") {
+        return edgeIds.has(constraint.edgeId);
+      }
+      return (
+        edgeIds.has(constraint.referenceEdgeId) &&
+        sketch.faces.some((face) => face.id === constraint.faceId)
+      );
+    });
+    const hasValidFaces = sketch.faces.every(
+      (face) =>
+        face.vertexIds.length >= 3 &&
+        face.vertexIds.every((vertexId) => vertexIds.has(vertexId)) &&
+        face.edgeIds.every((edgeId) => edgeIds.has(edgeId)) &&
+        face.constraintIds.every((constraintId) => constraintIds.has(constraintId)),
+    );
+
+    const isValid =
+      hasValidLayer &&
+      hasValidDimensions &&
+      sketch.vertices.length >= 2 &&
+      sketch.edges.length > 0 &&
+      hasValidEdges &&
+      hasValidConstraints &&
+      hasValidFaces;
+
+    if (!isValid) {
+      warnings.push(`roofSketches: dropped roof sketch "${sketch.id}" with invalid data.`);
+    }
+
+    return isValid;
+  });
 
   project.nodes = project.nodes.filter((node) => levelIds.has(node.levelId));
   const nodeIds = new Set(project.nodes.map((node) => node.id));
@@ -1279,11 +1588,14 @@ export function parseProjectData(data: unknown): ProjectParseResult {
   const settings = parseSettings(root.settings, warnings);
   const levels = parseLevels(root.levels, warnings);
   const wallTypes = parseWallTypes(root.wallTypes ?? root.wall_types, root.settings, warnings);
+  const roofLayers = parseRoofLayers(root.roofLayers ?? root.roof_layers, warnings);
   const projectBase = ensureProjectDefaults({
     projectName: pickString(root, "projectName", "project_name", "name") ?? "WaWoD Studio",
     settings,
     levels,
     wallTypes,
+    roofLayers,
+    roofSketches: [],
     nodes: [],
     walls: [],
     doors: [],
@@ -1297,10 +1609,17 @@ export function parseProjectData(data: unknown): ProjectParseResult {
 
   ensureUniqueIds(projectBase.levels, "level", "levels", warnings);
   ensureUniqueIds(projectBase.wallTypes, "wall_type", "wallTypes", warnings);
+  ensureUniqueIds(projectBase.roofLayers, "roof_layer", "roofLayers", warnings);
 
   const levelIds = projectBase.levels.map((level) => level.id);
   const wallTypeIds = projectBase.wallTypes.map((wallType) => wallType.id);
+  const roofLayerIds = projectBase.roofLayers.map((roofLayer) => roofLayer.id);
 
+  projectBase.roofSketches = parseRoofSketches(
+    root.roofSketches ?? root.roof_sketches,
+    roofLayerIds,
+    warnings,
+  );
   projectBase.nodes = parseNodes(root.nodes, levelIds, warnings);
   ensureUniqueIds(projectBase.nodes, "node", "nodes", warnings);
 
@@ -1335,6 +1654,7 @@ export function parseProjectData(data: unknown): ProjectParseResult {
   ensureUniqueIds(projectBase.stairs, "stair", "stairs", warnings);
   ensureUniqueIds(projectBase.shapes, "shape", "shapes", warnings);
   ensureUniqueIds(projectBase.slabs, "slab", "slabs", warnings);
+  ensureUniqueIds(projectBase.roofSketches, "roof", "roofSketches", warnings);
   ensureUniqueIds(projectBase.externalModels, "model", "externalModels", warnings);
   ensureUniqueIds(projectBase.measurements, "measure", "measurements", warnings);
 

@@ -9,7 +9,15 @@ import type {
   Pose2D,
   Project,
   ProjectSettings,
+  RoofConstraint,
+  RoofEdge,
+  RoofEdgeRole,
+  RoofFaceDefinition,
+  RoofLayer,
+  RoofSketch,
   RoofType,
+  RoofVertex,
+  RoofVertexElevationMode,
   Shape,
   ShapeKind,
   Slab,
@@ -32,6 +40,8 @@ export const slabKindSchema = z.enum(["Rectangle", "Circle"]) satisfies z.ZodTyp
 export const roofTypeSchema = z.enum(["Flat", "Gable", "Shed", "Hip"]) satisfies z.ZodType<RoofType>;
 export const wallTopModeSchema = z.enum(["FixedHeight", "FollowRoof"]) satisfies z.ZodType<WallTopMode>;
 export const measurementUnitSchema = z.enum(["cm", "dm", "m"]) satisfies z.ZodType<MeasurementUnit>;
+export const roofVertexElevationModeSchema = z.enum(["Explicit", "Computed"]) satisfies z.ZodType<RoofVertexElevationMode>;
+export const roofEdgeRoleSchema = z.enum(["Generic", "LowerEave", "UpperEave", "Ridge", "Hip", "Valley"]) satisfies z.ZodType<RoofEdgeRole>;
 export const doorDesign3DKindSchema = z.enum(["Normal", "Garage"]);
 export const door3DOpenStateSchema = z.enum(["Closed", "Open"]);
 export const door3DHingeSideSchema = z.enum(["Left", "Right"]);
@@ -69,6 +79,69 @@ export const wallTypeSchema = z.object({
   thicknessM: positiveNumberSchema,
   heightM: positiveNumberSchema,
 }) satisfies z.ZodType<WallType>;
+
+export const roofLayerSchema = z.object({
+  id: nonEmptyStringSchema,
+  name: nonEmptyStringSchema,
+  visible2D: z.boolean(),
+  visible3D: z.boolean(),
+}) satisfies z.ZodType<RoofLayer>;
+
+export const roofVertexSchema = z.object({
+  id: nonEmptyStringSchema,
+  position: vec2Schema,
+  elevationMode: roofVertexElevationModeSchema,
+  elevationM: finiteNumberSchema.optional(),
+}) satisfies z.ZodType<RoofVertex>;
+
+export const roofEdgeSchema = z.object({
+  id: nonEmptyStringSchema,
+  startVertexId: nonEmptyStringSchema,
+  endVertexId: nonEmptyStringSchema,
+  role: roofEdgeRoleSchema,
+}) satisfies z.ZodType<RoofEdge>;
+
+export const roofConstraintSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("VertexHeight"),
+    id: nonEmptyStringSchema,
+    vertexId: nonEmptyStringSchema,
+    elevationM: finiteNumberSchema,
+  }),
+  z.object({
+    kind: z.literal("EdgeHeight"),
+    id: nonEmptyStringSchema,
+    edgeId: nonEmptyStringSchema,
+    elevationM: finiteNumberSchema,
+  }),
+  z.object({
+    kind: z.literal("FaceSlope"),
+    id: nonEmptyStringSchema,
+    faceId: nonEmptyStringSchema,
+    angleDeg: finiteNumberSchema,
+    referenceEdgeId: nonEmptyStringSchema,
+    direction: z.enum(["AwayFromReference", "TowardReference"]),
+  }),
+]) satisfies z.ZodType<RoofConstraint>;
+
+export const roofFaceDefinitionSchema = z.object({
+  id: nonEmptyStringSchema,
+  vertexIds: z.array(nonEmptyStringSchema).min(3),
+  edgeIds: z.array(nonEmptyStringSchema),
+  constraintIds: z.array(nonEmptyStringSchema),
+}) satisfies z.ZodType<RoofFaceDefinition>;
+
+export const roofSketchSchema = z.object({
+  id: nonEmptyStringSchema,
+  name: nonEmptyStringSchema,
+  layerId: nonEmptyStringSchema,
+  baseElevationM: finiteNumberSchema,
+  thicknessM: positiveNumberSchema,
+  vertices: z.array(roofVertexSchema).min(2),
+  edges: z.array(roofEdgeSchema),
+  faces: z.array(roofFaceDefinitionSchema),
+  constraints: z.array(roofConstraintSchema),
+}) satisfies z.ZodType<RoofSketch>;
 
 export const nodeDataSchema = z.object({
   id: nonEmptyStringSchema,
@@ -188,6 +261,8 @@ export const projectSchema = z.object({
   settings: projectSettingsSchema,
   levels: z.array(levelSchema).min(1),
   wallTypes: z.array(wallTypeSchema).min(1),
+  roofLayers: z.array(roofLayerSchema).min(1),
+  roofSketches: z.array(roofSketchSchema),
   nodes: z.array(nodeDataSchema),
   walls: z.array(wallSchema),
   doors: z.array(doorOpeningSchema),

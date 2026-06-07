@@ -58,7 +58,7 @@ interface ViewportSceneProps {
   onCreateStair: (pathNodes: Vec2[]) => void;
   onCreateShapeAt: (input: Vec2 & { sizeM?: number }) => void;
   onCreateSlabAt: (input: Vec2 & { widthM?: number; depthM?: number }) => void;
-  onCreateRoofAt: (input: Vec2 & { widthM?: number; depthM?: number }) => void;
+  onCreateRoofLine: (start: Vec2, end: Vec2) => void;
   onCreateExternalModelAt: (position: Vec2) => void;
   onCreateWallBetweenNodes: (startNodeId: string, endNodeId: string) => void;
   onCreateWallByDrag: (input: {
@@ -83,6 +83,7 @@ interface ViewportSceneProps {
   onMoveWindow: (windowId: string, position: Vec2) => void;
   onMoveShape: (shapeId: string, position: Vec2) => void;
   onMoveSlab: (slabId: string, position: Vec2) => void;
+  onMoveRoofEdge: (roofEdgeId: string, position: Vec2) => void;
   onMoveExternalModel: (modelId: string, position: Vec2) => void;
   measureToolUnit: MeasurementUnit;
   measureToolPermanent: boolean;
@@ -98,12 +99,12 @@ interface PanDragState {
 interface MoveDragState {
   kind: "move";
   pointerId: number;
-  anchorEntityKind: "node" | "door" | "window" | "shape" | "slab" | "externalModel";
+  anchorEntityKind: "node" | "door" | "window" | "shape" | "slab" | "roofEdge" | "externalModel";
   anchorEntityId: string;
   anchorStartPosition: Vec2;
   startPointerWorld: Vec2;
   items: Array<{
-    entityKind: "node" | "door" | "window" | "shape" | "slab" | "externalModel";
+    entityKind: "node" | "door" | "window" | "shape" | "slab" | "roofEdge" | "externalModel";
     entityId: string;
     startPosition: Vec2;
   }>;
@@ -137,6 +138,12 @@ type PlacementDraftState =
     }
   | {
       kind: "measure";
+      pointerId: number;
+      startWorld: Vec2;
+      currentWorld: Vec2;
+    }
+  | {
+      kind: "roofLine";
       pointerId: number;
       startWorld: Vec2;
       currentWorld: Vec2;
@@ -223,6 +230,7 @@ function isEntityInteractiveForTool(
     | "stair"
     | "shape"
     | "slab"
+    | "roofEdge"
     | "externalModel",
 ) {
   switch (activeTool) {
@@ -245,7 +253,7 @@ function isEntityInteractiveForTool(
     case "Slab":
       return entityKind === "slab";
     case "Roof":
-      return entityKind === "slab";
+      return entityKind === "roofEdge";
     case "Model":
       return entityKind === "externalModel";
   }
@@ -384,6 +392,26 @@ function getCurrentEntityPosition(
       return project.shapes.find((item) => item.id === entityId)?.pose.position ?? null;
     case "slab":
       return project.slabs.find((item) => item.id === entityId)?.pose.position ?? null;
+    case "roofEdge": {
+      const sketch = project.roofSketches.find((candidate) =>
+        candidate.edges.some((edge) => edge.id === entityId),
+      );
+      const edge = sketch?.edges.find((candidate) => candidate.id === entityId);
+      const startVertex =
+        sketch && edge
+          ? sketch.vertices.find((vertex) => vertex.id === edge.startVertexId)
+          : null;
+      const endVertex =
+        sketch && edge
+          ? sketch.vertices.find((vertex) => vertex.id === edge.endVertexId)
+          : null;
+      return startVertex && endVertex
+        ? createVec2(
+            (startVertex.position.x + endVertex.position.x) / 2,
+            (startVertex.position.y + endVertex.position.y) / 2,
+          )
+        : null;
+    }
     case "externalModel":
       return project.externalModels.find((item) => item.id === entityId)?.position ?? null;
   }
@@ -603,7 +631,7 @@ export function ViewportScene({
   onCreateStair,
   onCreateShapeAt,
   onCreateSlabAt,
-  onCreateRoofAt,
+  onCreateRoofLine,
   onCreateExternalModelAt,
   onCreateWallBetweenNodes,
   onCreateWallByDrag,
@@ -625,6 +653,7 @@ export function ViewportScene({
   onMoveWindow,
   onMoveShape,
   onMoveSlab,
+  onMoveRoofEdge,
   onMoveExternalModel,
   measureToolUnit,
   measureToolPermanent,
@@ -680,7 +709,7 @@ export function ViewportScene({
 
     function handleNativePlacementToolPointerDown(event: PointerEvent) {
       if (
-        !activeLevelId ||
+        (!activeLevelId && activeTool !== "Roof") ||
         (activeTool !== "Node" &&
           activeTool !== "Wall" &&
           activeTool !== "Measure" &&
@@ -712,6 +741,8 @@ export function ViewportScene({
         target instanceof Element ? target.closest<SVGElement>("[data-shape-id]") : null;
       const slabElement =
         target instanceof Element ? target.closest<SVGElement>("[data-slab-id]") : null;
+      const roofEdgeElement =
+        target instanceof Element ? target.closest<SVGElement>("[data-roof-edge-id]") : null;
       const modelElement =
         target instanceof Element ? target.closest<SVGElement>("[data-model-id]") : null;
 
@@ -1025,7 +1056,24 @@ export function ViewportScene({
         return;
       }
 
-      if (event.button !== 0 || isViewportEntityTarget(target)) {
+      if (activeTool === "Roof" && event.button === 0 && !isViewportEntityTarget(target)) {
+        event.preventDefault();
+        suppressClickRef.current = true;
+        rootElement.setPointerCapture(event.pointerId);
+        setPlacementDraft({
+          kind: "roofLine",
+          pointerId: event.pointerId,
+          startWorld: nextPosition,
+          currentWorld: nextPosition,
+        });
+        return;
+      }
+
+      if (activeTool === "Roof" && event.button === 0 && roofEdgeElement) {
+        return;
+      }
+
+      if (event.button !== 0 || (isViewportEntityTarget(target) && !roofEdgeElement)) {
         return;
       }
 
@@ -1042,7 +1090,7 @@ export function ViewportScene({
         return;
       }
 
-      if (activeTool === "Slab" || activeTool === "Roof") {
+      if (activeTool === "Slab") {
         rootElement.setPointerCapture(event.pointerId);
         setPlacementDraft({
           kind: "slab",
@@ -1053,7 +1101,9 @@ export function ViewportScene({
         return;
       }
 
-      onCreateExternalModelAt(nextPosition);
+      if (activeTool === "Model") {
+        onCreateExternalModelAt(nextPosition);
+      }
     }
 
     rootElement.addEventListener("pointerdown", handleNativePlacementToolPointerDown, true);
@@ -1072,7 +1122,7 @@ export function ViewportScene({
     onCreateNodeAt,
     onCreateShapeAt,
     onCreateSlabAt,
-    onCreateRoofAt,
+    onCreateRoofLine,
     onDeleteDoor,
     onDeleteWindow,
     onDeleteMeasurement,
@@ -1159,7 +1209,7 @@ export function ViewportScene({
     placementDraft !== null
       ? placementDraft.kind === "shape"
         ? getSquarePlacementBounds(placementDraft.startWorld, placementDraft.currentWorld)
-        : placementDraft.kind === "slab" && activeTool !== "Roof" && slabMode === "Circle"
+        : placementDraft.kind === "slab" && slabMode === "Circle"
           ? null
         : placementDraft.kind === "slab"
             ? getPlacementBounds(placementDraft.startWorld, placementDraft.currentWorld)
@@ -1175,6 +1225,7 @@ export function ViewportScene({
   const nodePlacementDraft = placementDraft?.kind === "node" ? placementDraft : null;
   const wallPlacementDraft = placementDraft?.kind === "wall" ? placementDraft : null;
   const measurePlacementDraft = placementDraft?.kind === "measure" ? placementDraft : null;
+  const roofLinePlacementDraft = placementDraft?.kind === "roofLine" ? placementDraft : null;
   const stairToolWidthPx = Math.max(stairToolWidthM, 0.3) * projectScale(metrics);
 
   function consumeSuppressedClick() {
@@ -1247,7 +1298,7 @@ export function ViewportScene({
   }
 
   function getMoveSelectionItems(
-    anchorEntityKind: "node" | "door" | "window" | "shape" | "slab" | "externalModel",
+    anchorEntityKind: "node" | "door" | "window" | "shape" | "slab" | "roofEdge" | "externalModel",
     anchorEntityId: string,
     anchorEntityPosition: Vec2,
   ): MoveDragItem[] {
@@ -1289,6 +1340,12 @@ export function ViewportScene({
         }
         case "measure":
           return [];
+        case "roofEdge": {
+          const position = getCurrentEntityPosition(project, "roofEdge", selection.id);
+          return position
+            ? [{ entityKind: "roofEdge" as const, entityId: selection.id, startPosition: position }]
+            : [];
+        }
         case "stair":
           return [];
         case "shape": {
@@ -1519,6 +1576,10 @@ export function ViewportScene({
           onMoveSlab(item.entityId, nextPosition);
           movedAny = true;
           break;
+        case "roofEdge":
+          onMoveRoofEdge(item.entityId, nextPosition);
+          movedAny = true;
+          break;
         case "externalModel":
           onMoveExternalModel(item.entityId, nextPosition);
           movedAny = true;
@@ -1610,6 +1671,20 @@ export function ViewportScene({
         return;
       }
 
+      if (placementDraft.kind === "roofLine") {
+        const distanceM = Math.hypot(
+          placementDraft.currentWorld.x - placementDraft.startWorld.x,
+          placementDraft.currentWorld.y - placementDraft.startWorld.y,
+        );
+
+        if (distanceM >= 0.0001) {
+          onCreateRoofLine(placementDraft.startWorld, placementDraft.currentWorld);
+        }
+
+        setPlacementDraft(null);
+        return;
+      }
+
       const minimumSizeM = project.settings.snapToGrid
         ? project.settings.gridSpacingM
         : 0.2;
@@ -1640,7 +1715,7 @@ export function ViewportScene({
           placementDraft.startWorld,
           placementDraft.currentWorld,
         );
-        (activeTool === "Roof" ? onCreateRoofAt : onCreateSlabAt)({
+        onCreateSlabAt({
           x: bounds.centerWorld.x,
           y: bounds.centerWorld.y,
           widthM: Math.max(bounds.widthM, minimumSizeM),
@@ -2510,6 +2585,147 @@ export function ViewportScene({
     );
   }
 
+  function renderRoofSketchFaces() {
+    return project.roofSketches.flatMap((sketch) => {
+      const vertexById = new Map(sketch.vertices.map((vertex) => [vertex.id, vertex] as const));
+
+      return sketch.faces.map((face) => {
+        const points = face.vertexIds
+          .map((vertexId) => vertexById.get(vertexId)?.position ?? null)
+          .filter((point): point is Vec2 => point !== null);
+        if (points.length < 3) {
+          return null;
+        }
+
+        return (
+          <path
+            key={face.id}
+            pointerEvents="none"
+            d={`${createSvgPathFromPoints(points, metrics)} Z`}
+            fill="rgba(201, 129, 77, 0.16)"
+            stroke="rgba(201, 129, 77, 0.42)"
+            strokeWidth={1.5}
+            strokeLinejoin="round"
+          />
+        );
+      });
+    });
+  }
+
+  function renderRoofSketchEdges() {
+    return project.roofSketches.flatMap((sketch) => {
+      const vertexById = new Map(sketch.vertices.map((vertex) => [vertex.id, vertex] as const));
+
+      return sketch.edges.map((edge) => {
+        const start = vertexById.get(edge.startVertexId);
+        const end = vertexById.get(edge.endVertexId);
+        if (!start || !end) {
+          return null;
+        }
+
+        const startScreen = worldToScreen(start.position, metrics);
+        const endScreen = worldToScreen(end.position, metrics);
+        const selected =
+          isSelected(currentSelection, "roofEdge", edge.id) ||
+          isIncludedInSelectionSet(selectionSet, "roofEdge", edge.id);
+        const label = `${(((start.elevationM ?? sketch.baseElevationM) + (end.elevationM ?? sketch.baseElevationM)) / 2).toFixed(2)} m`;
+        const midpoint = {
+          x: (startScreen.x + endScreen.x) / 2,
+          y: (startScreen.y + endScreen.y) / 2,
+        };
+        const worldMidpoint = createVec2(
+          (start.position.x + end.position.x) / 2,
+          (start.position.y + end.position.y) / 2,
+        );
+        const labelWidth = label.length * 6.4 + 14;
+
+        return (
+          <g
+            key={edge.id}
+            data-viewport-entity="roofEdge"
+            data-roof-edge-id={edge.id}
+            pointerEvents={activeTool === "Roof" || activeTool === "Move" ? "auto" : "none"}
+            onPointerDown={(event) =>
+              startMoveDrag(event, "roofEdge", edge.id, worldMidpoint, true)
+            }
+            onClick={(event) => {
+              if (consumeSuppressedClick()) {
+                event.stopPropagation();
+                return;
+              }
+
+              event.stopPropagation();
+              const selection = { kind: "roofEdge" as const, id: edge.id };
+              const isAlreadySelected = isIncludedInSelectionSet(selectionSet, "roofEdge", edge.id);
+              const nextSelectionSet = isAlreadySelected
+                ? selectionSet.filter(
+                    (item) => !(item.kind === "roofEdge" && item.id === edge.id),
+                  )
+                : [...selectionSet.filter((item) => item.kind === "roofEdge"), selection];
+              onSelectionSetChange(nextSelectionSet, selection);
+            }}
+          >
+            <line
+              x1={startScreen.x}
+              y1={startScreen.y}
+              x2={endScreen.x}
+              y2={endScreen.y}
+              stroke={selected ? "#ffd166" : "#d9965a"}
+              strokeWidth={selected ? 5 : 3}
+              strokeLinecap="round"
+            />
+            <line
+              x1={startScreen.x}
+              y1={startScreen.y}
+              x2={endScreen.x}
+              y2={endScreen.y}
+              stroke="transparent"
+              strokeWidth={16}
+              strokeLinecap="round"
+            />
+            <circle
+              cx={startScreen.x}
+              cy={startScreen.y}
+              r={selected ? 5 : 4}
+              fill={selected ? "#ffe0a1" : "#f1b879"}
+              stroke="#7f4a26"
+              strokeWidth={1.5}
+            />
+            <circle
+              cx={endScreen.x}
+              cy={endScreen.y}
+              r={selected ? 5 : 4}
+              fill={selected ? "#ffe0a1" : "#f1b879"}
+              stroke="#7f4a26"
+              strokeWidth={1.5}
+            />
+            <g transform={`translate(${midpoint.x + 8} ${midpoint.y - 8})`}>
+              <rect
+                x={0}
+                y={-16}
+                width={labelWidth}
+                height={22}
+                rx={8}
+                fill="rgba(8, 12, 22, 0.82)"
+                stroke="rgba(217, 150, 90, 0.44)"
+                strokeWidth={1}
+              />
+              <text
+                x={7}
+                y={-1}
+                fill="#f8f6f2"
+                fontSize={11}
+                fontFamily="Aptos, Segoe UI Variable, sans-serif"
+              >
+                {label}
+              </text>
+            </g>
+          </g>
+        );
+      });
+    });
+  }
+
   function renderExternalModel(model: ExternalModel) {
     const levelStyle = getLevelStyle(project, model.levelId, activeLevelId);
     if (!levelStyle) {
@@ -2890,6 +3106,36 @@ export function ViewportScene({
           />
         );
       }
+      case "roofEdge": {
+        const sketch = project.roofSketches.find((candidate) =>
+          candidate.edges.some((edge) => edge.id === currentSelection.id),
+        );
+        const edge = sketch?.edges.find((candidate) => candidate.id === currentSelection.id);
+        if (!sketch || !edge) {
+          return null;
+        }
+
+        const startVertex = sketch.vertices.find((vertex) => vertex.id === edge.startVertexId);
+        const endVertex = sketch.vertices.find((vertex) => vertex.id === edge.endVertexId);
+        if (!startVertex || !endVertex) {
+          return null;
+        }
+
+        const start = worldToScreen(startVertex.position, metrics);
+        const end = worldToScreen(endVertex.position, metrics);
+        return (
+          <line
+            pointerEvents="none"
+            x1={start.x}
+            y1={start.y}
+            x2={end.x}
+            y2={end.y}
+            stroke="rgba(255, 209, 102, 0.42)"
+            strokeWidth={14}
+            strokeLinecap="round"
+          />
+        );
+      }
       case "externalModel": {
         const model = project.externalModels.find((item) => item.id === currentSelection.id);
         const levelStyle = model ? getLevelStyle(project, model.levelId, activeLevelId) : null;
@@ -2989,7 +3235,9 @@ export function ViewportScene({
             : null}
 
           {project.walls.map(renderWall)}
+          {renderRoofSketchFaces()}
           {project.slabs.map(renderSlab)}
+          {renderRoofSketchEdges()}
           {project.shapes.map(renderShape)}
           {project.externalModels.map(renderExternalModel)}
           {project.doors.map(renderDoor)}
@@ -3143,6 +3391,73 @@ export function ViewportScene({
                         rx={10}
                         fill="rgba(8, 12, 22, 0.88)"
                         stroke="rgba(255, 209, 102, 0.42)"
+                        strokeWidth={1}
+                      />
+                      <text
+                        x={10}
+                        y={-2}
+                        fill="#f8f6f2"
+                        fontSize={12}
+                        fontFamily="Aptos, Segoe UI Variable, sans-serif"
+                      >
+                        {label}
+                      </text>
+                    </>
+                  );
+                })()}
+              </g>
+            </g>
+          ) : null}
+
+          {activeTool === "Roof" && roofLinePlacementDraft ? (
+            <g pointerEvents="none">
+              <line
+                x1={worldToScreen(roofLinePlacementDraft.startWorld, metrics).x}
+                y1={worldToScreen(roofLinePlacementDraft.startWorld, metrics).y}
+                x2={worldToScreen(roofLinePlacementDraft.currentWorld, metrics).x}
+                y2={worldToScreen(roofLinePlacementDraft.currentWorld, metrics).y}
+                stroke="#d9965a"
+                strokeWidth={3}
+                strokeDasharray="8 6"
+                strokeLinecap="round"
+              />
+              <circle
+                cx={worldToScreen(roofLinePlacementDraft.startWorld, metrics).x}
+                cy={worldToScreen(roofLinePlacementDraft.startWorld, metrics).y}
+                r={project.settings.nodeRadiusPx * 0.42}
+                fill="rgba(217, 150, 90, 0.18)"
+                stroke="#f1b879"
+                strokeWidth={2}
+              />
+              <circle
+                cx={worldToScreen(roofLinePlacementDraft.currentWorld, metrics).x}
+                cy={worldToScreen(roofLinePlacementDraft.currentWorld, metrics).y}
+                r={project.settings.nodeRadiusPx * 0.4}
+                fill="rgba(217, 150, 90, 0.2)"
+                stroke="#d9965a"
+                strokeDasharray="6 4"
+                strokeWidth={2}
+              />
+              <g
+                transform={`translate(${worldToScreen(roofLinePlacementDraft.currentWorld, metrics).x + 14} ${worldToScreen(roofLinePlacementDraft.currentWorld, metrics).y - 18})`}
+              >
+                {(() => {
+                  const deltaX = roofLinePlacementDraft.currentWorld.x - roofLinePlacementDraft.startWorld.x;
+                  const deltaY = roofLinePlacementDraft.currentWorld.y - roofLinePlacementDraft.startWorld.y;
+                  const distanceM = Math.hypot(deltaX, deltaY);
+                  const label = `roof line ${formatDistance(distanceM)}`;
+                  const labelWidth = label.length * 6.4 + 18;
+
+                  return (
+                    <>
+                      <rect
+                        x={0}
+                        y={-20}
+                        width={labelWidth}
+                        height={28}
+                        rx={10}
+                        fill="rgba(8, 12, 22, 0.88)"
+                        stroke="rgba(217, 150, 90, 0.48)"
                         strokeWidth={1}
                       />
                       <text
@@ -3332,7 +3647,7 @@ export function ViewportScene({
             
           ) : null}
 
-          {(activeTool === "Slab" || activeTool === "Roof") && activeLevelId ? (
+          {activeTool === "Slab" && activeLevelId ? (
             placementDraftCircle ? (
               <circle
                 pointerEvents="none"
@@ -3350,7 +3665,7 @@ export function ViewportScene({
                 strokeWidth={2}
               />
             ) : placementDraftBounds ? (
-              activeTool !== "Roof" && slabMode === "Circle" ? (
+              slabMode === "Circle" ? (
                 <circle
                   pointerEvents="none"
                   cx={worldToScreen(placementDraftBounds.centerWorld, metrics).x}

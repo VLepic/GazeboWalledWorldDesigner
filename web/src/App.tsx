@@ -15,6 +15,7 @@ import {
   createNode,
   createShape,
   createSlab,
+  createRoofSketch,
   createStair,
   createWall,
   deleteWallType,
@@ -36,6 +37,7 @@ import {
   updateExternalModel,
   updateLevel,
   updateProjectSettings,
+  updateRoofSketch,
   updateStair,
   updateWall,
   updateWallType,
@@ -51,6 +53,7 @@ import {
   type WindowOpening,
   type WindowDesign3D,
   createExternalModel as buildExternalModel,
+  createId,
   createNodeData,
   createPose2D,
   createShape as buildShape,
@@ -62,6 +65,7 @@ import {
   type MeasurementUnit,
   type NodeData,
   type Project,
+  type RoofSketch,
   type WallTopMode,
   type RoofType,
   type Shape,
@@ -422,6 +426,10 @@ function projectPointOntoSegment(position: Vec2, start: Vec2, end: Vec2) {
   };
 }
 
+function distanceSquared(left: Vec2, right: Vec2) {
+  return (left.x - right.x) * (left.x - right.x) + (left.y - right.y) * (left.y - right.y);
+}
+
 function findWallAtPoint(project: Project, levelId: string, position: Vec2, preferredWallId?: string | null) {
   const candidates = preferredWallId
     ? [
@@ -575,8 +583,7 @@ export default function App() {
   const [shapeToolKind, setShapeToolKind] = useState<Shape["kind"]>("Square");
   const [shapeToolBottomM, setShapeToolBottomM] = useState(0);
   const [shapeToolTopM, setShapeToolTopM] = useState(2.5);
-  const [slabToolRoofType, setSlabToolRoofType] = useState<RoofType>("Flat");
-  const [slabToolRoofRiseM, setSlabToolRoofRiseM] = useState(1.2);
+  const [roofToolLineElevationM, setRoofToolLineElevationM] = useState(3);
   const [stairToolWidthM, setStairToolWidthM] = useState(1.1);
   const [stairToolEndElevationOffsetM, setStairToolEndElevationOffsetM] = useState(3);
   const [stairToolRiserHeightM, setStairToolRiserHeightM] = useState(0.17);
@@ -692,6 +699,28 @@ export default function App() {
     currentSelection?.kind === "slab"
       ? (project.slabs.find((slab) => slab.id === currentSelection.id) ?? null)
       : null;
+  const selectedRoofSketch =
+    currentSelection?.kind === "roofEdge"
+      ? (project.roofSketches.find((sketch) =>
+          sketch.edges.some((edge) => edge.id === currentSelection.id),
+        ) ?? null)
+      : null;
+  const selectedRoofEdge =
+    currentSelection?.kind === "roofEdge" && selectedRoofSketch
+      ? (selectedRoofSketch.edges.find((edge) => edge.id === currentSelection.id) ?? null)
+      : null;
+  const selectedRoofEdgeStartVertex =
+    selectedRoofSketch && selectedRoofEdge
+      ? (selectedRoofSketch.vertices.find(
+          (vertex) => vertex.id === selectedRoofEdge.startVertexId,
+        ) ?? null)
+      : null;
+  const selectedRoofEdgeEndVertex =
+    selectedRoofSketch && selectedRoofEdge
+      ? (selectedRoofSketch.vertices.find(
+          (vertex) => vertex.id === selectedRoofEdge.endVertexId,
+        ) ?? null)
+      : null;
   const selectedExternalModel =
     currentSelection?.kind === "externalModel"
       ? (project.externalModels.find((model) => model.id === currentSelection.id) ?? null)
@@ -740,6 +769,9 @@ export default function App() {
     .map((selection) => selection.id);
   const selectedSlabIds = selectionSet
     .filter((selection) => selection.kind === "slab")
+    .map((selection) => selection.id);
+  const selectedRoofEdgeIds = selectionSet
+    .filter((selection) => selection.kind === "roofEdge")
     .map((selection) => selection.id);
   const selectedModelIds = selectionSet
     .filter((selection) => selection.kind === "externalModel")
@@ -1261,6 +1293,23 @@ export default function App() {
           selectedSlab.widthM,
           selectedSlab.depthM,
         );
+      case "roofEdge": {
+        const sketch = project.roofSketches.find((candidate) =>
+          candidate.edges.some((edge) => edge.id === currentSelection.id),
+        );
+        const edge = sketch?.edges.find((candidate) => candidate.id === currentSelection.id);
+        const startVertex =
+          sketch && edge
+            ? sketch.vertices.find((vertex) => vertex.id === edge.startVertexId)
+            : null;
+        const endVertex =
+          sketch && edge
+            ? sketch.vertices.find((vertex) => vertex.id === edge.endVertexId)
+            : null;
+        return startVertex && endVertex
+          ? createViewportBoundsFromPoints([startVertex.position, endVertex.position])
+          : null;
+      }
       case "externalModel":
         return selectedExternalModel
           ? createCircularBounds(selectedExternalModel.position, 0.8)
@@ -1997,6 +2046,90 @@ export default function App() {
     }
   }
 
+  function handleMoveRoofEdge(roofEdgeId: string, position: Vec2) {
+    try {
+      applyCommand((current) => {
+        const sketch = current.roofSketches.find((candidate) =>
+          candidate.edges.some((edge) => edge.id === roofEdgeId),
+        );
+        const edge = sketch?.edges.find((candidate) => candidate.id === roofEdgeId);
+        if (!sketch || !edge) {
+          throw new Error(`Roof line "${roofEdgeId}" does not exist.`);
+        }
+
+        const startVertex = sketch.vertices.find((vertex) => vertex.id === edge.startVertexId);
+        const endVertex = sketch.vertices.find((vertex) => vertex.id === edge.endVertexId);
+        if (!startVertex || !endVertex) {
+          throw new Error(`Roof line "${roofEdgeId}" has missing vertices.`);
+        }
+
+        const currentMidpoint = createVec2(
+          (startVertex.position.x + endVertex.position.x) / 2,
+          (startVertex.position.y + endVertex.position.y) / 2,
+        );
+        const delta = createVec2(position.x - currentMidpoint.x, position.y - currentMidpoint.y);
+        if (Math.hypot(delta.x, delta.y) < 0.0001) {
+          return current;
+        }
+
+        const movedVertexIds = new Set([edge.startVertexId, edge.endVertexId]);
+        return updateRoofSketch(current, sketch.id, {
+          vertices: sketch.vertices.map((vertex) =>
+            movedVertexIds.has(vertex.id)
+              ? {
+                  ...vertex,
+                  position: createVec2(
+                    vertex.position.x + delta.x,
+                    vertex.position.y + delta.y,
+                  ),
+                }
+              : vertex,
+          ),
+        });
+      });
+      setErrorMessage(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Roof line move failed.";
+      reportError(message);
+    }
+  }
+
+  function handleUpdateSelectedRoofEdgeElevation(elevationM: number) {
+    if (
+      !selectedRoofSketch ||
+      !selectedRoofEdge ||
+      !selectedRoofEdgeStartVertex ||
+      !selectedRoofEdgeEndVertex
+    ) {
+      reportError("Select a roof line before editing its elevation.");
+      return;
+    }
+
+    try {
+      const vertexIds = new Set([
+        selectedRoofEdge.startVertexId,
+        selectedRoofEdge.endVertexId,
+      ]);
+      applyCommand((current) =>
+        updateRoofSketch(current, selectedRoofSketch.id, {
+          vertices: selectedRoofSketch.vertices.map((vertex) =>
+            vertexIds.has(vertex.id)
+              ? {
+                  ...vertex,
+                  elevationMode: "Explicit",
+                  elevationM,
+                }
+              : vertex,
+          ),
+        }),
+      );
+      reportSuccess(`Updated roof line elevation to ${formatNumber(elevationM)} m.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Roof line elevation update failed.";
+      reportError(message);
+    }
+  }
+
   function handleMoveExternalModel(modelId: string, position: Vec2) {
     try {
       applyCommand((current) =>
@@ -2457,28 +2590,145 @@ export default function App() {
     );
   }
 
-  function handleCreateRoofAt(position: Vec2 & { widthM?: number; depthM?: number }) {
-    if (!activeLevelId) {
-      reportError("Select an active level before creating a roof.");
+  function getManualRoofSketch(projectToSearch: Project): RoofSketch | null {
+    return (
+      projectToSearch.roofSketches.find((sketch) => sketch.name === "Manual Roof Sketch") ??
+      projectToSearch.roofSketches[0] ??
+      null
+    );
+  }
+
+  function handleCreateRoofLine(start: Vec2, end: Vec2) {
+    const lengthM = Math.hypot(end.x - start.x, end.y - start.y);
+    if (lengthM < 0.0001) {
       return;
     }
 
-    applyCommand((current) =>
-      createSlab(current, {
-        levelId: activeLevelId,
-        name: `roof_${current.slabs.length + 1}`,
-        kind: "Rectangle",
-        roofType: slabToolRoofType === "Flat" ? "Gable" : slabToolRoofType,
-        pose: createPose2D(createVec2(position.x, position.y), 0),
-        widthM: position.widthM ?? 2.4,
-        depthM: position.depthM ?? 1.8,
-        thicknessM: 0.2,
-        roofRiseM: slabToolRoofRiseM,
-        zOffsetM: 0,
-      }),
-    );
+    let createdEdgeId: string | null = null;
+    applyCommand((current) => {
+      const roofLayer = current.roofLayers[0];
+      if (!roofLayer) {
+        throw new Error("Project has no roof layer.");
+      }
+
+      const startVertexId = createId("roof_vertex");
+      const endVertexId = createId("roof_vertex");
+      const edgeId = createId("roof_edge");
+      createdEdgeId = edgeId;
+      const vertices = [
+        {
+          id: startVertexId,
+          position: createVec2(start.x, start.y),
+          elevationMode: "Explicit" as const,
+          elevationM: roofToolLineElevationM,
+        },
+        {
+          id: endVertexId,
+          position: createVec2(end.x, end.y),
+          elevationMode: "Explicit" as const,
+          elevationM: roofToolLineElevationM,
+        },
+      ];
+      const edge = {
+        id: edgeId,
+        startVertexId,
+        endVertexId,
+        role: "Generic" as const,
+      };
+      const existingSketch = getManualRoofSketch(current);
+
+      if (!existingSketch) {
+        return createRoofSketch(current, {
+          name: "Manual Roof Sketch",
+          layerId: roofLayer.id,
+          baseElevationM: roofToolLineElevationM,
+          thicknessM: 0.2,
+          vertices,
+          edges: [edge],
+          faces: [],
+          constraints: [],
+        });
+      }
+
+      return updateRoofSketch(current, existingSketch.id, {
+        vertices: [...existingSketch.vertices, ...vertices],
+        edges: [...existingSketch.edges, edge],
+      });
+    });
+
+    if (createdEdgeId) {
+      setSelectionSet([{ kind: "roofEdge", id: createdEdgeId }], { kind: "roofEdge", id: createdEdgeId });
+    }
     reportSuccess(
-      `Placed a ${slabToolRoofType === "Flat" ? "gable" : slabToolRoofType.toLowerCase()} roof at ${formatNumber(position.x)}, ${formatNumber(position.y)} with size ${formatNumber(position.widthM ?? 2.4)} x ${formatNumber(position.depthM ?? 1.8)}m.`,
+      `Created roof line at ${formatNumber(roofToolLineElevationM)} m, length ${formatNumber(lengthM)} m.`,
+    );
+  }
+
+  function handleLinkSelectedRoofEdges() {
+    if (selectedRoofEdgeIds.length !== 2) {
+      reportError("Select exactly two roof lines before linking them.");
+      return;
+    }
+
+    let linkedFaceId: string | null = null;
+    applyCommand((current) => {
+      const sketch = current.roofSketches.find((candidate) =>
+        selectedRoofEdgeIds.every((edgeId) => candidate.edges.some((edge) => edge.id === edgeId)),
+      );
+      if (!sketch) {
+        throw new Error("Selected roof lines must belong to the same roof sketch.");
+      }
+
+      const [firstEdgeId, secondEdgeId] = selectedRoofEdgeIds;
+      const firstEdge = sketch.edges.find((edge) => edge.id === firstEdgeId);
+      const secondEdge = sketch.edges.find((edge) => edge.id === secondEdgeId);
+      if (!firstEdge || !secondEdge) {
+        throw new Error("Selected roof line no longer exists.");
+      }
+
+      const vertexById = new Map(sketch.vertices.map((vertex) => [vertex.id, vertex] as const));
+      const firstStart = vertexById.get(firstEdge.startVertexId);
+      const firstEnd = vertexById.get(firstEdge.endVertexId);
+      const secondStart = vertexById.get(secondEdge.startVertexId);
+      const secondEnd = vertexById.get(secondEdge.endVertexId);
+      if (!firstStart || !firstEnd || !secondStart || !secondEnd) {
+        throw new Error("Selected roof line has missing vertices.");
+      }
+
+      const sameDirectionCost =
+        distanceSquared(firstStart.position, secondStart.position) +
+        distanceSquared(firstEnd.position, secondEnd.position);
+      const oppositeDirectionCost =
+        distanceSquared(firstStart.position, secondEnd.position) +
+        distanceSquared(firstEnd.position, secondStart.position);
+      const secondEdgeVertexIds =
+        sameDirectionCost <= oppositeDirectionCost
+          ? [secondEdge.endVertexId, secondEdge.startVertexId]
+          : [secondEdge.startVertexId, secondEdge.endVertexId];
+      const faceId = createId("roof_face");
+      linkedFaceId = faceId;
+      return updateRoofSketch(current, sketch.id, {
+        faces: [
+          ...sketch.faces,
+          {
+            id: faceId,
+            vertexIds: [
+              firstEdge.startVertexId,
+              firstEdge.endVertexId,
+              ...secondEdgeVertexIds,
+            ],
+            edgeIds: [firstEdge.id, secondEdge.id],
+            constraintIds: [],
+          },
+        ],
+      });
+    });
+
+    clearSelection();
+    reportSuccess(
+      linkedFaceId
+        ? `Linked selected roof lines into face ${linkedFaceId}.`
+        : "Linked selected roof lines into a roof face.",
     );
   }
 
@@ -3229,31 +3479,38 @@ export default function App() {
     if (activeTool === "Roof") {
       return (
         <div className="field-stack">
-          <p className="muted">Roof footprints currently use rectangle drag placement.</p>
+          <p className="muted">
+            Drag in the roof layer to draw a roof line. Click two roof lines and link them into one roof face.
+          </p>
           <label className="field-label">
-            <span>Roof Type</span>
-            <select
-              value={slabToolRoofType === "Flat" ? "Gable" : slabToolRoofType}
-              onChange={(event) => setSlabToolRoofType(event.target.value as RoofType)}
-            >
-              <option value="Gable">Sedlova</option>
-              <option value="Shed">Pultova</option>
-              <option value="Hip">Stanova</option>
-            </select>
-          </label>
-          <label className="field-label">
-            <span>Roof Rise (m)</span>
+            <span>Line Elevation (m)</span>
             <DraftNumberInput
-              value={slabToolRoofRiseM}
+              value={roofToolLineElevationM}
               step="0.1"
-              min="0.1"
+              min="0"
               onCommit={(nextValue) => {
-                if (nextValue > 0) {
-                  setSlabToolRoofRiseM(nextValue);
+                if (Number.isFinite(nextValue)) {
+                  setRoofToolLineElevationM(nextValue);
                 }
               }}
             />
           </label>
+          <div className="button-row">
+            <button
+              type="button"
+              onClick={handleLinkSelectedRoofEdges}
+              disabled={selectedRoofEdgeIds.length !== 2}
+            >
+              Link Selected Lines
+            </button>
+            <button type="button" onClick={clearSelection} disabled={selectedRoofEdgeIds.length === 0}>
+              Clear Selection
+            </button>
+          </div>
+          <p className="muted">
+            Selected roof lines: {selectedRoofEdgeIds.length}. First version links the two selected lines as
+            a single four-point planar face.
+          </p>
         </div>
       );
     }
@@ -3722,6 +3979,50 @@ export default function App() {
       );
     }
 
+    if (
+      selectedRoofSketch &&
+      selectedRoofEdge &&
+      selectedRoofEdgeStartVertex &&
+      selectedRoofEdgeEndVertex
+    ) {
+      const startElevationM =
+        selectedRoofEdgeStartVertex.elevationM ?? selectedRoofSketch.baseElevationM;
+      const endElevationM =
+        selectedRoofEdgeEndVertex.elevationM ?? selectedRoofSketch.baseElevationM;
+      const commonElevationM = (startElevationM + endElevationM) / 2;
+      return (
+        <div className="field-grid">
+          <label className="field-label">
+            <span>Line Elevation (m)</span>
+            <DraftNumberInput
+              step="0.1"
+              value={commonElevationM}
+              onCommit={handleUpdateSelectedRoofEdgeElevation}
+            />
+          </label>
+          <div className="field-label">
+            <span>Start</span>
+            <strong>
+              {formatNumber(selectedRoofEdgeStartVertex.position.x)},{" "}
+              {formatNumber(selectedRoofEdgeStartVertex.position.y)} /{" "}
+              {formatNumber(startElevationM)} m
+            </strong>
+          </div>
+          <div className="field-label">
+            <span>End</span>
+            <strong>
+              {formatNumber(selectedRoofEdgeEndVertex.position.x)},{" "}
+              {formatNumber(selectedRoofEdgeEndVertex.position.y)} /{" "}
+              {formatNumber(endElevationM)} m
+            </strong>
+          </div>
+          <p className="muted">
+            Editing the line elevation sets both roof-line endpoints to the same height and updates connected faces.
+          </p>
+        </div>
+      );
+    }
+
     if (selectedExternalModel) {
       return (
         <div className="field-grid">
@@ -4019,7 +4320,7 @@ export default function App() {
                   onCreateStair={handleCreateStair}
                   onCreateShapeAt={handleCreateShapeAt}
                   onCreateSlabAt={handleCreateSlabAt}
-                  onCreateRoofAt={handleCreateRoofAt}
+                  onCreateRoofLine={handleCreateRoofLine}
                   onCreateExternalModelAt={handleCreateExternalModelAt}
                   onCreateWallBetweenNodes={handleCreateWallBetweenNodes}
                   onCreateWallByDrag={handleCreateWallByDrag}
@@ -4043,6 +4344,7 @@ export default function App() {
                   onMoveWindow={handleMoveWindow}
                   onMoveShape={handleMoveShape}
                   onMoveSlab={handleMoveSlab}
+                  onMoveRoofEdge={handleMoveRoofEdge}
                   onMoveExternalModel={handleMoveExternalModel}
                 />
                 <div className="viewport-overlay viewport-overlay-top">+Y</div>

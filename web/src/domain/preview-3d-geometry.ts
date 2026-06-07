@@ -261,23 +261,18 @@ export function buildPreview3DScene(
 ): Preview3DSceneData {
   const levelById = new Map(project.levels.map((level) => [level.id, level] as const));
   const levelIndexById = new Map(project.levels.map((level, index) => [level.id, index] as const));
+  const roofLayerById = new Map(project.roofLayers.map((roofLayer) => [roofLayer.id, roofLayer] as const));
   const wallTypeById = new Map(project.wallTypes.map((wallType) => [wallType.id, wallType] as const));
   const nodeById = new Map(project.nodes.map((node) => [node.id, node] as const));
   const wallOpeningsByWallId = new Map<string, WallOpeningRender[]>();
   const nodeWallAggregates = new Map<string, NodeWallAggregate>();
-  const roofsByLevelId = new Map<string, ReturnType<typeof solveProjectRoofs>>();
+  const solvedRoofs = solveProjectRoofs(project);
 
   const boxes: Preview3DBoxPrimitive[] = [];
   const cylinders: Preview3DCylinderPrimitive[] = [];
   const markers: Preview3DMarkerPrimitive[] = [];
   const meshes: Preview3DMeshPrimitive[] = [];
   const worldPoints: Vec3[] = [];
-
-  solveProjectRoofs(project).forEach((roof) => {
-    const currentRoofs = roofsByLevelId.get(roof.levelId) ?? [];
-    currentRoofs.push(roof);
-    roofsByLevelId.set(roof.levelId, currentRoofs);
-  });
 
   const registerPoints = (points: Vec3[]) => {
     worldPoints.push(...points);
@@ -423,6 +418,28 @@ export function buildPreview3DScene(
     addBoxPrimitive(center, shape.sizeM, shape.heightM, shape.sizeM, 0, color);
   };
 
+  const addSolvedRoofMesh = (
+    solvedRoof: ReturnType<typeof solveProjectRoofs>[number],
+    color: RgbColor,
+  ) => {
+    solvedRoof.faces.forEach((face) => {
+      const vertices = face.polygonLocal.map((localPoint, index) =>
+        vec3(
+          face.polygonWorld[index].x,
+          face.planeOuter.uCoeff * localPoint.x +
+            face.planeOuter.vCoeff * localPoint.y +
+            face.planeOuter.constantM,
+          -face.polygonWorld[index].y,
+        ),
+      );
+      const indices: number[] = [];
+      for (let index = 1; index < vertices.length - 1; index += 1) {
+        indices.push(0, index, index + 1);
+      }
+      addMeshPrimitive(vertices, indices, color);
+    });
+  };
+
   const addSlabPrimitive = (slab: Slab, levelElevationM: number, color: RgbColor) => {
     const center = vec3(
       slab.pose.position.x,
@@ -436,28 +453,14 @@ export function buildPreview3DScene(
     }
 
     if (slab.roofType !== "Flat") {
-      const solvedRoof = solveRoofFromSlab(slab, levelElevationM);
+      const solvedRoof =
+        solvedRoofs.find((roof) => roof.sourceKind === "LegacySlab" && roof.slabId === slab.id) ??
+        solveRoofFromSlab(slab, levelElevationM);
       if (!solvedRoof) {
         return;
       }
 
-      const roofColor = shadeColor(color, 0.78);
-      solvedRoof.faces.forEach((face) => {
-        const vertices = face.polygonLocal.map((localPoint, index) =>
-          vec3(
-            face.polygonWorld[index].x,
-            face.planeOuter.uCoeff * localPoint.x +
-              face.planeOuter.vCoeff * localPoint.y +
-              face.planeOuter.constantM,
-            -face.polygonWorld[index].y,
-          ),
-        );
-        const indices: number[] = [];
-        for (let index = 1; index < vertices.length - 1; index += 1) {
-          indices.push(0, index, index + 1);
-        }
-        addMeshPrimitive(vertices, indices, roofColor);
-      });
+      addSolvedRoofMesh(solvedRoof, shadeColor(color, 0.78));
       return;
     }
 
@@ -760,10 +763,9 @@ export function buildPreview3DScene(
     const wallOpenings = (wallOpeningsByWallId.get(wall.id) ?? [])
       .slice()
       .sort((left, right) => left.offsetM - right.offsetM);
-    const levelRoofs = roofsByLevelId.get(wall.levelId) ?? [];
 
     if (wall.topMode === "FollowRoof") {
-      const matchingRoof = levelRoofs.find((roof) => {
+      const matchingRoof = solvedRoofs.find((roof) => {
         const wallSegments = solveWallSegmentsAgainstRoof(
           roof,
           createVec2(startWorld.x, -startWorld.z),
@@ -951,6 +953,24 @@ export function buildPreview3DScene(
         getBaseSurfaceColor(levelIndexById.get(level.id) ?? 0, surfaceMode),
         surfaceMode === "GrayOpaque" ? 0.9 : 0.82,
       ),
+    );
+  }
+
+  for (const roof of solvedRoofs) {
+    if (roof.sourceKind !== "Sketch") {
+      continue;
+    }
+
+    const layer = roof.layerId ? roofLayerById.get(roof.layerId) : null;
+    if (layer && !layer.visible3D) {
+      continue;
+    }
+
+    addSolvedRoofMesh(
+      roof,
+      surfaceMode === "GrayOpaque"
+        ? { r: 132, g: 136, b: 142 }
+        : { r: 186, g: 124, b: 82 },
     );
   }
 
