@@ -14,6 +14,7 @@ export type EditorTool =
   | "Shape"
   | "Slab"
   | "Roof"
+  | "RoofWindow"
   | "Model";
 export type ViewportMode = "2d" | "3d";
 export type WallAuthoringMode = "AutoWall" | "Topology";
@@ -27,6 +28,7 @@ export type SelectableEntityKind =
   | "shape"
   | "slab"
   | "roofEdge"
+  | "roofFace"
   | "externalModel";
 export type SlabMode = "Rectangle" | "Circle";
 
@@ -74,9 +76,12 @@ export interface EditorUiState {
   wallAuthoringMode: WallAuthoringMode;
   activeTool: EditorTool;
   activeLevelId: string | null;
+  activeRoofLayerId: string | null;
   activeWallTypeId: string | null;
   hiddenLevelIds2D: string[];
   hiddenLevelIds3D: string[];
+  hiddenRoofLayerIds2D: string[];
+  hiddenRoofLayerIds3D: string[];
   currentSelection: EditorSelection | null;
   selectionSet: EditorSelection[];
   pendingWallStartNodeId: string | null;
@@ -89,8 +94,10 @@ export interface EditorUiState {
   setWallAuthoringMode: (mode: WallAuthoringMode) => void;
   setActiveTool: (tool: EditorTool) => void;
   setActiveLevelId: (levelId: string | null) => void;
+  setActiveRoofLayerId: (roofLayerId: string | null) => void;
   setActiveWallTypeId: (wallTypeId: string | null) => void;
   toggleLevelVisibility: (levelId: string, mode?: ViewportMode) => void;
+  toggleRoofLayerVisibility: (roofLayerId: string, mode?: ViewportMode) => void;
   setCurrentSelection: (selection: EditorSelection | null) => void;
   setSelectionSet: (
     selectionSet: EditorSelection[],
@@ -168,6 +175,10 @@ function isSelectionValid(selection: EditorSelection | null, project: Project) {
       return project.roofSketches.some((sketch) =>
         sketch.edges.some((edge) => edge.id === selection.id),
       );
+    case "roofFace":
+      return project.roofSketches.some((sketch) =>
+        sketch.faces.some((face) => face.id === selection.id),
+      );
     case "door":
       return project.doors.some((door) => door.id === selection.id);
     case "window":
@@ -188,7 +199,7 @@ function isSelectionCompatibleWithTool(selection: EditorSelection | null, tool: 
 
   switch (tool) {
     case "Move":
-      return selection.kind !== "wall" && selection.kind !== "stair";
+      return selection.kind !== "wall" && selection.kind !== "stair" && selection.kind !== "roofFace";
     case "Node":
       return selection.kind === "node";
     case "Wall":
@@ -206,7 +217,9 @@ function isSelectionCompatibleWithTool(selection: EditorSelection | null, tool: 
     case "Slab":
       return selection.kind === "slab";
     case "Roof":
-      return selection.kind === "roofEdge";
+      return selection.kind === "roofEdge" || selection.kind === "roofFace";
+    case "RoofWindow":
+      return selection.kind === "roofFace";
     case "Model":
       return selection.kind === "externalModel";
   }
@@ -240,9 +253,12 @@ export const useEditorUiStore = create<EditorUiState>()(
       wallAuthoringMode: DEFAULT_WALL_AUTHORING_MODE,
       activeTool: DEFAULT_EDITOR_TOOL,
       activeLevelId: null,
+      activeRoofLayerId: null,
       activeWallTypeId: null,
       hiddenLevelIds2D: [],
       hiddenLevelIds3D: [],
+      hiddenRoofLayerIds2D: [],
+      hiddenRoofLayerIds3D: [],
       currentSelection: null,
       selectionSet: [],
       pendingWallStartNodeId: null,
@@ -280,7 +296,11 @@ export const useEditorUiStore = create<EditorUiState>()(
       },
 
       setActiveLevelId: (levelId) => {
-        set({ activeLevelId: levelId });
+        set({ activeLevelId: levelId, activeRoofLayerId: null });
+      },
+
+      setActiveRoofLayerId: (roofLayerId) => {
+        set({ activeRoofLayerId: roofLayerId, activeLevelId: roofLayerId ? null : get().activeLevelId });
       },
 
       setActiveWallTypeId: (wallTypeId) => {
@@ -296,6 +316,19 @@ export const useEditorUiStore = create<EditorUiState>()(
             [key]: currentIds.includes(levelId)
               ? currentIds.filter((id) => id !== levelId)
               : [...currentIds, levelId],
+          } satisfies Partial<EditorUiState>;
+        });
+      },
+
+      toggleRoofLayerVisibility: (roofLayerId, mode) => {
+        set((state) => {
+          const targetMode = mode ?? state.viewportMode;
+          const key = targetMode === "3d" ? "hiddenRoofLayerIds3D" : "hiddenRoofLayerIds2D";
+          const currentIds = state[key];
+          return {
+            [key]: currentIds.includes(roofLayerId)
+              ? currentIds.filter((id) => id !== roofLayerId)
+              : [...currentIds, roofLayerId],
           } satisfies Partial<EditorUiState>;
         });
       },
@@ -471,9 +504,12 @@ export const useEditorUiStore = create<EditorUiState>()(
           wallAuthoringMode: DEFAULT_WALL_AUTHORING_MODE,
           activeTool: DEFAULT_EDITOR_TOOL,
           activeLevelId: null,
+          activeRoofLayerId: null,
           activeWallTypeId: null,
           hiddenLevelIds2D: [],
           hiddenLevelIds3D: [],
+          hiddenRoofLayerIds2D: [],
+          hiddenRoofLayerIds3D: [],
           currentSelection: null,
           selectionSet: [],
           pendingWallStartNodeId: null,
@@ -487,10 +523,18 @@ export const useEditorUiStore = create<EditorUiState>()(
 
       syncWithProject: (project) => {
         const state = get();
+        const nextRoofLayerId =
+          state.activeRoofLayerId &&
+          project.roofLayers.some((roofLayer) => roofLayer.id === state.activeRoofLayerId)
+            ? state.activeRoofLayerId
+            : null;
         const nextLevelId =
-          state.activeLevelId && project.levels.some((level) => level.id === state.activeLevelId)
-            ? state.activeLevelId
-            : (project.levels[0]?.id ?? null);
+          nextRoofLayerId !== null
+            ? null
+            : state.activeLevelId &&
+                project.levels.some((level) => level.id === state.activeLevelId)
+              ? state.activeLevelId
+              : (project.levels[0]?.id ?? null);
         const nextWallTypeId =
           state.activeWallTypeId &&
           project.wallTypes.some((wallType) => wallType.id === state.activeWallTypeId)
@@ -512,12 +556,21 @@ export const useEditorUiStore = create<EditorUiState>()(
         const nextHiddenLevelIds3D = state.hiddenLevelIds3D.filter((levelId) =>
           project.levels.some((level) => level.id === levelId),
         );
+        const nextHiddenRoofLayerIds2D = state.hiddenRoofLayerIds2D.filter((roofLayerId) =>
+          project.roofLayers.some((roofLayer) => roofLayer.id === roofLayerId),
+        );
+        const nextHiddenRoofLayerIds3D = state.hiddenRoofLayerIds3D.filter((roofLayerId) =>
+          project.roofLayers.some((roofLayer) => roofLayer.id === roofLayerId),
+        );
 
         set({
           activeLevelId: nextLevelId,
+          activeRoofLayerId: nextRoofLayerId,
           activeWallTypeId: nextWallTypeId,
           hiddenLevelIds2D: nextHiddenLevelIds2D,
           hiddenLevelIds3D: nextHiddenLevelIds3D,
+          hiddenRoofLayerIds2D: nextHiddenRoofLayerIds2D,
+          hiddenRoofLayerIds3D: nextHiddenRoofLayerIds3D,
           currentSelection: nextSelection,
           selectionSet: nextSelectionSet,
           pendingWallStartNodeId: nextPendingWallStartNodeId,
@@ -531,6 +584,8 @@ export const useEditorUiStore = create<EditorUiState>()(
         wallAuthoringMode: state.wallAuthoringMode,
         hiddenLevelIds2D: state.hiddenLevelIds2D,
         hiddenLevelIds3D: state.hiddenLevelIds3D,
+        hiddenRoofLayerIds2D: state.hiddenRoofLayerIds2D,
+        hiddenRoofLayerIds3D: state.hiddenRoofLayerIds3D,
         viewportPresets: state.viewportPresets,
       }),
     },

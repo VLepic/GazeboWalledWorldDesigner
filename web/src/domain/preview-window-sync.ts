@@ -8,6 +8,7 @@ export interface PreviewWindowSnapshot {
   projectJson: string;
   preview3D: Preview3DState;
   hiddenLevelIds3D: string[];
+  hiddenRoofLayerIds3D: string[];
   updatedAtIso: string;
 }
 
@@ -38,11 +39,13 @@ export function createPreviewWindowSnapshot(
   projectJson: string,
   preview3D: Preview3DState,
   hiddenLevelIds3D: string[],
+  hiddenRoofLayerIds3D: string[] = [],
 ): PreviewWindowSnapshot {
   return {
     projectJson,
     preview3D: { ...preview3D },
     hiddenLevelIds3D: [...hiddenLevelIds3D],
+    hiddenRoofLayerIds3D: [...hiddenRoofLayerIds3D],
     updatedAtIso: new Date().toISOString(),
   };
 }
@@ -68,7 +71,12 @@ export function readPreviewWindowSnapshot() {
       return null;
     }
 
-    return parsed as PreviewWindowSnapshot;
+    return {
+      ...(parsed as PreviewWindowSnapshot),
+      hiddenRoofLayerIds3D: Array.isArray(parsed.hiddenRoofLayerIds3D)
+        ? parsed.hiddenRoofLayerIds3D
+        : [],
+    };
   } catch {
     return null;
   }

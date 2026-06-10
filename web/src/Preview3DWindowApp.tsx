@@ -7,7 +7,12 @@ import {
   readPreviewWindowSnapshot,
   type PreviewWindowMessage,
 } from "./domain/preview-window-sync";
-import { createEmptyProject, ensureProjectDefaults, type Project } from "./domain/project-model";
+import {
+  DEFAULT_ROOF_LAYER_ID,
+  createEmptyProject,
+  ensureProjectDefaults,
+  type Project,
+} from "./domain/project-model";
 import { parseProjectJson } from "./domain/project-serialization";
 import type { Preview3DState } from "./store/editor-ui-store";
 
@@ -29,6 +34,11 @@ function loadInitialHiddenLevelIds3D() {
   return snapshot?.hiddenLevelIds3D ?? [];
 }
 
+function loadInitialHiddenRoofLayerIds3D() {
+  const snapshot = readPreviewWindowSnapshot();
+  return snapshot?.hiddenRoofLayerIds3D ?? [];
+}
+
 function loadInitialProject() {
   const snapshot = readPreviewWindowSnapshot();
   if (!snapshot) {
@@ -48,6 +58,9 @@ export default function Preview3DWindowApp() {
   const [hiddenLevelIds3D, setHiddenLevelIds3D] = useState<string[]>(() =>
     loadInitialHiddenLevelIds3D(),
   );
+  const [hiddenRoofLayerIds3D, setHiddenRoofLayerIds3D] = useState<string[]>(() =>
+    loadInitialHiddenRoofLayerIds3D(),
+  );
   const [syncStatus, setSyncStatus] = useState("Waiting for editor snapshot...");
   const [settingsWindowPosition, setSettingsWindowPosition] = useState<FloatingWindowPosition>({
     horizontal: "right",
@@ -64,6 +77,14 @@ export default function Preview3DWindowApp() {
 
   const sourceId = useMemo(() => crypto.randomUUID(), []);
   const hiddenLevelIdSet3D = useMemo(() => new Set(hiddenLevelIds3D), [hiddenLevelIds3D]);
+  const hiddenRoofLayerIdSet3D = useMemo(
+    () => new Set(hiddenRoofLayerIds3D),
+    [hiddenRoofLayerIds3D],
+  );
+  const defaultRoofLayer =
+    project.roofLayers.find((roofLayer) => roofLayer.id === DEFAULT_ROOF_LAYER_ID) ??
+    project.roofLayers[0] ??
+    null;
   const visibleProject3D = useMemo(() => {
     if (hiddenLevelIdSet3D.size === 0) {
       return project;
@@ -101,6 +122,7 @@ export default function Preview3DWindowApp() {
       try {
         setProject(parseProjectJson(snapshot.projectJson).project);
         setHiddenLevelIds3D(snapshot.hiddenLevelIds3D);
+        setHiddenRoofLayerIds3D(snapshot.hiddenRoofLayerIds3D);
         setSyncStatus(`Loaded local snapshot from ${new Date(snapshot.updatedAtIso).toLocaleTimeString()}.`);
       } catch {
         setSyncStatus("Local preview snapshot was invalid.");
@@ -121,12 +143,16 @@ export default function Preview3DWindowApp() {
 
       if (message.type === "project-snapshot") {
         try {
-          setProject(parseProjectJson(message.snapshot.projectJson).project);
+          const nextProject = parseProjectJson(message.snapshot.projectJson).project;
+          setProject(nextProject);
           setHiddenLevelIds3D((current) =>
             current.filter((levelId) =>
-              parseProjectJson(message.snapshot.projectJson).project.levels.some(
-                (level) => level.id === levelId,
-              ),
+              nextProject.levels.some((level) => level.id === levelId),
+            ),
+          );
+          setHiddenRoofLayerIds3D((current) =>
+            current.filter((roofLayerId) =>
+              nextProject.roofLayers.some((roofLayer) => roofLayer.id === roofLayerId),
             ),
           );
           setSyncStatus(
@@ -154,12 +180,19 @@ export default function Preview3DWindowApp() {
           projectJson: string;
           preview3D: Preview3DState;
           hiddenLevelIds3D: string[];
+          hiddenRoofLayerIds3D?: string[];
           updatedAtIso: string;
         };
-        setProject(parseProjectJson(snapshot.projectJson).project);
+        const nextProject = parseProjectJson(snapshot.projectJson).project;
+        setProject(nextProject);
         setHiddenLevelIds3D((current) =>
           current.filter((levelId) =>
-            parseProjectJson(snapshot.projectJson).project.levels.some((level) => level.id === levelId),
+            nextProject.levels.some((level) => level.id === levelId),
+          ),
+        );
+        setHiddenRoofLayerIds3D((current) =>
+          current.filter((roofLayerId) =>
+            nextProject.roofLayers.some((roofLayer) => roofLayer.id === roofLayerId),
           ),
         );
         setSyncStatus(
@@ -183,6 +216,14 @@ export default function Preview3DWindowApp() {
       current.includes(levelId)
         ? current.filter((id) => id !== levelId)
         : [...current, levelId],
+    );
+  }
+
+  function toggleRoofLayerVisibility(roofLayerId: string) {
+    setHiddenRoofLayerIds3D((current) =>
+      current.includes(roofLayerId)
+        ? current.filter((id) => id !== roofLayerId)
+        : [...current, roofLayerId],
     );
   }
 
@@ -237,6 +278,7 @@ export default function Preview3DWindowApp() {
         <ViewportScene3D
           project={visibleProject3D}
           preview3D={preview3D}
+          hiddenRoofLayerIds={hiddenRoofLayerIds3D}
           onPreview3DChange={(patch) =>
             setPreview3D((current) => ({
               ...current,
@@ -318,6 +360,32 @@ export default function Preview3DWindowApp() {
                 </div>
               </div>
             ))}
+            {defaultRoofLayer ? (
+              <div key={defaultRoofLayer.id} className="segmented-list-row">
+                <button
+                  type="button"
+                  className={
+                    hiddenRoofLayerIdSet3D.has(defaultRoofLayer.id)
+                      ? "list-visibility-toggle is-off"
+                      : "list-visibility-toggle"
+                  }
+                  onClick={() => toggleRoofLayerVisibility(defaultRoofLayer.id)}
+                  aria-label={`${hiddenRoofLayerIdSet3D.has(defaultRoofLayer.id) ? "Show" : "Hide"} Roof`}
+                  aria-pressed={!hiddenRoofLayerIdSet3D.has(defaultRoofLayer.id)}
+                  title={
+                    hiddenRoofLayerIdSet3D.has(defaultRoofLayer.id)
+                      ? "Show roof layer"
+                      : "Hide roof layer"
+                  }
+                >
+                  <EyeToggleIcon visible={!hiddenRoofLayerIdSet3D.has(defaultRoofLayer.id)} />
+                </button>
+                <div className="list-selector-item segmented-list-item">
+                  <strong>{defaultRoofLayer.name}</strong>
+                  <span>roof drawing layer</span>
+                </div>
+              </div>
+            ) : null}
           </div>
         </FloatingWindow>
       </section>

@@ -1,4 +1,6 @@
 import {
+  DEFAULT_ROOF_LAYER_ID,
+  DEFAULT_ROOF_LAYER_NAME,
   Project,
   createExternalModel,
   createLevel,
@@ -39,8 +41,8 @@ const partitionWall = createWallType({
 });
 
 const roofLayer = createRoofLayer({
-  id: "roof_layer_default",
-  name: "Roofs",
+  id: DEFAULT_ROOF_LAYER_ID,
+  name: DEFAULT_ROOF_LAYER_NAME,
 });
 
 const nodeA = createNodeData({
@@ -82,6 +84,7 @@ export const sampleProject: Project = {
   wallTypes: [structuralWall, partitionWall],
   roofLayers: [roofLayer],
   roofSketches: [],
+  roofOpenings: [],
   nodes: [nodeA, nodeB, nodeC, nodeD],
   walls: [
     createWall({

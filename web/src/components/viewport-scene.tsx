@@ -59,6 +59,7 @@ interface ViewportSceneProps {
   onCreateShapeAt: (input: Vec2 & { sizeM?: number }) => void;
   onCreateSlabAt: (input: Vec2 & { widthM?: number; depthM?: number }) => void;
   onCreateRoofLine: (start: Vec2, end: Vec2) => void;
+  onCreateRoofOpening: (input: { roofSketchId: string; roofFaceId: string; center: Vec2 }) => void;
   onCreateExternalModelAt: (position: Vec2) => void;
   onCreateWallBetweenNodes: (startNodeId: string, endNodeId: string) => void;
   onCreateWallByDrag: (input: {
@@ -231,11 +232,12 @@ function isEntityInteractiveForTool(
     | "shape"
     | "slab"
     | "roofEdge"
+    | "roofFace"
     | "externalModel",
 ) {
   switch (activeTool) {
     case "Move":
-      return entityKind !== "wall" && entityKind !== "stair";
+      return entityKind !== "wall" && entityKind !== "stair" && entityKind !== "roofFace";
     case "Node":
       return entityKind === "node" || entityKind === "wall";
     case "Wall":
@@ -253,7 +255,9 @@ function isEntityInteractiveForTool(
     case "Slab":
       return entityKind === "slab";
     case "Roof":
-      return entityKind === "roofEdge";
+      return entityKind === "roofEdge" || entityKind === "roofFace";
+    case "RoofWindow":
+      return entityKind === "roofFace";
     case "Model":
       return entityKind === "externalModel";
   }
@@ -632,6 +636,7 @@ export function ViewportScene({
   onCreateShapeAt,
   onCreateSlabAt,
   onCreateRoofLine,
+  onCreateRoofOpening,
   onCreateExternalModelAt,
   onCreateWallBetweenNodes,
   onCreateWallByDrag,
@@ -709,7 +714,7 @@ export function ViewportScene({
 
     function handleNativePlacementToolPointerDown(event: PointerEvent) {
       if (
-        (!activeLevelId && activeTool !== "Roof") ||
+        (!activeLevelId && activeTool !== "Roof" && activeTool !== "RoofWindow") ||
         (activeTool !== "Node" &&
           activeTool !== "Wall" &&
           activeTool !== "Measure" &&
@@ -719,6 +724,7 @@ export function ViewportScene({
           activeTool !== "Shape" &&
           activeTool !== "Slab" &&
           activeTool !== "Roof" &&
+          activeTool !== "RoofWindow" &&
           activeTool !== "Model")
       ) {
         return;
@@ -743,6 +749,8 @@ export function ViewportScene({
         target instanceof Element ? target.closest<SVGElement>("[data-slab-id]") : null;
       const roofEdgeElement =
         target instanceof Element ? target.closest<SVGElement>("[data-roof-edge-id]") : null;
+      const roofFaceElement =
+        target instanceof Element ? target.closest<SVGElement>("[data-roof-face-id]") : null;
       const modelElement =
         target instanceof Element ? target.closest<SVGElement>("[data-model-id]") : null;
 
@@ -1069,11 +1077,15 @@ export function ViewportScene({
         return;
       }
 
-      if (activeTool === "Roof" && event.button === 0 && roofEdgeElement) {
+      if (activeTool === "Roof" && event.button === 0 && (roofEdgeElement || roofFaceElement)) {
         return;
       }
 
-      if (event.button !== 0 || (isViewportEntityTarget(target) && !roofEdgeElement)) {
+      if (activeTool === "RoofWindow" && event.button === 0 && roofFaceElement) {
+        return;
+      }
+
+      if (event.button !== 0 || (isViewportEntityTarget(target) && !roofEdgeElement && !roofFaceElement)) {
         return;
       }
 
@@ -1123,6 +1135,7 @@ export function ViewportScene({
     onCreateShapeAt,
     onCreateSlabAt,
     onCreateRoofLine,
+    onCreateRoofOpening,
     onDeleteDoor,
     onDeleteWindow,
     onDeleteMeasurement,
@@ -1346,6 +1359,8 @@ export function ViewportScene({
             ? [{ entityKind: "roofEdge" as const, entityId: selection.id, startPosition: position }]
             : [];
         }
+        case "roofFace":
+          return [];
         case "stair":
           return [];
         case "shape": {
@@ -2597,15 +2612,40 @@ export function ViewportScene({
           return null;
         }
 
+        const selected =
+          isSelected(currentSelection, "roofFace", face.id) ||
+          isIncludedInSelectionSet(selectionSet, "roofFace", face.id);
         return (
           <path
             key={face.id}
-            pointerEvents="none"
+            data-viewport-entity="roofFace"
+            data-roof-face-id={face.id}
+            pointerEvents={activeTool === "Roof" || activeTool === "RoofWindow" ? "auto" : "none"}
             d={`${createSvgPathFromPoints(points, metrics)} Z`}
-            fill="rgba(201, 129, 77, 0.16)"
-            stroke="rgba(201, 129, 77, 0.42)"
-            strokeWidth={1.5}
+            fill={selected ? "rgba(255, 209, 102, 0.20)" : "rgba(201, 129, 77, 0.16)"}
+            stroke={selected ? "#ffd166" : "rgba(201, 129, 77, 0.42)"}
+            strokeWidth={selected ? 2.5 : 1.5}
             strokeLinejoin="round"
+            onClick={(event) => {
+              if (consumeSuppressedClick()) {
+                event.stopPropagation();
+                return;
+              }
+
+              event.stopPropagation();
+              const selection = { kind: "roofFace" as const, id: face.id };
+              onSelectionSetChange([selection], selection);
+              if (activeTool === "RoofWindow") {
+                const center = getWorldFromClient(event.clientX, event.clientY);
+                if (center) {
+                  onCreateRoofOpening({
+                    roofSketchId: sketch.id,
+                    roofFaceId: face.id,
+                    center,
+                  });
+                }
+              }
+            }}
           />
         );
       });
@@ -2723,6 +2763,37 @@ export function ViewportScene({
           </g>
         );
       });
+    });
+  }
+
+  function renderRoofOpenings() {
+    return project.roofOpenings.map((opening) => {
+      const center = worldToScreen(opening.center, metrics);
+      const widthPx = opening.widthM * projectScale(metrics);
+      const heightPx = opening.heightM * projectScale(metrics);
+      return (
+        <g key={opening.id} pointerEvents="none">
+          <rect
+            x={center.x - widthPx / 2}
+            y={center.y - heightPx / 2}
+            width={widthPx}
+            height={heightPx}
+            rx={4}
+            fill="rgba(88, 166, 255, 0.26)"
+            stroke="#58a6ff"
+            strokeWidth={2}
+            strokeDasharray={opening.cutMode === "Vertical" ? "6 4" : undefined}
+          />
+          <line
+            x1={center.x - widthPx / 2}
+            y1={center.y}
+            x2={center.x + widthPx / 2}
+            y2={center.y}
+            stroke="rgba(255, 255, 255, 0.62)"
+            strokeWidth={1.5}
+          />
+        </g>
+      );
     });
   }
 
@@ -3136,6 +3207,35 @@ export function ViewportScene({
           />
         );
       }
+      case "roofFace": {
+        const sketch = project.roofSketches.find((candidate) =>
+          candidate.faces.some((face) => face.id === currentSelection.id),
+        );
+        const face = sketch?.faces.find((candidate) => candidate.id === currentSelection.id);
+        if (!sketch || !face) {
+          return null;
+        }
+
+        const vertexById = new Map(sketch.vertices.map((vertex) => [vertex.id, vertex] as const));
+        const points = face.vertexIds
+          .map((vertexId) => vertexById.get(vertexId)?.position ?? null)
+          .filter((point): point is Vec2 => point !== null);
+        if (points.length < 3) {
+          return null;
+        }
+
+        return (
+          <path
+            pointerEvents="none"
+            d={`${createSvgPathFromPoints(points, metrics)} Z`}
+            fill="rgba(255, 209, 102, 0.10)"
+            stroke="rgba(255, 209, 102, 0.55)"
+            strokeWidth={4}
+            strokeLinejoin="round"
+            strokeDasharray="12 7"
+          />
+        );
+      }
       case "externalModel": {
         const model = project.externalModels.find((item) => item.id === currentSelection.id);
         const levelStyle = model ? getLevelStyle(project, model.levelId, activeLevelId) : null;
@@ -3237,6 +3337,7 @@ export function ViewportScene({
           {project.walls.map(renderWall)}
           {renderRoofSketchFaces()}
           {project.slabs.map(renderSlab)}
+          {renderRoofOpenings()}
           {renderRoofSketchEdges()}
           {project.shapes.map(renderShape)}
           {project.externalModels.map(renderExternalModel)}

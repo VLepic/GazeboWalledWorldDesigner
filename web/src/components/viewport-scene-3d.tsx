@@ -32,6 +32,7 @@ interface ViewportScene3DProps {
   onInsertWindow3D?: (windowId: string) => void;
   door3DToolDesign?: DoorDesign3D;
   window3DToolDesign?: WindowDesign3D;
+  hiddenRoofLayerIds?: string[];
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -549,14 +550,21 @@ export function ViewportScene3D({
   onInsertWindow3D,
   door3DToolDesign,
   window3DToolDesign,
+  hiddenRoofLayerIds = [],
 }: ViewportScene3DProps) {
   const [isOrbiting, setIsOrbiting] = useState(false);
   const [hoveredDoorId, setHoveredDoorId] = useState<string | null>(null);
   const [hoveredWindowId, setHoveredWindowId] = useState<string | null>(null);
   const suppressNextContextClearRef = useRef(false);
   const scene = useMemo(
-    () => buildPreview3DScene(project, preview3D.renderMode, preview3D.surfaceMode),
-    [preview3D.renderMode, preview3D.surfaceMode, project],
+    () =>
+      buildPreview3DScene(
+        project,
+        preview3D.renderMode,
+        preview3D.surfaceMode,
+        hiddenRoofLayerIds,
+      ),
+    [hiddenRoofLayerIds, preview3D.renderMode, preview3D.surfaceMode, project],
   );
   const doorOpenings3D = useMemo(() => buildDoorOpening3DDescriptors(project), [project]);
   const windowOpenings3D = useMemo(() => buildWindowOpening3DDescriptors(project), [project]);

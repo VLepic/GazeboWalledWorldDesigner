@@ -5,6 +5,7 @@ import {
   createLevel as buildLevel,
   createMeasurement as buildMeasurement,
   createNodeData,
+  createRoofOpening as buildRoofOpening,
   createRoofSketch as buildRoofSketch,
   createShape as buildShape,
   createSlab as buildSlab,
@@ -24,6 +25,8 @@ import type {
   MeasurementUnit,
   Project,
   ProjectSettings,
+  RoofLayer,
+  RoofOpening,
   RoofSketch,
   Shape,
   Slab,
@@ -78,6 +81,8 @@ export type CreateShapeInput = Omit<Shape, "id"> & { id?: string };
 export type UpdateShapeInput = Partial<Omit<Shape, "id">>;
 export type CreateRoofSketchInput = Omit<RoofSketch, "id"> & { id?: string };
 export type UpdateRoofSketchInput = Partial<Omit<RoofSketch, "id">>;
+export type UpdateRoofLayerInput = Partial<Omit<RoofLayer, "id">>;
+export type CreateRoofOpeningInput = Omit<RoofOpening, "id"> & { id?: string };
 export type CreateSlabInput = Omit<Slab, "id" | "roofType" | "roofRiseM"> & {
   id?: string;
   roofType?: Slab["roofType"];
@@ -197,6 +202,16 @@ function expectExternalModel(project: Project, modelId: string) {
   }
 
   return model;
+}
+
+function expectRoofFace(project: Project, roofSketchId: string, roofFaceId: string) {
+  const roofSketch = expectRoofSketch(project, roofSketchId);
+  const roofFace = roofSketch.faces.find((face) => face.id === roofFaceId);
+  if (!roofFace) {
+    throw new ProjectCommandError(`Roof face "${roofFaceId}" does not exist.`);
+  }
+
+  return { roofSketch, roofFace };
 }
 
 function expectWall(project: Project, wallId: string) {
@@ -364,6 +379,9 @@ function validateRoofSketchInput(project: Project, input: Omit<RoofSketch, "id">
   });
 
   input.faces.forEach((face, index) => {
+    if (face.thicknessM !== undefined) {
+      expectPositive(face.thicknessM, `${labelPrefix} face ${index + 1} thickness`);
+    }
     if (face.vertexIds.length < 3 || face.vertexIds.some((vertexId) => !vertexIds.has(vertexId))) {
       throw new ProjectCommandError(`${labelPrefix} face ${index + 1} has invalid vertices.`);
     }
@@ -1287,6 +1305,26 @@ export function createRoofSketch(project: Project, input: CreateRoofSketchInput)
   });
 }
 
+export function createRoofOpening(project: Project, input: CreateRoofOpeningInput) {
+  const nextProject = normalizeProject(project);
+  expectRoofFace(nextProject, input.roofSketchId, input.roofFaceId);
+  expectFinite(input.center.x, "Roof opening center X");
+  expectFinite(input.center.y, "Roof opening center Y");
+  expectPositive(input.widthM, "Roof opening width");
+  expectPositive(input.heightM, "Roof opening height");
+
+  return normalizeProject({
+    ...nextProject,
+    roofOpenings: [
+      ...nextProject.roofOpenings,
+      buildRoofOpening({
+        ...input,
+        center: { ...input.center },
+      }),
+    ],
+  });
+}
+
 export function updateRoofSketch(
   project: Project,
   roofSketchId: string,
@@ -1337,6 +1375,9 @@ export function deleteRoofSketch(project: Project, roofSketchId: string) {
   return normalizeProject({
     ...nextProject,
     roofSketches: nextProject.roofSketches.filter((roofSketch) => roofSketch.id !== roofSketchId),
+    roofOpenings: nextProject.roofOpenings.filter(
+      (roofOpening) => roofOpening.roofSketchId !== roofSketchId,
+    ),
   });
 }
 
@@ -1530,6 +1571,27 @@ export function updateLevel(project: Project, levelId: string, patch: UpdateLeve
             ...patch,
           }
         : level,
+    ),
+  });
+}
+
+export function updateRoofLayer(project: Project, roofLayerId: string, patch: UpdateRoofLayerInput) {
+  const nextProject = normalizeProject(project);
+  const currentRoofLayer = expectRoofLayer(nextProject, roofLayerId);
+
+  if (patch.name !== undefined) {
+    ensureNonEmptyName(patch.name, "Roof layer name");
+  }
+
+  return normalizeProject({
+    ...nextProject,
+    roofLayers: nextProject.roofLayers.map((roofLayer) =>
+      roofLayer.id === roofLayerId
+        ? {
+            ...currentRoofLayer,
+            ...patch,
+          }
+        : roofLayer,
     ),
   });
 }
