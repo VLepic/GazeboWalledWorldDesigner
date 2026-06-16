@@ -477,7 +477,7 @@ export default function App() {
   const viewportCanvasRef = useRef<HTMLDivElement | null>(null);
   const previewMenuRef = useRef<HTMLDivElement | null>(null);
   const settingsMenuRef = useRef<HTMLDivElement | null>(null);
-  const previewWindowSourceIdRef = useRef(crypto.randomUUID());
+  const previewWindowSourceIdRef = useRef(createId("preview_source"));
 
   const project = useProjectStore((state) => state.project);
   const isDirty = useProjectStore((state) => state.isDirty);
