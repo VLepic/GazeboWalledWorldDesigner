@@ -10,6 +10,7 @@ import {
 import {
   DEFAULT_ROOF_LAYER_ID,
   createEmptyProject,
+  createId,
   ensureProjectDefaults,
   type Project,
 } from "./domain/project-model";
@@ -78,7 +79,7 @@ export default function Preview3DWindowApp() {
     offsetY: 24,
   });
 
-  const sourceId = useMemo(() => crypto.randomUUID(), []);
+  const sourceId = useMemo(() => createId("preview_source"), []);
   const hiddenLevelIdSet3D = useMemo(() => new Set(hiddenLevelIds3D), [hiddenLevelIds3D]);
   const hiddenRoofLayerIdSet3D = useMemo(
     () => new Set(hiddenRoofLayerIds3D),
