@@ -1,7 +1,7 @@
 {
   "projectName": "Pristavba",
   "settings": {
-    "gridSpacingM": 0.25,
+    "gridSpacingM": 0.05,
     "nodeRadiusPx": 15,
     "lineWidthPx": 7,
     "gridLineWidthPx": 1,
@@ -87,7 +87,7 @@
             "y": 10.5
           },
           "elevationMode": "Explicit",
-          "elevationM": 3
+          "elevationM": 3.5
         },
         {
           "id": "roof_vertex_0eb2c72c2780",
@@ -96,7 +96,7 @@
             "y": 0
           },
           "elevationMode": "Explicit",
-          "elevationM": 3
+          "elevationM": 3.5
         },
         {
           "id": "roof_vertex_f2694bfc6894",
@@ -123,7 +123,7 @@
             "y": 10.5
           },
           "elevationMode": "Explicit",
-          "elevationM": 7.35
+          "elevationM": 7.46
         },
         {
           "id": "roof_vertex_6b456f4e5fdf",
@@ -132,7 +132,7 @@
             "y": 0
           },
           "elevationMode": "Explicit",
-          "elevationM": 7.35
+          "elevationM": 7.46
         },
         {
           "id": "roof_vertex_4e3ecd3f7edb",
@@ -141,7 +141,7 @@
             "y": -13.5
           },
           "elevationMode": "Explicit",
-          "elevationM": 3
+          "elevationM": 3.5
         },
         {
           "id": "roof_vertex_1bd3fc06b3a1",
@@ -150,7 +150,7 @@
             "y": 0
           },
           "elevationMode": "Explicit",
-          "elevationM": 3
+          "elevationM": 3.5
         },
         {
           "id": "roof_vertex_822031545ef7",
@@ -177,7 +177,7 @@
             "y": -13.5
           },
           "elevationMode": "Explicit",
-          "elevationM": 3
+          "elevationM": 3.5
         },
         {
           "id": "roof_vertex_fde42f2b28b5",
@@ -186,7 +186,7 @@
             "y": 0
           },
           "elevationMode": "Explicit",
-          "elevationM": 3
+          "elevationM": 3.5
         },
         {
           "id": "roof_vertex_079224be9bcf",
@@ -195,7 +195,7 @@
             "y": -13.5
           },
           "elevationMode": "Explicit",
-          "elevationM": 3
+          "elevationM": 3.5
         },
         {
           "id": "roof_vertex_f5f6165fa113",
@@ -204,7 +204,133 @@
             "y": -13.5
           },
           "elevationMode": "Explicit",
+          "elevationM": 3.5
+        },
+        {
+          "id": "roof_vertex_01482385b503",
+          "position": {
+            "x": 2.0500000000000003,
+            "y": -3
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 2
+        },
+        {
+          "id": "roof_vertex_7e069043f877",
+          "position": {
+            "x": 0,
+            "y": -3
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 2
+        },
+        {
+          "id": "roof_vertex_444c4f139b4c",
+          "position": {
+            "x": 2.0500000000000003,
+            "y": -5.4
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 2
+        },
+        {
+          "id": "roof_vertex_09f0d5a25258",
+          "position": {
+            "x": 0.025000000000000022,
+            "y": -5.4
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 2
+        },
+        {
+          "id": "roof_vertex_736a054ebb92",
+          "position": {
+            "x": 2.0500000000000003,
+            "y": -4.2
+          },
+          "elevationMode": "Explicit",
           "elevationM": 3
+        },
+        {
+          "id": "roof_vertex_7e69576bdcf0",
+          "position": {
+            "x": 0,
+            "y": -4.2
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 3
+        },
+        {
+          "id": "roof_vertex_36068090469a",
+          "position": {
+            "x": -10.950000000000001,
+            "y": -3.0000000000000013
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 3.5
+        },
+        {
+          "id": "roof_vertex_dfd28bc7b1a3",
+          "position": {
+            "x": -10.950000000000001,
+            "y": -8.9
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 3.5
+        },
+        {
+          "id": "roof_vertex_3e69a4d62fb3",
+          "position": {
+            "x": -14,
+            "y": -3.0000000000000013
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 2.4
+        },
+        {
+          "id": "roof_vertex_5b25d2d3c0ad",
+          "position": {
+            "x": -14,
+            "y": -8.899999999999999
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 2.4
+        },
+        {
+          "id": "roof_vertex_84a830d37d86",
+          "position": {
+            "x": -6.200000000000001,
+            "y": 0.15000000000000047
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 7.46
+        },
+        {
+          "id": "roof_vertex_9032ff7879a2",
+          "position": {
+            "x": -6.200000000000001,
+            "y": 5.15
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 7.46
+        },
+        {
+          "id": "roof_vertex_1e9ecd99746c",
+          "position": {
+            "x": -9.9,
+            "y": 0.15000000000000047
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 7.2
+        },
+        {
+          "id": "roof_vertex_ddb80dbe5108",
+          "position": {
+            "x": -9.9,
+            "y": 5.15
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 7.2
         }
       ],
       "edges": [
@@ -248,6 +374,48 @@
           "id": "roof_edge_237981e0655e",
           "startVertexId": "roof_vertex_079224be9bcf",
           "endVertexId": "roof_vertex_f5f6165fa113",
+          "role": "Generic"
+        },
+        {
+          "id": "roof_edge_25b24718387d",
+          "startVertexId": "roof_vertex_01482385b503",
+          "endVertexId": "roof_vertex_7e069043f877",
+          "role": "Generic"
+        },
+        {
+          "id": "roof_edge_39384837ea2c",
+          "startVertexId": "roof_vertex_444c4f139b4c",
+          "endVertexId": "roof_vertex_09f0d5a25258",
+          "role": "Generic"
+        },
+        {
+          "id": "roof_edge_77455cdc8d43",
+          "startVertexId": "roof_vertex_736a054ebb92",
+          "endVertexId": "roof_vertex_7e69576bdcf0",
+          "role": "Generic"
+        },
+        {
+          "id": "roof_edge_c8f6bac0de4f",
+          "startVertexId": "roof_vertex_36068090469a",
+          "endVertexId": "roof_vertex_dfd28bc7b1a3",
+          "role": "Generic"
+        },
+        {
+          "id": "roof_edge_16c727c73bdd",
+          "startVertexId": "roof_vertex_3e69a4d62fb3",
+          "endVertexId": "roof_vertex_5b25d2d3c0ad",
+          "role": "Generic"
+        },
+        {
+          "id": "roof_edge_ec8388a8dc49",
+          "startVertexId": "roof_vertex_84a830d37d86",
+          "endVertexId": "roof_vertex_9032ff7879a2",
+          "role": "Generic"
+        },
+        {
+          "id": "roof_edge_3b6f8cc591a1",
+          "startVertexId": "roof_vertex_1e9ecd99746c",
+          "endVertexId": "roof_vertex_ddb80dbe5108",
           "role": "Generic"
         }
       ],
@@ -325,6 +493,66 @@
           ],
           "constraintIds": [],
           "thicknessM": 0.3
+        },
+        {
+          "id": "roof_face_1431838977bc",
+          "vertexIds": [
+            "roof_vertex_736a054ebb92",
+            "roof_vertex_7e69576bdcf0",
+            "roof_vertex_7e069043f877",
+            "roof_vertex_01482385b503"
+          ],
+          "edgeIds": [
+            "roof_edge_77455cdc8d43",
+            "roof_edge_25b24718387d"
+          ],
+          "constraintIds": [],
+          "thicknessM": 0.2
+        },
+        {
+          "id": "roof_face_a45f6a2fbded",
+          "vertexIds": [
+            "roof_vertex_444c4f139b4c",
+            "roof_vertex_09f0d5a25258",
+            "roof_vertex_7e69576bdcf0",
+            "roof_vertex_736a054ebb92"
+          ],
+          "edgeIds": [
+            "roof_edge_39384837ea2c",
+            "roof_edge_77455cdc8d43"
+          ],
+          "constraintIds": [],
+          "thicknessM": 0.2
+        },
+        {
+          "id": "roof_face_e3943433079f",
+          "vertexIds": [
+            "roof_vertex_3e69a4d62fb3",
+            "roof_vertex_5b25d2d3c0ad",
+            "roof_vertex_dfd28bc7b1a3",
+            "roof_vertex_36068090469a"
+          ],
+          "edgeIds": [
+            "roof_edge_16c727c73bdd",
+            "roof_edge_c8f6bac0de4f"
+          ],
+          "constraintIds": [],
+          "thicknessM": 0.2
+        },
+        {
+          "id": "roof_face_c0102c859c2f",
+          "vertexIds": [
+            "roof_vertex_1e9ecd99746c",
+            "roof_vertex_ddb80dbe5108",
+            "roof_vertex_9032ff7879a2",
+            "roof_vertex_84a830d37d86"
+          ],
+          "edgeIds": [
+            "roof_edge_3b6f8cc591a1",
+            "roof_edge_ec8388a8dc49"
+          ],
+          "constraintIds": [],
+          "thicknessM": 0.2
         }
       ],
       "constraints": []
@@ -652,7 +880,7 @@
       "roofFaceId": "roof_face_1fa77f2c1161",
       "center": {
         "x": -0.75,
-        "y": -7.25
+        "y": -7.6000000000000005
       },
       "widthM": 1,
       "heightM": 1.5,
@@ -673,7 +901,7 @@
       "roofFaceId": "roof_face_1fa77f2c1161",
       "center": {
         "x": -0.75,
-        "y": -5
+        "y": -5.1000000000000005
       },
       "widthM": 1,
       "heightM": 1.5,
@@ -747,7 +975,7 @@
       "id": "node_f82a8a57f4d3",
       "levelId": "level_61c02b847a52",
       "position": {
-        "x": -6,
+        "x": -6.300000000000001,
         "y": 10
       }
     },
@@ -755,7 +983,7 @@
       "id": "node_bbe0766cbc54",
       "levelId": "level_61c02b847a52",
       "position": {
-        "x": -6,
+        "x": -6.300000000000001,
         "y": 0
       }
     },
@@ -771,7 +999,7 @@
       "id": "node_2b5bbbd11cf1",
       "levelId": "level_61c02b847a52",
       "position": {
-        "x": -6,
+        "x": -6.300000000000001,
         "y": 7.5
       }
     },
@@ -995,7 +1223,7 @@
       "id": "node_7c06c52a6220",
       "levelId": "level_61c02b847a52",
       "position": {
-        "x": -5,
+        "x": -7,
         "y": -12.5
       }
     },
@@ -1003,8 +1231,8 @@
       "id": "node_a45414e254ef",
       "levelId": "level_61c02b847a52",
       "position": {
-        "x": -5,
-        "y": -7.5
+        "x": -7,
+        "y": -8.700000000000001
       }
     },
     {
@@ -1012,7 +1240,7 @@
       "levelId": "level_61c02b847a52",
       "position": {
         "x": -10,
-        "y": -7.5
+        "y": -8.700000000000001
       }
     },
     {
@@ -1032,18 +1260,10 @@
       }
     },
     {
-      "id": "node_a7d13b105cd5",
-      "levelId": "level_61c02b847a52",
-      "position": {
-        "x": -5,
-        "y": -4.25
-      }
-    },
-    {
       "id": "node_aab5ba2b5344",
       "levelId": "level_ade6d3294ff7",
       "position": {
-        "x": -8.25,
+        "x": -8.65,
         "y": 0
       }
     },
@@ -1053,6 +1273,238 @@
       "position": {
         "x": -1.5,
         "y": 0
+      }
+    },
+    {
+      "id": "node_ff694b9a7226",
+      "levelId": "level_61c02b847a52",
+      "position": {
+        "x": 0,
+        "y": -8.700000000000001
+      }
+    },
+    {
+      "id": "node_ada57444e943",
+      "levelId": "level_61c02b847a52",
+      "position": {
+        "x": 0,
+        "y": -5.4
+      }
+    },
+    {
+      "id": "node_7fdfea4ed77a",
+      "levelId": "level_61c02b847a52",
+      "position": {
+        "x": -6,
+        "y": -8.700000000000001
+      }
+    },
+    {
+      "id": "node_a5aeb7c376ee",
+      "levelId": "level_61c02b847a52",
+      "position": {
+        "x": -6,
+        "y": -6.15
+      }
+    },
+    {
+      "id": "node_d7ce8b3371c2",
+      "levelId": "level_6bd5ee912d75",
+      "position": {
+        "x": -6,
+        "y": -6.1000000000000005
+      }
+    },
+    {
+      "id": "node_fee995c48b0b",
+      "levelId": "level_6bd5ee912d75",
+      "position": {
+        "x": -6,
+        "y": -8.700000000000001
+      }
+    },
+    {
+      "id": "node_608844a51740",
+      "levelId": "level_6bd5ee912d75",
+      "position": {
+        "x": -10,
+        "y": -8.700000000000001
+      }
+    },
+    {
+      "id": "node_7fccb7efe622",
+      "levelId": "level_6bd5ee912d75",
+      "position": {
+        "x": 0,
+        "y": -8.700000000000001
+      }
+    },
+    {
+      "id": "node_f633ac0bac12",
+      "levelId": "level_6bd5ee912d75",
+      "position": {
+        "x": -3.6,
+        "y": -8.700000000000001
+      }
+    },
+    {
+      "id": "node_969b47431b26",
+      "levelId": "level_6bd5ee912d75",
+      "position": {
+        "x": -3.6,
+        "y": -6.5
+      }
+    },
+    {
+      "id": "node_6b928cfac15c",
+      "levelId": "level_6bd5ee912d75",
+      "position": {
+        "x": 0,
+        "y": -6.5
+      }
+    },
+    {
+      "id": "node_098a4ca9076f",
+      "levelId": "level_6bd5ee912d75",
+      "position": {
+        "x": -3.6,
+        "y": -3.7
+      }
+    },
+    {
+      "id": "node_0dabf8f9ffa8",
+      "levelId": "level_6bd5ee912d75",
+      "position": {
+        "x": 0,
+        "y": -3.7
+      }
+    },
+    {
+      "id": "node_3c483c128e9c",
+      "levelId": "level_6bd5ee912d75",
+      "position": {
+        "x": -4.800000000000001,
+        "y": -3.7
+      }
+    },
+    {
+      "id": "node_c2921635bc63",
+      "levelId": "level_6bd5ee912d75",
+      "position": {
+        "x": -4.800000000000001,
+        "y": 0
+      }
+    },
+    {
+      "id": "node_b21016cb5e0e",
+      "levelId": "level_ade6d3294ff7",
+      "position": {
+        "x": -4.800000000000001,
+        "y": -3.7
+      }
+    },
+    {
+      "id": "node_439a74ba6513",
+      "levelId": "level_ade6d3294ff7",
+      "position": {
+        "x": -4.800000000000001,
+        "y": 0
+      }
+    },
+    {
+      "id": "node_32518bdcbdf9",
+      "levelId": "level_ade6d3294ff7",
+      "position": {
+        "x": -3.6,
+        "y": -3.7
+      }
+    },
+    {
+      "id": "node_df8c9f40d263",
+      "levelId": "level_ade6d3294ff7",
+      "position": {
+        "x": -3.6,
+        "y": 0
+      }
+    },
+    {
+      "id": "node_19c391e76a6c",
+      "levelId": "level_61c02b847a52",
+      "position": {
+        "x": -5.25,
+        "y": -5.4
+      }
+    },
+    {
+      "id": "node_c16756cb2331",
+      "levelId": "level_61c02b847a52",
+      "position": {
+        "x": 0,
+        "y": -3
+      }
+    },
+    {
+      "id": "node_5e3503898794",
+      "levelId": "level_61c02b847a52",
+      "position": {
+        "x": -2.8000000000000003,
+        "y": -3
+      }
+    },
+    {
+      "id": "node_096dacf3f7a1",
+      "levelId": "level_61c02b847a52",
+      "position": {
+        "x": -2.8000000000000003,
+        "y": -5.4
+      }
+    },
+    {
+      "id": "node_6588cb4364b7",
+      "levelId": "level_61c02b847a52",
+      "position": {
+        "x": 0,
+        "y": -7.050000000000001
+      }
+    },
+    {
+      "id": "node_30eb651c1c1b",
+      "levelId": "level_61c02b847a52",
+      "position": {
+        "x": -2.8000000000000003,
+        "y": -7.050000000000001
+      }
+    },
+    {
+      "id": "node_52cb28bbad1f",
+      "levelId": "level_61c02b847a52",
+      "position": {
+        "x": -2.8000000000000003,
+        "y": -6.6000000000000005
+      }
+    },
+    {
+      "id": "node_0020955b476e",
+      "levelId": "level_61c02b847a52",
+      "position": {
+        "x": -3.5,
+        "y": -6.6000000000000005
+      }
+    },
+    {
+      "id": "node_12a2c6d4331b",
+      "levelId": "level_6bd5ee912d75",
+      "position": {
+        "x": -6.550000000000001,
+        "y": -12.5
+      }
+    },
+    {
+      "id": "node_a3eaa53c2f7a",
+      "levelId": "level_6bd5ee912d75",
+      "position": {
+        "x": -6.550000000000001,
+        "y": -8.700000000000001
       }
     }
   ],
@@ -1242,14 +1694,6 @@
       "endNodeId": "node_66e818866737"
     },
     {
-      "id": "wall_2368620a6f7d",
-      "levelId": "level_6bd5ee912d75",
-      "wallTypeId": "wall_type_d3df4ca911a2",
-      "topMode": "FixedHeight",
-      "startNodeId": "node_90456a668be9",
-      "endNodeId": "node_f8e3913cd9f8"
-    },
-    {
       "id": "wall_41dfacf0aa1e",
       "levelId": "level_6bd5ee912d75",
       "wallTypeId": "wall_type_d3df4ca911a2",
@@ -1386,14 +1830,6 @@
       "endNodeId": "node_4c233f0de449"
     },
     {
-      "id": "wall_83fcf5e061c8",
-      "levelId": "level_61c02b847a52",
-      "wallTypeId": "wall_type_d3df4ca911a2",
-      "topMode": "FollowRoof",
-      "startNodeId": "node_55e6ad64d2c1",
-      "endNodeId": "node_09305e26d9d4"
-    },
-    {
       "id": "wall_e0eba3522f4c",
       "levelId": "level_61c02b847a52",
       "wallTypeId": "wall_type_d3df4ca911a2",
@@ -1408,30 +1844,6 @@
       "topMode": "FollowRoof",
       "startNodeId": "node_7c06c52a6220",
       "endNodeId": "node_a45414e254ef"
-    },
-    {
-      "id": "wall_cbeae6385d85",
-      "levelId": "level_6bd5ee912d75",
-      "wallTypeId": "wall_type_d3df4ca911a2",
-      "topMode": "FollowRoof",
-      "startNodeId": "node_66e818866737",
-      "endNodeId": "node_5e6bc44e3321"
-    },
-    {
-      "id": "wall_154b1decb2cc",
-      "levelId": "level_6bd5ee912d75",
-      "wallTypeId": "wall_type_d3df4ca911a2",
-      "topMode": "FollowRoof",
-      "startNodeId": "node_5e6bc44e3321",
-      "endNodeId": "node_7bb52cbb7185"
-    },
-    {
-      "id": "wall_9b80c0e02337",
-      "levelId": "level_6bd5ee912d75",
-      "wallTypeId": "wall_type_d3df4ca911a2",
-      "topMode": "FollowRoof",
-      "startNodeId": "node_7bb52cbb7185",
-      "endNodeId": "node_5d8892a07ebb"
     },
     {
       "id": "wall_b388151d8a7e",
@@ -1450,20 +1862,356 @@
       "endNodeId": "node_181df8b7bb85"
     },
     {
-      "id": "wall_15f148436b62",
+      "id": "wall_cd6d2a132e12",
       "levelId": "level_61c02b847a52",
       "wallTypeId": "wall_type_d3df4ca911a2",
       "topMode": "FollowRoof",
-      "startNodeId": "node_a45414e254ef",
-      "endNodeId": "node_a7d13b105cd5"
+      "startNodeId": "node_ff694b9a7226",
+      "endNodeId": "node_09305e26d9d4"
     },
     {
-      "id": "wall_accc2082f43a",
+      "id": "wall_3ac51f50e93a",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_d7ce8b3371c2",
+      "endNodeId": "node_fee995c48b0b"
+    },
+    {
+      "id": "wall_254402c97dff",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_ff694b9a7226",
+      "endNodeId": "node_7fdfea4ed77a"
+    },
+    {
+      "id": "wall_194398afed2c",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_7fdfea4ed77a",
+      "endNodeId": "node_a45414e254ef"
+    },
+    {
+      "id": "wall_d653139b4bb6",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_d3df4ca911a2",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_66e818866737",
+      "endNodeId": "node_608844a51740"
+    },
+    {
+      "id": "wall_c176be2f474c",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_d3df4ca911a2",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_608844a51740",
+      "endNodeId": "node_5e6bc44e3321"
+    },
+    {
+      "id": "wall_a26d85f0a219",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_d3df4ca911a2",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_7bb52cbb7185",
+      "endNodeId": "node_7fccb7efe622"
+    },
+    {
+      "id": "wall_f16dbb6419a0",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_7fccb7efe622",
+      "endNodeId": "node_f633ac0bac12"
+    },
+    {
+      "id": "wall_80bcdc869509",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_f633ac0bac12",
+      "endNodeId": "node_fee995c48b0b"
+    },
+    {
+      "id": "wall_a44bcdc88998",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_f633ac0bac12",
+      "endNodeId": "node_969b47431b26"
+    },
+    {
+      "id": "wall_0462065cae12",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_d3df4ca911a2",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_7fccb7efe622",
+      "endNodeId": "node_6b928cfac15c"
+    },
+    {
+      "id": "wall_fe67233f6023",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_969b47431b26",
+      "endNodeId": "node_6b928cfac15c"
+    },
+    {
+      "id": "wall_b32bcbd2ed15",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_969b47431b26",
+      "endNodeId": "node_098a4ca9076f"
+    },
+    {
+      "id": "wall_afaac743cdb9",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_d3df4ca911a2",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_6b928cfac15c",
+      "endNodeId": "node_0dabf8f9ffa8"
+    },
+    {
+      "id": "wall_b1c4c7d51b7f",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_d3df4ca911a2",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_0dabf8f9ffa8",
+      "endNodeId": "node_5d8892a07ebb"
+    },
+    {
+      "id": "wall_9c90331e79c1",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_098a4ca9076f",
+      "endNodeId": "node_0dabf8f9ffa8"
+    },
+    {
+      "id": "wall_fa0b4517d5aa",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_098a4ca9076f",
+      "endNodeId": "node_3c483c128e9c"
+    },
+    {
+      "id": "wall_510aa759b50f",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_d3df4ca911a2",
+      "topMode": "FixedHeight",
+      "startNodeId": "node_90456a668be9",
+      "endNodeId": "node_c2921635bc63"
+    },
+    {
+      "id": "wall_58cba73e10dd",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_d3df4ca911a2",
+      "topMode": "FixedHeight",
+      "startNodeId": "node_c2921635bc63",
+      "endNodeId": "node_f8e3913cd9f8"
+    },
+    {
+      "id": "wall_53207df6b222",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_3c483c128e9c",
+      "endNodeId": "node_c2921635bc63"
+    },
+    {
+      "id": "wall_c4fed38bd5aa",
       "levelId": "level_ade6d3294ff7",
       "wallTypeId": "wall_type_acf303f9e013",
       "topMode": "FollowRoof",
       "startNodeId": "node_aab5ba2b5344",
+      "endNodeId": "node_439a74ba6513"
+    },
+    {
+      "id": "wall_22a432d18f46",
+      "levelId": "level_ade6d3294ff7",
+      "wallTypeId": "wall_type_7f42477e2d0f",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_b21016cb5e0e",
+      "endNodeId": "node_439a74ba6513"
+    },
+    {
+      "id": "wall_c0f8d81b273f",
+      "levelId": "level_ade6d3294ff7",
+      "wallTypeId": "wall_type_7f42477e2d0f",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_b21016cb5e0e",
+      "endNodeId": "node_32518bdcbdf9"
+    },
+    {
+      "id": "wall_bf7c07ec73ea",
+      "levelId": "level_ade6d3294ff7",
+      "wallTypeId": "wall_type_acf303f9e013",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_439a74ba6513",
+      "endNodeId": "node_df8c9f40d263"
+    },
+    {
+      "id": "wall_7af687053774",
+      "levelId": "level_ade6d3294ff7",
+      "wallTypeId": "wall_type_acf303f9e013",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_df8c9f40d263",
       "endNodeId": "node_7e7fbe4a5a9b"
+    },
+    {
+      "id": "wall_1e4709f0db06",
+      "levelId": "level_ade6d3294ff7",
+      "wallTypeId": "wall_type_7f42477e2d0f",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_32518bdcbdf9",
+      "endNodeId": "node_df8c9f40d263"
+    },
+    {
+      "id": "wall_24aa8252e827",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_7fdfea4ed77a",
+      "endNodeId": "node_a5aeb7c376ee"
+    },
+    {
+      "id": "wall_cbe055168654",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_19c391e76a6c",
+      "endNodeId": "node_a5aeb7c376ee"
+    },
+    {
+      "id": "wall_0ac406dda1be",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_d3df4ca911a2",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_55e6ad64d2c1",
+      "endNodeId": "node_c16756cb2331"
+    },
+    {
+      "id": "wall_5aa05edefa02",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_d3df4ca911a2",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_c16756cb2331",
+      "endNodeId": "node_ada57444e943"
+    },
+    {
+      "id": "wall_b66241aa69a3",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_c16756cb2331",
+      "endNodeId": "node_5e3503898794"
+    },
+    {
+      "id": "wall_daf563da730f",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_19c391e76a6c",
+      "endNodeId": "node_096dacf3f7a1"
+    },
+    {
+      "id": "wall_db3b193d4577",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_096dacf3f7a1",
+      "endNodeId": "node_ada57444e943"
+    },
+    {
+      "id": "wall_e464194da079",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_5e3503898794",
+      "endNodeId": "node_096dacf3f7a1"
+    },
+    {
+      "id": "wall_6b67d6548883",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_d3df4ca911a2",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_ada57444e943",
+      "endNodeId": "node_6588cb4364b7"
+    },
+    {
+      "id": "wall_73db0e8d3711",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_d3df4ca911a2",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_6588cb4364b7",
+      "endNodeId": "node_ff694b9a7226"
+    },
+    {
+      "id": "wall_5876f47c871c",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_6588cb4364b7",
+      "endNodeId": "node_30eb651c1c1b"
+    },
+    {
+      "id": "wall_8ab072b9a607",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_30eb651c1c1b",
+      "endNodeId": "node_52cb28bbad1f"
+    },
+    {
+      "id": "wall_9ce1cea9539c",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_52cb28bbad1f",
+      "endNodeId": "node_0020955b476e"
+    },
+    {
+      "id": "wall_d116fa00b9b3",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_d3df4ca911a2",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_5e6bc44e3321",
+      "endNodeId": "node_12a2c6d4331b"
+    },
+    {
+      "id": "wall_8ec8aff2fbf8",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_d3df4ca911a2",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_12a2c6d4331b",
+      "endNodeId": "node_7bb52cbb7185"
+    },
+    {
+      "id": "wall_52fe8611e547",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_fee995c48b0b",
+      "endNodeId": "node_a3eaa53c2f7a"
+    },
+    {
+      "id": "wall_6935e4ac9d43",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_a3eaa53c2f7a",
+      "endNodeId": "node_608844a51740"
+    },
+    {
+      "id": "wall_4130dba371af",
+      "levelId": "level_6bd5ee912d75",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_12a2c6d4331b",
+      "endNodeId": "node_a3eaa53c2f7a"
     }
   ],
   "doors": [
@@ -1476,8 +2224,8 @@
       "design3D": {
         "kind": "Garage",
         "frameThicknessM": 0.08,
-        "frameColorHex": "#c4cbd6",
-        "doorColorHex": "#a6a6a6",
+        "frameColorHex": "#000000",
+        "doorColorHex": "#8a8a8a",
         "wallDepthOffsetM": 0.08,
         "openState": "Closed",
         "hingeSide": "Left",
@@ -1489,7 +2237,7 @@
       "wallId": "wall_a24c12299cb2",
       "widthM": 2,
       "heightM": 2,
-      "offsetM": 2,
+      "offsetM": 1.6999999999999993,
       "design3D": null
     },
     {
@@ -1497,7 +2245,7 @@
       "wallId": "wall_9fcacadbddf7",
       "widthM": 1.2,
       "heightM": 2,
-      "offsetM": 1.5,
+      "offsetM": 0.8000000000000007,
       "design3D": {
         "kind": "Normal",
         "frameThicknessM": 0.08,
@@ -1508,22 +2256,6 @@
         "hingeSide": "Left",
         "swingDirection": "Outward"
       }
-    },
-    {
-      "id": "door_4d4b5a8c254f",
-      "wallId": "wall_356eb38a49bd",
-      "widthM": 1.2,
-      "heightM": 2,
-      "offsetM": 2,
-      "design3D": null
-    },
-    {
-      "id": "door_19151b13a977",
-      "wallId": "wall_2368620a6f7d",
-      "widthM": 1.25,
-      "heightM": 2.1,
-      "offsetM": 0.75,
-      "design3D": null
     },
     {
       "id": "door_59ede315fcc9",
@@ -1613,10 +2345,19 @@
     {
       "id": "door_703747825197",
       "wallId": "wall_b388151d8a7e",
-      "widthM": 1,
-      "heightM": 2.1,
-      "offsetM": 1.5,
-      "design3D": null
+      "widthM": 0.8,
+      "heightM": 2,
+      "offsetM": 0.8100000000000005,
+      "design3D": {
+        "kind": "Normal",
+        "frameThicknessM": 0.08,
+        "frameColorHex": "#c4cbd6",
+        "doorColorHex": "#8a5b3d",
+        "wallDepthOffsetM": 0,
+        "openState": "Open",
+        "hingeSide": "Left",
+        "swingDirection": "Outward"
+      }
     },
     {
       "id": "door_cf77ce2651a1",
@@ -1636,21 +2377,206 @@
       }
     },
     {
-      "id": "door_a3865b429272",
-      "wallId": "wall_accc2082f43a",
-      "widthM": 1,
+      "id": "door_6341ab81ce8b",
+      "wallId": "wall_cd6d2a132e12",
+      "widthM": 2.5,
       "heightM": 2.1,
-      "offsetM": 4,
+      "offsetM": 1.9000000000000004,
+      "design3D": {
+        "kind": "Garage",
+        "frameThicknessM": 0.08,
+        "frameColorHex": "#000000",
+        "doorColorHex": "#919191",
+        "wallDepthOffsetM": 0,
+        "openState": "Closed",
+        "hingeSide": "Left",
+        "swingDirection": "Inward"
+      }
+    },
+    {
+      "id": "door_5c6feb104d81",
+      "wallId": "wall_6e81059c5760",
+      "widthM": 0.8,
+      "heightM": 2,
+      "offsetM": 0.5999999999999996,
+      "design3D": null
+    },
+    {
+      "id": "door_c40ee00ffd47",
+      "wallId": "wall_4faadfe58921",
+      "widthM": 0.8,
+      "heightM": 2,
+      "offsetM": 7.100000000000001,
       "design3D": {
         "kind": "Normal",
         "frameThicknessM": 0.08,
-        "frameColorHex": "#5c5c5c",
+        "frameColorHex": "#000000",
+        "doorColorHex": "#8a5b3d",
+        "wallDepthOffsetM": 0,
+        "openState": "Closed",
+        "hingeSide": "Left",
+        "swingDirection": "Inward"
+      }
+    },
+    {
+      "id": "door_0e7dd8adf3b1",
+      "wallId": "wall_510aa759b50f",
+      "widthM": 0.8,
+      "heightM": 2,
+      "offsetM": 0.5499999999999998,
+      "design3D": null
+    },
+    {
+      "id": "door_081bf9befc7d",
+      "wallId": "wall_fa0b4517d5aa",
+      "widthM": 0.8,
+      "heightM": 2,
+      "offsetM": 0.6000000000000001,
+      "design3D": {
+        "kind": "Normal",
+        "frameThicknessM": 0.08,
+        "frameColorHex": "#c4cbd6",
+        "doorColorHex": "#8a5b3d",
+        "wallDepthOffsetM": 0,
+        "openState": "Open",
+        "hingeSide": "Left",
+        "swingDirection": "Outward"
+      }
+    },
+    {
+      "id": "door_3914bc9720dc",
+      "wallId": "wall_80bcdc869509",
+      "widthM": 0.8,
+      "heightM": 2,
+      "offsetM": 1.0500000000000003,
+      "design3D": {
+        "kind": "Normal",
+        "frameThicknessM": 0.08,
+        "frameColorHex": "#c4cbd6",
+        "doorColorHex": "#8a5b3d",
+        "wallDepthOffsetM": 0,
+        "openState": "Open",
+        "hingeSide": "Right",
+        "swingDirection": "Inward"
+      }
+    },
+    {
+      "id": "door_134a69b2aefb",
+      "wallId": "wall_bf7c07ec73ea",
+      "widthM": 1,
+      "heightM": 2,
+      "offsetM": 0.6000000000000005,
+      "design3D": {
+        "kind": "Normal",
+        "frameThicknessM": 0.08,
+        "frameColorHex": "#000000",
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
         "openState": "Open",
         "hingeSide": "Right",
         "swingDirection": "Outward"
       }
+    },
+    {
+      "id": "door_aed8079cd371",
+      "wallId": "wall_53207df6b222",
+      "widthM": 0.8,
+      "heightM": 2,
+      "offsetM": 3.12,
+      "design3D": {
+        "kind": "Normal",
+        "frameThicknessM": 0.08,
+        "frameColorHex": "#c4cbd6",
+        "doorColorHex": "#8a5b3d",
+        "wallDepthOffsetM": 0,
+        "openState": "Open",
+        "hingeSide": "Right",
+        "swingDirection": "Outward"
+      }
+    },
+    {
+      "id": "door_b46a32ec5eac",
+      "wallId": "wall_e464194da079",
+      "widthM": 1,
+      "heightM": 2,
+      "offsetM": 1.2000000000000002,
+      "design3D": {
+        "kind": "Normal",
+        "frameThicknessM": 0.08,
+        "frameColorHex": "#c4cbd6",
+        "doorColorHex": "#8a5b3d",
+        "wallDepthOffsetM": 0,
+        "openState": "Open",
+        "hingeSide": "Right",
+        "swingDirection": "Inward"
+      }
+    },
+    {
+      "id": "door_7024e4d6a19b",
+      "wallId": "wall_daf563da730f",
+      "widthM": 1,
+      "heightM": 2,
+      "offsetM": 1.6999999999999997,
+      "design3D": {
+        "kind": "Normal",
+        "frameThicknessM": 0.08,
+        "frameColorHex": "#c4cbd6",
+        "doorColorHex": "#8a5b3d",
+        "wallDepthOffsetM": 0,
+        "openState": "Open",
+        "hingeSide": "Left",
+        "swingDirection": "Outward"
+      }
+    },
+    {
+      "id": "door_7a2cb2ea4097",
+      "wallId": "wall_f16dbb6419a0",
+      "widthM": 0.8,
+      "heightM": 2,
+      "offsetM": 2.400000000000001,
+      "design3D": null
+    },
+    {
+      "id": "door_4933dcfe40b1",
+      "wallId": "wall_4130dba371af",
+      "widthM": 0.8,
+      "heightM": 2,
+      "offsetM": 3.1999999999999993,
+      "design3D": {
+        "kind": "Normal",
+        "frameThicknessM": 0.08,
+        "frameColorHex": "#c4cbd6",
+        "doorColorHex": "#8a5b3d",
+        "wallDepthOffsetM": 0,
+        "openState": "Open",
+        "hingeSide": "Right",
+        "swingDirection": "Outward"
+      }
+    },
+    {
+      "id": "door_59dec3b594c8",
+      "wallId": "wall_fe67233f6023",
+      "widthM": 0.8,
+      "heightM": 2,
+      "offsetM": 1.1999999999999997,
+      "design3D": {
+        "kind": "Normal",
+        "frameThicknessM": 0.08,
+        "frameColorHex": "#c4cbd6",
+        "doorColorHex": "#8a5b3d",
+        "wallDepthOffsetM": 0,
+        "openState": "Closed",
+        "hingeSide": "Left",
+        "swingDirection": "Inward"
+      }
+    },
+    {
+      "id": "door_c54041019f62",
+      "wallId": "wall_5aa05edefa02",
+      "widthM": 0.8,
+      "heightM": 2,
+      "offsetM": 1.1500000000000004,
+      "design3D": null
     }
   ],
   "windows": [
@@ -1677,22 +2603,6 @@
       "heightM": 2,
       "sillHeightM": 0.1,
       "offsetM": 5.5,
-      "design3D": {
-        "glassThicknessM": 0.02,
-        "frameThicknessM": 0.08,
-        "verticalDivisions": 1,
-        "horizontalDivisions": 0,
-        "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
-      }
-    },
-    {
-      "id": "window_07998f4210c6",
-      "wallId": "wall_29fcf6db87fe",
-      "widthM": 2,
-      "heightM": 2,
-      "sillHeightM": 0.1,
-      "offsetM": 3.25,
       "design3D": {
         "glassThicknessM": 0.02,
         "frameThicknessM": 0.08,
@@ -1845,82 +2755,278 @@
         "wallDepthOffsetM": 0,
         "frameColorHex": "#000000"
       }
+    },
+    {
+      "id": "window_5280fcb84852",
+      "wallId": "wall_4faadfe58921",
+      "widthM": 1,
+      "heightM": 2,
+      "sillHeightM": 0,
+      "offsetM": 6.200000000000002,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
+    },
+    {
+      "id": "window_8c8b4dac83fa",
+      "wallId": "wall_73db0e8d3711",
+      "widthM": 1,
+      "heightM": 0.6,
+      "sillHeightM": 1.7,
+      "offsetM": 0.7999999999999998,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
+    },
+    {
+      "id": "window_86f5df3e6e39",
+      "wallId": "wall_6b67d6548883",
+      "widthM": 0.6,
+      "heightM": 0.6,
+      "sillHeightM": 1.7,
+      "offsetM": 0.75,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
+    },
+    {
+      "id": "window_a744a2ee5eeb",
+      "wallId": "wall_0ac406dda1be",
+      "widthM": 1,
+      "heightM": 1,
+      "sillHeightM": 0.9,
+      "offsetM": 1.4500000000000002,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
     }
   ],
   "stairs": [
     {
-      "id": "stair_5de7d1e592af",
+      "id": "stair_ed8db42dab98",
       "levelId": "level_61c02b847a52",
       "name": "stairs_1",
       "pathNodes": [
         {
-          "x": -7.75,
-          "y": -6.75
+          "x": -8.4,
+          "y": -8.1
         },
         {
-          "x": -5.75,
-          "y": -6.75
+          "x": -6.6000000000000005,
+          "y": -8.1
         },
         {
-          "x": -5.75,
-          "y": -4.25
+          "x": -6.6000000000000005,
+          "y": -5.4
         }
       ],
-      "widthM": 1.4,
+      "widthM": 1.1,
       "endElevationM": 2.7,
-      "riserHeightM": 0.2,
+      "riserHeightM": 0.17,
+      "treadDepthM": 0.28,
+      "landingLengthM": 1.2
+    },
+    {
+      "id": "stair_35a7b59c4efd",
+      "levelId": "level_6bd5ee912d75",
+      "name": "stairs_2",
+      "pathNodes": [
+        {
+          "x": -4.2,
+          "y": -3.6
+        },
+        {
+          "x": -4.2,
+          "y": -0.1
+        }
+      ],
+      "widthM": 1.1,
+      "endElevationM": 5.2,
+      "riserHeightM": 0.17,
       "treadDepthM": 0.28,
       "landingLengthM": 1.2
     }
   ],
   "shapes": [
     {
-      "id": "shape_de7c76f94db2",
+      "id": "shape_d2d294a5250c",
       "levelId": "level_61c02b847a52",
-      "name": "shape_2",
+      "name": "shape_3",
       "kind": "Square",
       "pose": {
         "position": {
-          "x": -9.5,
-          "y": -12
+          "x": -9.870000000000001,
+          "y": -12.370000000000001
         },
         "yawDeg": 0
       },
-      "sizeM": 1,
+      "sizeM": 0.5,
       "zStartM": 0,
       "heightM": 2.5
     },
     {
-      "id": "shape_472c89edfca4",
-      "levelId": "level_ade6d3294ff7",
-      "name": "shape_2",
+      "id": "shape_c2b329a30d8f",
+      "levelId": "level_61c02b847a52",
+      "name": "shape_4",
       "kind": "Square",
       "pose": {
         "position": {
-          "x": -5.5,
+          "x": -7.25,
           "y": -5.25
         },
         "yawDeg": 0
       },
-      "sizeM": 0.75,
+      "sizeM": 0.2999999999999998,
+      "zStartM": 0,
+      "heightM": 2.5
+    },
+    {
+      "id": "shape_656a298631f9",
+      "levelId": "level_6bd5ee912d75",
+      "name": "shape_4",
+      "kind": "Square",
+      "pose": {
+        "position": {
+          "x": -5.8500000000000005,
+          "y": -6.3500000000000005
+        },
+        "yawDeg": 0
+      },
+      "sizeM": 0.5,
+      "zStartM": 0,
+      "heightM": 2.5
+    },
+    {
+      "id": "shape_cedab0c95443",
+      "levelId": "level_6bd5ee912d75",
+      "name": "shape_4",
+      "kind": "Square",
+      "pose": {
+        "position": {
+          "x": -5.8500000000000005,
+          "y": -6.8500000000000005
+        },
+        "yawDeg": 0
+      },
+      "sizeM": 0.5,
+      "zStartM": 0,
+      "heightM": 2.5
+    },
+    {
+      "id": "shape_cad060028714",
+      "levelId": "level_ade6d3294ff7",
+      "name": "shape_5",
+      "kind": "Square",
+      "pose": {
+        "position": {
+          "x": -5.8500000000000005,
+          "y": -6.3500000000000005
+        },
+        "yawDeg": 0
+      },
+      "sizeM": 0.5,
       "zStartM": 0,
       "heightM": 4
     },
     {
-      "id": "shape_8f023ba189b9",
+      "id": "shape_4b80c015a84b",
       "levelId": "level_ade6d3294ff7",
-      "name": "shape_2",
+      "name": "shape_6",
       "kind": "Square",
       "pose": {
         "position": {
-          "x": -5.5,
-          "y": -4.5
+          "x": -5.8500000000000005,
+          "y": -6.8500000000000005
         },
         "yawDeg": 0
       },
-      "sizeM": 0.75,
+      "sizeM": 0.5,
       "zStartM": 0,
       "heightM": 4
+    },
+    {
+      "id": "shape_86f547c0b188",
+      "levelId": "level_61c02b847a52",
+      "name": "shape_7",
+      "kind": "Square",
+      "pose": {
+        "position": {
+          "x": 1.9500000000000002,
+          "y": -3.1
+        },
+        "yawDeg": 0
+      },
+      "sizeM": 0.15000000000000036,
+      "zStartM": 0,
+      "heightM": 2
+    },
+    {
+      "id": "shape_f52697a32deb",
+      "levelId": "level_61c02b847a52",
+      "name": "shape_8",
+      "kind": "Square",
+      "pose": {
+        "position": {
+          "x": 1.9500000000000002,
+          "y": -5.300000000000001
+        },
+        "yawDeg": 0
+      },
+      "sizeM": 0.15000000000000036,
+      "zStartM": 0,
+      "heightM": 2
+    },
+    {
+      "id": "shape_0f47d4c90d1f",
+      "levelId": "level_ade6d3294ff7",
+      "name": "shape_9",
+      "kind": "Square",
+      "pose": {
+        "position": {
+          "x": -9.75,
+          "y": 0.30000000000000004
+        },
+        "yawDeg": 0
+      },
+      "sizeM": 0.1999999999999993,
+      "zStartM": 0,
+      "heightM": 2.1
+    },
+    {
+      "id": "shape_5a0cb1c1e9cd",
+      "levelId": "level_ade6d3294ff7",
+      "name": "shape_10",
+      "kind": "Square",
+      "pose": {
+        "position": {
+          "x": -9.75,
+          "y": 5
+        },
+        "yawDeg": 0
+      },
+      "sizeM": 0.20000000000000107,
+      "zStartM": 0,
+      "heightM": 2.1
     }
   ],
   "slabs": [
@@ -1963,77 +3069,115 @@
       "zOffsetM": 0
     },
     {
-      "id": "slab_5b4e1d441338",
-      "levelId": "level_6bd5ee912d75",
-      "name": "slab_3",
-      "kind": "Rectangle",
-      "roofType": "Flat",
-      "pose": {
-        "position": {
-          "x": -5,
-          "y": -10
-        },
-        "yawDeg": 0
-      },
-      "widthM": 10,
-      "depthM": 5,
-      "thicknessM": 0.2,
-      "roofRiseM": 1.2,
-      "zOffsetM": 0
-    },
-    {
-      "id": "slab_e4a35e3dcd18",
-      "levelId": "level_ade6d3294ff7",
-      "name": "slab_4",
-      "kind": "Rectangle",
-      "roofType": "Flat",
-      "pose": {
-        "position": {
-          "x": -5,
-          "y": -5.5
-        },
-        "yawDeg": 0
-      },
-      "widthM": 7,
-      "depthM": 11,
-      "thicknessM": 0.2,
-      "roofRiseM": 1.2,
-      "zOffsetM": 0
-    },
-    {
-      "id": "slab_85630f720c7c",
+      "id": "slab_2343ae301101",
       "levelId": "level_6bd5ee912d75",
       "name": "slab_5",
       "kind": "Rectangle",
       "roofType": "Flat",
       "pose": {
         "position": {
-          "x": -6.25,
-          "y": -2.25
+          "x": -5,
+          "y": -10.600000000000001
         },
         "yawDeg": 0
       },
-      "widthM": 2.5,
-      "depthM": 4.5,
+      "widthM": 10,
+      "depthM": 3.799999999999999,
       "thicknessM": 0.2,
       "roofRiseM": 1.2,
       "zOffsetM": 0
     },
     {
-      "id": "slab_b4fcc131fd94",
+      "id": "slab_095f49d6a809",
       "levelId": "level_6bd5ee912d75",
       "name": "slab_6",
       "kind": "Rectangle",
       "roofType": "Flat",
       "pose": {
         "position": {
+          "x": -3,
+          "y": -4.3500000000000005
+        },
+        "yawDeg": 0
+      },
+      "widthM": 6,
+      "depthM": 8.700000000000001,
+      "thicknessM": 0.2,
+      "roofRiseM": 1.2,
+      "zOffsetM": 0
+    },
+    {
+      "id": "slab_0215d683f353",
+      "levelId": "level_6bd5ee912d75",
+      "name": "slab_7",
+      "kind": "Rectangle",
+      "roofType": "Flat",
+      "pose": {
+        "position": {
+          "x": -6.7,
+          "y": -2.7
+        },
+        "yawDeg": 0
+      },
+      "widthM": 1.4000000000000004,
+      "depthM": 5.4,
+      "thicknessM": 0.2,
+      "roofRiseM": 1.2,
+      "zOffsetM": 0
+    },
+    {
+      "id": "slab_c1f7ff9d5354",
+      "levelId": "level_ade6d3294ff7",
+      "name": "slab_6",
+      "kind": "Rectangle",
+      "roofType": "Flat",
+      "pose": {
+        "position": {
           "x": -2.5,
-          "y": -3.75
+          "y": -5.6000000000000005
+        },
+        "yawDeg": 0
+      },
+      "widthM": 2.3000000000000003,
+      "depthM": 11.1,
+      "thicknessM": 0.2,
+      "roofRiseM": 1.2,
+      "zOffsetM": 0
+    },
+    {
+      "id": "slab_aa5756d40bab",
+      "levelId": "level_ade6d3294ff7",
+      "name": "slab_7",
+      "kind": "Rectangle",
+      "roofType": "Flat",
+      "pose": {
+        "position": {
+          "x": -6.15,
+          "y": -7.425000000000001
         },
         "yawDeg": 0
       },
       "widthM": 5,
-      "depthM": 7.5,
+      "depthM": 7.45,
+      "thicknessM": 0.2,
+      "roofRiseM": 1.2,
+      "zOffsetM": 0
+    },
+    {
+      "id": "slab_8413a60201ad",
+      "levelId": "level_ade6d3294ff7",
+      "name": "slab_8",
+      "kind": "Rectangle",
+      "roofType": "Flat",
+      "pose": {
+        "position": {
+          "x": -6.7,
+          "y": -1.85
+        },
+        "yawDeg": 0
+      },
+      "widthM": 3.9000000000000004,
+      "depthM": 3.7,
       "thicknessM": 0.2,
       "roofRiseM": 1.2,
       "zOffsetM": 0
@@ -2042,15 +3186,41 @@
   "externalModels": [],
   "measurements": [
     {
-      "id": "measure_5539e1a81113",
-      "levelId": "level_6bd5ee912d75",
+      "id": "measure_13a7f97aa2ae",
+      "levelId": "level_ade6d3294ff7",
       "start": {
-        "x": -10,
-        "y": -3.5
+        "x": -1.35,
+        "y": -11.15
       },
       "end": {
-        "x": -7.5,
-        "y": -3.5
+        "x": -0.8500000000000001,
+        "y": -11.15
+      },
+      "unit": "m"
+    },
+    {
+      "id": "measure_552bbcc5452a",
+      "levelId": "level_ade6d3294ff7",
+      "start": {
+        "x": -8.65,
+        "y": -11.15
+      },
+      "end": {
+        "x": -8.9,
+        "y": -11.15
+      },
+      "unit": "m"
+    },
+    {
+      "id": "measure_77f09c48d1e6",
+      "levelId": "level_ade6d3294ff7",
+      "start": {
+        "x": -8.65,
+        "y": -0.2
+      },
+      "end": {
+        "x": -8.85,
+        "y": -0.2
       },
       "unit": "m"
     }
