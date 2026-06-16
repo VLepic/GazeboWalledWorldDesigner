@@ -70,6 +70,7 @@ interface ViewportSceneProps {
   onDeleteWall: (wallId: string) => void;
   onDeleteDoor: (doorId: string) => void;
   onDeleteWindow: (windowId: string) => void;
+  onDeleteRoofOpening: (roofOpeningId: string) => void;
   onDeleteMeasurement: (measurementId: string) => void;
   onDeleteStair: (stairId: string) => void;
   onDeleteWallsConnectedToNode: (nodeId: string) => void;
@@ -85,6 +86,8 @@ interface ViewportSceneProps {
   onMoveShape: (shapeId: string, position: Vec2) => void;
   onMoveSlab: (slabId: string, position: Vec2) => void;
   onMoveRoofEdge: (roofEdgeId: string, position: Vec2) => void;
+  onMoveRoofVertex: (roofSketchId: string, roofVertexId: string, position: Vec2) => void;
+  onMoveRoofOpening: (roofOpeningId: string, position: Vec2) => void;
   onMoveExternalModel: (modelId: string, position: Vec2) => void;
   measureToolUnit: MeasurementUnit;
   measureToolPermanent: boolean;
@@ -100,15 +103,41 @@ interface PanDragState {
 interface MoveDragState {
   kind: "move";
   pointerId: number;
-  anchorEntityKind: "node" | "door" | "window" | "shape" | "slab" | "roofEdge" | "externalModel";
+  anchorEntityKind:
+    | "node"
+    | "door"
+    | "window"
+    | "shape"
+    | "slab"
+    | "roofEdge"
+    | "roofOpening"
+    | "externalModel";
   anchorEntityId: string;
   anchorStartPosition: Vec2;
   startPointerWorld: Vec2;
   items: Array<{
-    entityKind: "node" | "door" | "window" | "shape" | "slab" | "roofEdge" | "externalModel";
+    entityKind:
+      | "node"
+      | "door"
+      | "window"
+      | "shape"
+      | "slab"
+      | "roofEdge"
+      | "roofOpening"
+      | "externalModel";
     entityId: string;
     startPosition: Vec2;
   }>;
+}
+
+interface RoofVertexDragState {
+  kind: "roofVertex";
+  pointerId: number;
+  roofSketchId: string;
+  roofEdgeId: string;
+  roofVertexId: string;
+  startPosition: Vec2;
+  startPointerWorld: Vec2;
 }
 
 type MoveDragItem = MoveDragState["items"][number];
@@ -157,7 +186,7 @@ interface BoxSelectDragState {
   currentWorld: Vec2;
 }
 
-type DragState = PanDragState | MoveDragState | BoxSelectDragState;
+type DragState = PanDragState | MoveDragState | RoofVertexDragState | BoxSelectDragState;
 
 interface VisibleEntityStyle {
   stroke: string;
@@ -233,6 +262,7 @@ function isEntityInteractiveForTool(
     | "slab"
     | "roofEdge"
     | "roofFace"
+    | "roofOpening"
     | "externalModel",
 ) {
   switch (activeTool) {
@@ -256,8 +286,10 @@ function isEntityInteractiveForTool(
       return entityKind === "slab";
     case "Roof":
       return entityKind === "roofEdge" || entityKind === "roofFace";
+    case "RoofOpening":
+      return entityKind === "roofFace" || entityKind === "roofOpening";
     case "RoofWindow":
-      return entityKind === "roofFace";
+      return entityKind === "roofOpening";
     case "Model":
       return entityKind === "externalModel";
   }
@@ -413,9 +445,11 @@ function getCurrentEntityPosition(
         ? createVec2(
             (startVertex.position.x + endVertex.position.x) / 2,
             (startVertex.position.y + endVertex.position.y) / 2,
-          )
+        )
         : null;
     }
+    case "roofOpening":
+      return project.roofOpenings.find((item) => item.id === entityId)?.center ?? null;
     case "externalModel":
       return project.externalModels.find((item) => item.id === entityId)?.position ?? null;
   }
@@ -644,6 +678,7 @@ export function ViewportScene({
   onDeleteWall,
   onDeleteDoor,
   onDeleteWindow,
+  onDeleteRoofOpening,
   onDeleteMeasurement,
   onDeleteStair,
   onDeleteWallsConnectedToNode,
@@ -659,6 +694,8 @@ export function ViewportScene({
   onMoveShape,
   onMoveSlab,
   onMoveRoofEdge,
+  onMoveRoofVertex,
+  onMoveRoofOpening,
   onMoveExternalModel,
   measureToolUnit,
   measureToolPermanent,
@@ -714,7 +751,10 @@ export function ViewportScene({
 
     function handleNativePlacementToolPointerDown(event: PointerEvent) {
       if (
-        (!activeLevelId && activeTool !== "Roof" && activeTool !== "RoofWindow") ||
+        (!activeLevelId &&
+          activeTool !== "Roof" &&
+          activeTool !== "RoofOpening" &&
+          activeTool !== "RoofWindow") ||
         (activeTool !== "Node" &&
           activeTool !== "Wall" &&
           activeTool !== "Measure" &&
@@ -724,6 +764,7 @@ export function ViewportScene({
           activeTool !== "Shape" &&
           activeTool !== "Slab" &&
           activeTool !== "Roof" &&
+          activeTool !== "RoofOpening" &&
           activeTool !== "RoofWindow" &&
           activeTool !== "Model")
       ) {
@@ -751,6 +792,8 @@ export function ViewportScene({
         target instanceof Element ? target.closest<SVGElement>("[data-roof-edge-id]") : null;
       const roofFaceElement =
         target instanceof Element ? target.closest<SVGElement>("[data-roof-face-id]") : null;
+      const roofOpeningElement =
+        target instanceof Element ? target.closest<SVGElement>("[data-roof-opening-id]") : null;
       const modelElement =
         target instanceof Element ? target.closest<SVGElement>("[data-model-id]") : null;
 
@@ -804,6 +847,19 @@ export function ViewportScene({
           event.stopPropagation();
           suppressClickRef.current = true;
           onDeleteWindow(windowId);
+          return;
+        }
+
+        if (activeTool === "RoofOpening" && roofOpeningElement) {
+          const roofOpeningId = roofOpeningElement.getAttribute("data-roof-opening-id");
+          if (!roofOpeningId) {
+            return;
+          }
+
+          event.preventDefault();
+          event.stopPropagation();
+          suppressClickRef.current = true;
+          onDeleteRoofOpening(roofOpeningId);
           return;
         }
 
@@ -1081,7 +1137,7 @@ export function ViewportScene({
         return;
       }
 
-      if (activeTool === "RoofWindow" && event.button === 0 && roofFaceElement) {
+      if (activeTool === "RoofOpening" && event.button === 0 && roofFaceElement) {
         return;
       }
 
@@ -1138,6 +1194,7 @@ export function ViewportScene({
     onCreateRoofOpening,
     onDeleteDoor,
     onDeleteWindow,
+    onDeleteRoofOpening,
     onDeleteMeasurement,
     onDeleteStair,
     onDeleteExternalModel,
@@ -1311,7 +1368,7 @@ export function ViewportScene({
   }
 
   function getMoveSelectionItems(
-    anchorEntityKind: "node" | "door" | "window" | "shape" | "slab" | "roofEdge" | "externalModel",
+    anchorEntityKind: MoveDragState["anchorEntityKind"],
     anchorEntityId: string,
     anchorEntityPosition: Vec2,
   ): MoveDragItem[] {
@@ -1357,6 +1414,18 @@ export function ViewportScene({
           const position = getCurrentEntityPosition(project, "roofEdge", selection.id);
           return position
             ? [{ entityKind: "roofEdge" as const, entityId: selection.id, startPosition: position }]
+            : [];
+        }
+        case "roofOpening": {
+          const position = getCurrentEntityPosition(project, "roofOpening", selection.id);
+          return position
+            ? [
+                {
+                  entityKind: "roofOpening" as const,
+                  entityId: selection.id,
+                  startPosition: position,
+                },
+              ]
             : [];
         }
         case "roofFace":
@@ -1437,6 +1506,40 @@ export function ViewportScene({
       anchorStartPosition: entityPosition,
       startPointerWorld: pointerWorld,
       items: moveItems,
+    });
+  }
+
+  function startRoofVertexDrag(
+    event: React.PointerEvent<SVGElement>,
+    roofSketchId: string,
+    roofEdgeId: string,
+    roofVertexId: string,
+    vertexPosition: Vec2,
+  ) {
+    if (activeTool !== "Move" || event.button !== 0) {
+      return;
+    }
+
+    const pointerWorld = updateCursor(event.clientX, event.clientY);
+    if (!pointerWorld) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    rootRef.current?.setPointerCapture(event.pointerId);
+    if (!isIncludedInSelectionSet(selectionSet, "roofEdge", roofEdgeId)) {
+      onSelectionSetChange([{ kind: "roofEdge", id: roofEdgeId }], { kind: "roofEdge", id: roofEdgeId });
+    }
+    onMoveInteractionStart();
+    setDragState({
+      kind: "roofVertex",
+      pointerId: event.pointerId,
+      roofSketchId,
+      roofEdgeId,
+      roofVertexId,
+      startPosition: vertexPosition,
+      startPointerWorld: pointerWorld,
     });
   }
 
@@ -1542,6 +1645,22 @@ export function ViewportScene({
       return;
     }
 
+    if (dragState.kind === "roofVertex") {
+      const rawTarget = createVec2(
+        dragState.startPosition.x + pointerWorld.x - dragState.startPointerWorld.x,
+        dragState.startPosition.y + pointerWorld.y - dragState.startPointerWorld.y,
+      );
+      const nextPosition = project.settings.snapToGrid
+        ? snapPointToGrid(rawTarget, project.settings.gridSpacingM)
+        : rawTarget;
+
+      if (!hasSamePosition(dragState.startPosition, nextPosition)) {
+        suppressClickRef.current = true;
+        onMoveRoofVertex(dragState.roofSketchId, dragState.roofVertexId, nextPosition);
+      }
+      return;
+    }
+
     const rawDelta = createVec2(
       pointerWorld.x - dragState.startPointerWorld.x,
       pointerWorld.y - dragState.startPointerWorld.y,
@@ -1593,6 +1712,10 @@ export function ViewportScene({
           break;
         case "roofEdge":
           onMoveRoofEdge(item.entityId, nextPosition);
+          movedAny = true;
+          break;
+        case "roofOpening":
+          onMoveRoofOpening(item.entityId, nextPosition);
           movedAny = true;
           break;
         case "externalModel":
@@ -1789,7 +1912,7 @@ export function ViewportScene({
         return;
       }
 
-      if (dragState.kind === "move") {
+      if (dragState.kind === "move" || dragState.kind === "roofVertex") {
         onMoveInteractionCommit();
       }
 
@@ -2620,7 +2743,9 @@ export function ViewportScene({
             key={face.id}
             data-viewport-entity="roofFace"
             data-roof-face-id={face.id}
-            pointerEvents={activeTool === "Roof" || activeTool === "RoofWindow" ? "auto" : "none"}
+            pointerEvents={
+              activeTool === "Roof" || activeTool === "RoofOpening" ? "auto" : "none"
+            }
             d={`${createSvgPathFromPoints(points, metrics)} Z`}
             fill={selected ? "rgba(255, 209, 102, 0.20)" : "rgba(201, 129, 77, 0.16)"}
             stroke={selected ? "#ffd166" : "rgba(201, 129, 77, 0.42)"}
@@ -2635,7 +2760,7 @@ export function ViewportScene({
               event.stopPropagation();
               const selection = { kind: "roofFace" as const, id: face.id };
               onSelectionSetChange([selection], selection);
-              if (activeTool === "RoofWindow") {
+              if (activeTool === "RoofOpening") {
                 const center = getWorldFromClient(event.clientX, event.clientY);
                 if (center) {
                   onCreateRoofOpening({
@@ -2726,10 +2851,34 @@ export function ViewportScene({
             <circle
               cx={startScreen.x}
               cy={startScreen.y}
+              r={11}
+              fill="transparent"
+              pointerEvents={activeTool === "Move" ? "auto" : "none"}
+              onPointerDown={(event) =>
+                startRoofVertexDrag(event, sketch.id, edge.id, edge.startVertexId, start.position)
+              }
+            />
+            <circle
+              cx={startScreen.x}
+              cy={startScreen.y}
               r={selected ? 5 : 4}
               fill={selected ? "#ffe0a1" : "#f1b879"}
               stroke="#7f4a26"
               strokeWidth={1.5}
+              pointerEvents={activeTool === "Move" ? "auto" : "none"}
+              onPointerDown={(event) =>
+                startRoofVertexDrag(event, sketch.id, edge.id, edge.startVertexId, start.position)
+              }
+            />
+            <circle
+              cx={endScreen.x}
+              cy={endScreen.y}
+              r={11}
+              fill="transparent"
+              pointerEvents={activeTool === "Move" ? "auto" : "none"}
+              onPointerDown={(event) =>
+                startRoofVertexDrag(event, sketch.id, edge.id, edge.endVertexId, end.position)
+              }
             />
             <circle
               cx={endScreen.x}
@@ -2738,6 +2887,10 @@ export function ViewportScene({
               fill={selected ? "#ffe0a1" : "#f1b879"}
               stroke="#7f4a26"
               strokeWidth={1.5}
+              pointerEvents={activeTool === "Move" ? "auto" : "none"}
+              onPointerDown={(event) =>
+                startRoofVertexDrag(event, sketch.id, edge.id, edge.endVertexId, end.position)
+              }
             />
             <g transform={`translate(${midpoint.x + 8} ${midpoint.y - 8})`}>
               <rect
@@ -2769,27 +2922,59 @@ export function ViewportScene({
   function renderRoofOpenings() {
     return project.roofOpenings.map((opening) => {
       const center = worldToScreen(opening.center, metrics);
-      const widthPx = opening.widthM * projectScale(metrics);
-      const heightPx = opening.heightM * projectScale(metrics);
+      const widthM = opening.rotationDeg === 90 ? opening.widthM : opening.heightM;
+      const heightM = opening.rotationDeg === 90 ? opening.heightM : opening.widthM;
+      const widthPx = widthM * projectScale(metrics);
+      const heightPx = heightM * projectScale(metrics);
+      const selected =
+        isSelected(currentSelection, "roofOpening", opening.id) ||
+        isIncludedInSelectionSet(selectionSet, "roofOpening", opening.id);
+      const isToolInteractive = isEntityInteractiveForTool(activeTool, "roofOpening");
       return (
-        <g key={opening.id} pointerEvents="none">
+        <g
+          key={opening.id}
+          data-viewport-entity="roofOpening"
+          data-roof-opening-id={opening.id}
+          pointerEvents={isToolInteractive ? "auto" : "none"}
+          onPointerDown={(event) =>
+            startMoveDrag(event, "roofOpening", opening.id, opening.center, true)
+          }
+          onClick={(event) => {
+            if (consumeSuppressedClick()) {
+              event.stopPropagation();
+              return;
+            }
+
+            event.stopPropagation();
+            const selection = { kind: "roofOpening" as const, id: opening.id };
+            onSelectionSetChange([selection], selection);
+          }}
+        >
           <rect
             x={center.x - widthPx / 2}
             y={center.y - heightPx / 2}
             width={widthPx}
             height={heightPx}
             rx={4}
-            fill="rgba(88, 166, 255, 0.26)"
-            stroke="#58a6ff"
-            strokeWidth={2}
+            fill={selected ? "rgba(255, 209, 102, 0.32)" : "rgba(88, 166, 255, 0.26)"}
+            stroke={selected ? "#ffd166" : "#58a6ff"}
+            strokeWidth={selected ? 3 : 2}
             strokeDasharray={opening.cutMode === "Vertical" ? "6 4" : undefined}
+          />
+          <rect
+            x={center.x - widthPx / 2 - 5}
+            y={center.y - heightPx / 2 - 5}
+            width={widthPx + 10}
+            height={heightPx + 10}
+            rx={8}
+            fill="transparent"
           />
           <line
             x1={center.x - widthPx / 2}
             y1={center.y}
             x2={center.x + widthPx / 2}
             y2={center.y}
-            stroke="rgba(255, 255, 255, 0.62)"
+            stroke={selected ? "rgba(255, 255, 255, 0.88)" : "rgba(255, 255, 255, 0.62)"}
             strokeWidth={1.5}
           />
         </g>
@@ -3283,7 +3468,7 @@ export function ViewportScene({
         }
       }}
       onPointerCancel={() => {
-        if (dragState?.kind === "move") {
+        if (dragState?.kind === "move" || dragState?.kind === "roofVertex") {
           onMoveInteractionCancel();
         }
         setDragState(null);

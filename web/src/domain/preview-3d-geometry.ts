@@ -48,6 +48,7 @@ export interface Preview3DMeshPrimitive {
   vertices: [number, number, number][];
   indices: number[];
   color: string;
+  opacity?: number;
 }
 
 export interface Preview3DSceneData {
@@ -105,6 +106,14 @@ function dot3(left: Vec3, right: Vec3) {
   return left.x * right.x + left.y * right.y + left.z * right.z;
 }
 
+function cross3(left: Vec3, right: Vec3) {
+  return vec3(
+    left.y * right.z - left.z * right.y,
+    left.z * right.x - left.x * right.z,
+    left.x * right.y - left.y * right.x,
+  );
+}
+
 function length3(value: Vec3) {
   return Math.sqrt(dot3(value, value));
 }
@@ -120,6 +129,34 @@ function normalize3(value: Vec3) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+function pointInPolygon2D(point: Vec2, polygon: Vec2[]) {
+  let inside = false;
+  for (let index = 0, previousIndex = polygon.length - 1; index < polygon.length; previousIndex = index, index += 1) {
+    const current = polygon[index];
+    const previous = polygon[previousIndex];
+    const crossesY = current.y > point.y !== previous.y > point.y;
+    if (!crossesY) {
+      continue;
+    }
+
+    const intersectX =
+      ((previous.x - current.x) * (point.y - current.y)) / (previous.y - current.y) +
+      current.x;
+    if (point.x < intersectX) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
+}
+
+function uniqueSortedCuts(values: number[]) {
+  return [...values]
+    .filter((value) => Number.isFinite(value))
+    .sort((left, right) => left - right)
+    .filter((value, index, sorted) => index === 0 || Math.abs(value - sorted[index - 1]) > 0.001);
 }
 
 function toWorldPoint2D(position: Vec2, elevationM: number) {
@@ -369,14 +406,100 @@ export function buildPreview3DScene(
     ]);
   };
 
-  const addMeshPrimitive = (vertices: Vec3[], indices: number[], color: RgbColor) => {
+  const addMeshPrimitive = (
+    vertices: Vec3[],
+    indices: number[],
+    color: RgbColor,
+    opacity?: number,
+  ) => {
     meshes.push({
       kind: "mesh",
       vertices: vertices.map((vertex) => [vertex.x, vertex.y, vertex.z]),
       indices,
       color: rgbToCss(color),
+      opacity,
     });
     registerPoints(vertices);
+  };
+
+  type SolvedRoof = ReturnType<typeof solveProjectRoofs>[number];
+  type SolvedRoofFace = SolvedRoof["faces"][number];
+
+  const getRoofFaceBasis = (face: SolvedRoofFace) => {
+    const originPlan = face.polygonLocal[0] ?? createVec2();
+    const origin = vec3(
+      originPlan.x,
+      face.planeOuter.uCoeff * originPlan.x +
+        face.planeOuter.vCoeff * originPlan.y +
+        face.planeOuter.constantM,
+      -originPlan.y,
+    );
+    const tangentX = vec3(1, face.planeOuter.uCoeff, 0);
+    const tangentY = vec3(0, face.planeOuter.vCoeff, -1);
+    const normal = normalize3(cross3(tangentX, tangentY));
+    const gradientLength = Math.hypot(face.planeOuter.uCoeff, face.planeOuter.vCoeff);
+    const widthAxis =
+      gradientLength > 0.0001
+        ? normalize3(vec3(-face.planeOuter.vCoeff, 0, -face.planeOuter.uCoeff))
+        : normalize3(tangentX);
+    const heightAxis = normalize3(cross3(normal, widthAxis));
+
+    const toWorld = (point: Vec2) => {
+      return vec3(
+        point.x,
+        face.planeOuter.uCoeff * point.x +
+          face.planeOuter.vCoeff * point.y +
+          face.planeOuter.constantM,
+        -point.y,
+      );
+    };
+    const toUv = (point: Vec2) => {
+      const delta = subtract3(toWorld(point), origin);
+      return createVec2(dot3(delta, widthAxis), dot3(delta, heightAxis));
+    };
+    const fromUv = (point: Vec2) =>
+      add3(origin, add3(scale3(widthAxis, point.x), scale3(heightAxis, point.y)));
+
+    return { origin, widthAxis, heightAxis, normal, toUv, fromUv };
+  };
+
+  const getRoofOpeningDimensions = (opening: Project["roofOpenings"][number]) => {
+    return opening.rotationDeg === 90
+      ? { widthM: opening.heightM, heightM: opening.widthM }
+      : { widthM: opening.widthM, heightM: opening.heightM };
+  };
+
+  const addRoofFaceShell = (topVertices: Vec3[], thicknessM: number, color: RgbColor) => {
+    if (topVertices.length < 3) {
+      return;
+    }
+
+    const safeThicknessM = Math.max(thicknessM, 0.01);
+    const bottomVertices = topVertices.map((vertex) =>
+      vec3(vertex.x, vertex.y - safeThicknessM, vertex.z),
+    );
+    const vertices = [...topVertices, ...bottomVertices];
+    const vertexCount = topVertices.length;
+    const indices: number[] = [];
+
+    for (let index = 1; index < vertexCount - 1; index += 1) {
+      indices.push(0, index, index + 1);
+    }
+
+    for (let index = 1; index < vertexCount - 1; index += 1) {
+      indices.push(vertexCount, vertexCount + index + 1, vertexCount + index);
+    }
+
+    for (let index = 0; index < vertexCount; index += 1) {
+      const nextIndex = (index + 1) % vertexCount;
+      const topStart = index;
+      const topEnd = nextIndex;
+      const bottomStart = vertexCount + index;
+      const bottomEnd = vertexCount + nextIndex;
+      indices.push(topStart, topEnd, bottomEnd, topStart, bottomEnd, bottomStart);
+    }
+
+    addMeshPrimitive(vertices, indices, color);
   };
 
   const addSectionBox = (
@@ -472,105 +595,95 @@ export function buildPreview3DScene(
     addBoxPrimitive(center, shape.sizeM, shape.heightM, shape.sizeM, 0, color);
   };
 
-  const addSolvedRoofMesh = (
-    solvedRoof: ReturnType<typeof solveProjectRoofs>[number],
-    color: RgbColor,
-  ) => {
+  const addSolvedRoofMesh = (solvedRoof: SolvedRoof, color: RgbColor) => {
     solvedRoof.faces.forEach((face) => {
-      const topVertices = face.polygonLocal.map((localPoint, index) =>
-        vec3(
-          face.polygonWorld[index].x,
-          face.planeOuter.uCoeff * localPoint.x +
-            face.planeOuter.vCoeff * localPoint.y +
-            face.planeOuter.constantM,
-          -face.polygonWorld[index].y,
-        ),
+      const faceOpenings = project.roofOpenings.filter(
+        (opening) =>
+          opening.roofSketchId === solvedRoof.sketchId && opening.roofFaceId === face.id,
       );
       const thicknessM = Math.max(face.thicknessM, 0.01);
-      const bottomVertices = topVertices.map((vertex) =>
-        vec3(vertex.x, vertex.y - thicknessM, vertex.z),
-      );
-      const vertices = [...topVertices, ...bottomVertices];
-      const vertexCount = topVertices.length;
-      const indices: number[] = [];
 
-      for (let index = 1; index < vertexCount - 1; index += 1) {
-        indices.push(0, index, index + 1);
-      }
-
-      for (let index = 1; index < vertexCount - 1; index += 1) {
-        indices.push(vertexCount, vertexCount + index + 1, vertexCount + index);
-      }
-
-      for (let index = 0; index < vertexCount; index += 1) {
-        const nextIndex = (index + 1) % vertexCount;
-        const topStart = index;
-        const topEnd = nextIndex;
-        const bottomStart = vertexCount + index;
-        const bottomEnd = vertexCount + nextIndex;
-        indices.push(topStart, topEnd, bottomEnd, topStart, bottomEnd, bottomStart);
-      }
-
-      addMeshPrimitive(vertices, indices, color);
-    });
-  };
-
-  const addRoofOpeningMeshes = (color: RgbColor) => {
-    const frameM = 0.06;
-    const heightOffsetM = 0.018;
-
-    const addRoofPlaneRect = (
-      face: ReturnType<typeof solveProjectRoofs>[number]["faces"][number],
-      minX: number,
-      maxX: number,
-      minY: number,
-      maxY: number,
-      rectColor: RgbColor,
-    ) => {
-      if (maxX - minX < 0.001 || maxY - minY < 0.001) {
+      if (faceOpenings.length === 0) {
+        const topVertices = face.polygonLocal.map((localPoint) =>
+          vec3(
+            localPoint.x,
+            face.planeOuter.uCoeff * localPoint.x +
+              face.planeOuter.vCoeff * localPoint.y +
+              face.planeOuter.constantM,
+            -localPoint.y,
+          ),
+        );
+        addRoofFaceShell(topVertices, thicknessM, color);
         return;
       }
 
-      const localPoints = [
-        createVec2(minX, minY),
-        createVec2(maxX, minY),
-        createVec2(maxX, maxY),
-        createVec2(minX, maxY),
-      ];
-      const vertices = localPoints.map((point) =>
-        vec3(
-          point.x,
-          face.planeOuter.uCoeff * point.x +
-            face.planeOuter.vCoeff * point.y +
-            face.planeOuter.constantM +
-            heightOffsetM,
-          -point.y,
-        ),
-      );
-      addMeshPrimitive(vertices, [0, 1, 2, 0, 2, 3], rectColor);
-    };
+      const basis = getRoofFaceBasis(face);
+      const polygonUv = face.polygonLocal.map((localPoint) => basis.toUv(localPoint));
+      const minU = Math.min(...polygonUv.map((point) => point.x));
+      const maxU = Math.max(...polygonUv.map((point) => point.x));
+      const minV = Math.min(...polygonUv.map((point) => point.y));
+      const maxV = Math.max(...polygonUv.map((point) => point.y));
+      const openingRects = faceOpenings.map((opening) => {
+        const centerUv = basis.toUv(opening.center);
+        const { widthM, heightM } = getRoofOpeningDimensions(opening);
+        return {
+          minU: centerUv.x - widthM / 2,
+          maxU: centerUv.x + widthM / 2,
+          minV: centerUv.y - heightM / 2,
+          maxV: centerUv.y + heightM / 2,
+        };
+      });
+      const uCuts = uniqueSortedCuts([
+        minU,
+        maxU,
+        ...openingRects.flatMap((rect) => [
+          clamp(rect.minU, minU, maxU),
+          clamp(rect.maxU, minU, maxU),
+        ]),
+      ]);
+      const vCuts = uniqueSortedCuts([
+        minV,
+        maxV,
+        ...openingRects.flatMap((rect) => [
+          clamp(rect.minV, minV, maxV),
+          clamp(rect.maxV, minV, maxV),
+        ]),
+      ]);
 
-    project.roofOpenings.forEach((opening) => {
-      const roof = solvedRoofs.find(
-        (candidate) =>
-          candidate.sourceKind === "Sketch" &&
-          candidate.sketchId === opening.roofSketchId &&
-          !(candidate.layerId && hiddenRoofLayerIdSet.has(candidate.layerId)),
-      );
-      const face = roof?.faces.find((candidate) => candidate.id === opening.roofFaceId);
-      if (!face) {
-        return;
+      for (let uIndex = 0; uIndex < uCuts.length - 1; uIndex += 1) {
+        for (let vIndex = 0; vIndex < vCuts.length - 1; vIndex += 1) {
+          const cellMinU = uCuts[uIndex];
+          const cellMaxU = uCuts[uIndex + 1];
+          const cellMinV = vCuts[vIndex];
+          const cellMaxV = vCuts[vIndex + 1];
+          if (cellMaxU - cellMinU < 0.001 || cellMaxV - cellMinV < 0.001) {
+            continue;
+          }
+
+          const cellCenter = createVec2((cellMinU + cellMaxU) / 2, (cellMinV + cellMaxV) / 2);
+          const intersectsOpening = openingRects.some(
+            (rect) =>
+              cellMaxU > rect.minU + 0.001 &&
+              cellMinU < rect.maxU - 0.001 &&
+              cellMaxV > rect.minV + 0.001 &&
+              cellMinV < rect.maxV - 0.001,
+          );
+          if (intersectsOpening || !pointInPolygon2D(cellCenter, polygonUv)) {
+            continue;
+          }
+
+          addRoofFaceShell(
+            [
+              basis.fromUv(createVec2(cellMinU, cellMinV)),
+              basis.fromUv(createVec2(cellMaxU, cellMinV)),
+              basis.fromUv(createVec2(cellMaxU, cellMaxV)),
+              basis.fromUv(createVec2(cellMinU, cellMaxV)),
+            ],
+            thicknessM,
+            color,
+          );
+        }
       }
-
-      const minX = opening.center.x - opening.widthM / 2;
-      const maxX = opening.center.x + opening.widthM / 2;
-      const minY = opening.center.y - opening.heightM / 2;
-      const maxY = opening.center.y + opening.heightM / 2;
-      addRoofPlaneRect(face, minX, maxX, minY, maxY, { r: 73, g: 145, b: 196 });
-      addRoofPlaneRect(face, minX - frameM, maxX + frameM, minY - frameM, minY, color);
-      addRoofPlaneRect(face, minX - frameM, maxX + frameM, maxY, maxY + frameM, color);
-      addRoofPlaneRect(face, minX - frameM, minX, minY, maxY, color);
-      addRoofPlaneRect(face, maxX, maxX + frameM, minY, maxY, color);
     });
   };
 
@@ -1122,12 +1235,6 @@ export function buildPreview3DScene(
         : { r: 186, g: 124, b: 82 },
     );
   }
-  addRoofOpeningMeshes(
-    surfaceMode === "GrayOpaque"
-      ? { r: 72, g: 78, b: 88 }
-      : { r: 196, g: 210, b: 220 },
-  );
-
   for (const shape of project.shapes) {
     const level = levelById.get(shape.levelId);
     if (!level) {

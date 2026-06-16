@@ -5,6 +5,7 @@ import {
   createLevel as buildLevel,
   createMeasurement as buildMeasurement,
   createNodeData,
+  createVec2,
   createRoofOpening as buildRoofOpening,
   createRoofSketch as buildRoofSketch,
   createShape as buildShape,
@@ -83,6 +84,7 @@ export type CreateRoofSketchInput = Omit<RoofSketch, "id"> & { id?: string };
 export type UpdateRoofSketchInput = Partial<Omit<RoofSketch, "id">>;
 export type UpdateRoofLayerInput = Partial<Omit<RoofLayer, "id">>;
 export type CreateRoofOpeningInput = Omit<RoofOpening, "id"> & { id?: string };
+export type UpdateRoofOpeningInput = Partial<Omit<RoofOpening, "id" | "roofSketchId" | "roofFaceId">>;
 export type CreateSlabInput = Omit<Slab, "id" | "roofType" | "roofRiseM"> & {
   id?: string;
   roofType?: Slab["roofType"];
@@ -212,6 +214,15 @@ function expectRoofFace(project: Project, roofSketchId: string, roofFaceId: stri
   }
 
   return { roofSketch, roofFace };
+}
+
+function expectRoofOpening(project: Project, roofOpeningId: string) {
+  const roofOpening = project.roofOpenings.find((item) => item.id === roofOpeningId);
+  if (!roofOpening) {
+    throw new ProjectCommandError(`Roof opening "${roofOpeningId}" does not exist.`);
+  }
+
+  return roofOpening;
 }
 
 function expectWall(project: Project, wallId: string) {
@@ -1312,6 +1323,9 @@ export function createRoofOpening(project: Project, input: CreateRoofOpeningInpu
   expectFinite(input.center.y, "Roof opening center Y");
   expectPositive(input.widthM, "Roof opening width");
   expectPositive(input.heightM, "Roof opening height");
+  if (input.rotationDeg !== 0 && input.rotationDeg !== 90) {
+    throw new ProjectCommandError("Roof opening rotation must be 0 or 90 degrees.");
+  }
 
   return normalizeProject({
     ...nextProject,
@@ -1322,6 +1336,60 @@ export function createRoofOpening(project: Project, input: CreateRoofOpeningInpu
         center: { ...input.center },
       }),
     ],
+  });
+}
+
+export function updateRoofOpening(
+  project: Project,
+  roofOpeningId: string,
+  patch: UpdateRoofOpeningInput,
+) {
+  const nextProject = normalizeProject(project);
+  const currentRoofOpening = expectRoofOpening(nextProject, roofOpeningId);
+
+  if (patch.center !== undefined) {
+    expectFinite(patch.center.x, "Roof opening center X");
+    expectFinite(patch.center.y, "Roof opening center Y");
+  }
+  if (patch.widthM !== undefined) {
+    expectPositive(patch.widthM, "Roof opening width");
+  }
+  if (patch.heightM !== undefined) {
+    expectPositive(patch.heightM, "Roof opening height");
+  }
+  if (
+    patch.rotationDeg !== undefined &&
+    patch.rotationDeg !== 0 &&
+    patch.rotationDeg !== 90
+  ) {
+    throw new ProjectCommandError("Roof opening rotation must be 0 or 90 degrees.");
+  }
+
+  return normalizeProject({
+    ...nextProject,
+    roofOpenings: nextProject.roofOpenings.map((roofOpening) =>
+      roofOpening.id === roofOpeningId
+        ? buildRoofOpening({
+            ...currentRoofOpening,
+            ...patch,
+            center: patch.center
+              ? createVec2(patch.center.x, patch.center.y)
+              : { ...currentRoofOpening.center },
+          })
+        : roofOpening,
+    ),
+  });
+}
+
+export function deleteRoofOpening(project: Project, roofOpeningId: string) {
+  const nextProject = normalizeProject(project);
+  expectRoofOpening(nextProject, roofOpeningId);
+
+  return normalizeProject({
+    ...nextProject,
+    roofOpenings: nextProject.roofOpenings.filter(
+      (roofOpening) => roofOpening.id !== roofOpeningId,
+    ),
   });
 }
 

@@ -17,9 +17,12 @@ import { parseProjectJson } from "./domain/project-serialization";
 import type { Preview3DState } from "./store/editor-ui-store";
 
 const DEFAULT_PREVIEW_3D: Preview3DState = {
+  cameraMode: "Orbit",
   yawDeg: -35,
   pitchDeg: 28,
   distanceMultiplier: 2.8,
+  targetOffset: [0, 0, 0],
+  cameraPositionOffset: null,
   renderMode: "ArchitecturalJoin",
   surfaceMode: "LevelColor",
 };
@@ -293,6 +296,34 @@ export default function Preview3DWindowApp() {
           width={320}
           onPositionChange={setSettingsWindowPosition}
         >
+          <label className="field-label">
+            <span>3D Camera Mode</span>
+            <select
+              value={
+                (preview3D.cameraMode as string | undefined) === "Free"
+                  ? "FreeOrbit"
+                  : (preview3D.cameraMode ?? "Orbit")
+              }
+              onChange={(event) =>
+                setPreview3D((current) => ({
+                  ...current,
+                  cameraMode: event.target.value as Preview3DState["cameraMode"],
+                  targetOffset:
+                    event.target.value === "FreeOrbit"
+                      ? (current.targetOffset ?? [0, 0, 0])
+                      : [0, 0, 0],
+                  cameraPositionOffset:
+                    event.target.value === "FreeCamera"
+                      ? (current.cameraPositionOffset ?? null)
+                      : null,
+                }))
+              }
+            >
+              <option value="Orbit">Orbit Center</option>
+              <option value="FreeOrbit">Free Orbit</option>
+              <option value="FreeCamera">Free Camera</option>
+            </select>
+          </label>
           <label className="field-label">
             <span>3D Join Mode</span>
             <select

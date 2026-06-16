@@ -54,6 +54,7 @@ import {
   projectSchema,
   roofEdgeRoleSchema,
   roofOpeningCutModeSchema,
+  roofOpeningRotationDegSchema,
   roofTypeSchema,
   roofVertexElevationModeSchema,
   shapeKindSchema,
@@ -637,6 +638,49 @@ function parseRoofOpenings(data: unknown, roofSketches: RoofSketch[], warnings: 
         "cutMode",
         "cut_mode",
       ) ?? "NormalToRoof";
+    const rotationDeg =
+      pickParsedValue(
+        source,
+        (value) => {
+          const parsed = roofOpeningRotationDegSchema.safeParse(value);
+          return parsed.success ? parsed.data : undefined;
+        },
+        "rotationDeg",
+        "rotation_deg",
+        "rotation",
+      ) ?? 0;
+    const design3DSource = asObject(source.design3D ?? source.design_3d ?? source.window3D ?? source.window_3d);
+    const glassThicknessM =
+      (design3DSource && pickNumber(design3DSource, "glassThicknessM", "glass_thickness_m")) ?? 0.02;
+    const frameThicknessM =
+      (design3DSource && pickNumber(design3DSource, "frameThicknessM", "frame_thickness_m")) ?? 0.08;
+    const verticalDivisions =
+      (design3DSource && pickNumber(design3DSource, "verticalDivisions", "vertical_divisions")) ?? 0;
+    const horizontalDivisions =
+      (design3DSource && pickNumber(design3DSource, "horizontalDivisions", "horizontal_divisions")) ?? 0;
+    const frameColorHex =
+      (design3DSource &&
+        (normalizeHexColor(design3DSource.frameColorHex) ??
+          normalizeHexColor(design3DSource.frame_color_hex))) ??
+      "#c4cbd6";
+    const wallDepthOffsetM =
+      (design3DSource && pickNumber(design3DSource, "wallDepthOffsetM", "wall_depth_offset_m")) ?? 0;
+    const design3D =
+      design3DSource &&
+      glassThicknessM > 0 &&
+      frameThicknessM > 0 &&
+      verticalDivisions >= 0 &&
+      horizontalDivisions >= 0 &&
+      Number.isFinite(wallDepthOffsetM)
+        ? {
+            glassThicknessM,
+            frameThicknessM,
+            verticalDivisions: Math.round(verticalDivisions),
+            horizontalDivisions: Math.round(horizontalDivisions),
+            wallDepthOffsetM,
+            frameColorHex,
+          }
+        : null;
 
     roofOpenings.push(
       createRoofOpening({
@@ -647,6 +691,8 @@ function parseRoofOpenings(data: unknown, roofSketches: RoofSketch[], warnings: 
         widthM,
         heightM,
         cutMode,
+        rotationDeg,
+        design3D,
       }),
     );
   }
@@ -1470,22 +1516,31 @@ function repairProject(project: Project, warnings: string[]) {
     return isValid;
   });
   const roofSketchById = new Map(project.roofSketches.map((sketch) => [sketch.id, sketch] as const));
-  project.roofOpenings = (project.roofOpenings ?? []).filter((opening) => {
-    const roofSketch = roofSketchById.get(opening.roofSketchId);
-    const isValid =
-      roofSketch !== undefined &&
-      roofSketch.faces.some((face) => face.id === opening.roofFaceId) &&
-      Number.isFinite(opening.center.x) &&
-      Number.isFinite(opening.center.y) &&
-      opening.widthM > 0 &&
-      opening.heightM > 0;
+  project.roofOpenings = (project.roofOpenings ?? [])
+    .map((opening) =>
+      createRoofOpening({
+        ...opening,
+        center: { ...opening.center },
+        rotationDeg: opening.rotationDeg ?? 0,
+      }),
+    )
+    .filter((opening) => {
+      const roofSketch = roofSketchById.get(opening.roofSketchId);
+      const isValid =
+        roofSketch !== undefined &&
+        roofSketch.faces.some((face) => face.id === opening.roofFaceId) &&
+        Number.isFinite(opening.center.x) &&
+        Number.isFinite(opening.center.y) &&
+        opening.widthM > 0 &&
+        opening.heightM > 0 &&
+        (opening.rotationDeg === 0 || opening.rotationDeg === 90);
 
-    if (!isValid) {
-      warnings.push(`roofOpenings: dropped roof opening "${opening.id}" with invalid data.`);
-    }
+      if (!isValid) {
+        warnings.push(`roofOpenings: dropped roof opening "${opening.id}" with invalid data.`);
+      }
 
-    return isValid;
-  });
+      return isValid;
+    });
 
   project.nodes = project.nodes.filter((node) => levelIds.has(node.levelId));
   const nodeIds = new Set(project.nodes.map((node) => node.id));

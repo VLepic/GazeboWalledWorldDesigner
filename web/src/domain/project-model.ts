@@ -7,6 +7,7 @@ export type RoofVertexElevationMode = "Explicit" | "Computed";
 export type RoofEdgeRole = "Generic" | "LowerEave" | "UpperEave" | "Ridge" | "Hip" | "Valley";
 export type RoofConstraintDirection = "AwayFromReference" | "TowardReference";
 export type RoofOpeningCutMode = "NormalToRoof" | "Vertical";
+export type RoofOpeningRotationDeg = 0 | 90;
 
 export interface Vec2 {
   x: number;
@@ -115,6 +116,8 @@ export interface RoofOpening {
   widthM: number;
   heightM: number;
   cutMode: RoofOpeningCutMode;
+  rotationDeg: RoofOpeningRotationDeg;
+  design3D?: WindowDesign3D | null;
 }
 
 export interface NodeData {
@@ -331,6 +334,8 @@ export function createRoofOpening(overrides: Partial<RoofOpening> = {}): RoofOpe
     widthM: overrides.widthM ?? 0.8,
     heightM: overrides.heightM ?? 1.0,
     cutMode: overrides.cutMode ?? "NormalToRoof",
+    rotationDeg: overrides.rotationDeg ?? 0,
+    design3D: overrides.design3D ?? null,
   };
 }
 
@@ -513,11 +518,19 @@ export function ensureProjectDefaults(project: Project): Project {
     wallTypes,
     roofLayers,
     roofSketches,
-    roofOpenings: (project.roofOpenings ?? []).filter(
-      (opening) =>
-        roofSketchIds.has(opening.roofSketchId) &&
-        (roofFaceIdsBySketchId.get(opening.roofSketchId)?.has(opening.roofFaceId) ?? false),
-    ),
+    roofOpenings: (project.roofOpenings ?? [])
+      .filter(
+        (opening) =>
+          roofSketchIds.has(opening.roofSketchId) &&
+          (roofFaceIdsBySketchId.get(opening.roofSketchId)?.has(opening.roofFaceId) ?? false),
+      )
+      .map((opening) =>
+        createRoofOpening({
+          ...opening,
+          center: { ...opening.center },
+          rotationDeg: opening.rotationDeg ?? 0,
+        }),
+      ),
   };
 }
 

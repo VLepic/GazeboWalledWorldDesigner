@@ -14,6 +14,7 @@ export type EditorTool =
   | "Shape"
   | "Slab"
   | "Roof"
+  | "RoofOpening"
   | "RoofWindow"
   | "Model";
 export type ViewportMode = "2d" | "3d";
@@ -29,6 +30,7 @@ export type SelectableEntityKind =
   | "slab"
   | "roofEdge"
   | "roofFace"
+  | "roofOpening"
   | "externalModel";
 export type SlabMode = "Rectangle" | "Circle";
 
@@ -62,11 +64,15 @@ export interface ViewportPreset {
 
 export type Preview3DRenderMode = "ArchitecturalJoin" | "NodePost";
 export type Preview3DSurfaceMode = "LevelColor" | "GrayOpaque";
+export type Preview3DCameraMode = "Orbit" | "FreeOrbit" | "FreeCamera";
 
 export interface Preview3DState {
+  cameraMode: Preview3DCameraMode;
   yawDeg: number;
   pitchDeg: number;
   distanceMultiplier: number;
+  targetOffset: [number, number, number];
+  cameraPositionOffset: [number, number, number] | null;
   renderMode: Preview3DRenderMode;
   surfaceMode: Preview3DSurfaceMode;
 }
@@ -136,9 +142,12 @@ const defaultViewport = (): ViewportState => ({
 });
 
 const defaultPreview3D = (): Preview3DState => ({
+  cameraMode: "Orbit",
   yawDeg: -35,
   pitchDeg: 28,
   distanceMultiplier: 2.8,
+  targetOffset: [0, 0, 0],
+  cameraPositionOffset: null,
   renderMode: "ArchitecturalJoin",
   surfaceMode: "LevelColor",
 });
@@ -179,6 +188,8 @@ function isSelectionValid(selection: EditorSelection | null, project: Project) {
       return project.roofSketches.some((sketch) =>
         sketch.faces.some((face) => face.id === selection.id),
       );
+    case "roofOpening":
+      return project.roofOpenings.some((opening) => opening.id === selection.id);
     case "door":
       return project.doors.some((door) => door.id === selection.id);
     case "window":
@@ -218,8 +229,10 @@ function isSelectionCompatibleWithTool(selection: EditorSelection | null, tool: 
       return selection.kind === "slab";
     case "Roof":
       return selection.kind === "roofEdge" || selection.kind === "roofFace";
+    case "RoofOpening":
+      return selection.kind === "roofFace" || selection.kind === "roofOpening";
     case "RoofWindow":
-      return selection.kind === "roofFace";
+      return selection.kind === "roofOpening";
     case "Model":
       return selection.kind === "externalModel";
   }
