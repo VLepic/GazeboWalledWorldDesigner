@@ -172,13 +172,6 @@ function expectRoofLayer(project: Project, roofLayerId: string) {
   return roofLayer;
 }
 
-function wallHasOpenings(project: Project, wallId: string) {
-  return (
-    project.doors.some((door) => door.wallId === wallId) ||
-    project.windows.some((windowOpening) => windowOpening.wallId === wallId)
-  );
-}
-
 function validateSlabSurface(
   kind: Slab["kind"],
   roofType: Slab["roofType"],
@@ -545,9 +538,6 @@ function validateDoorAgainstWall(
   expectPositive(heightM, "Door height");
 
   const { wall, wallType } = getWallGeometry(project, wallId);
-  if (wall.topMode === "FollowRoof") {
-    throw new ProjectCommandError("Doors on roof-following walls are not supported yet.");
-  }
 
   if (heightM > wallType.heightM + 0.0001) {
     throw new ProjectCommandError("Door height cannot exceed the height of its host wall.");
@@ -570,9 +560,6 @@ function validateWindowAgainstWall(
   expectNonNegative(sillHeightM, "Window sill height");
 
   const { wall, wallType } = getWallGeometry(project, wallId);
-  if (wall.topMode === "FollowRoof") {
-    throw new ProjectCommandError("Windows on roof-following walls are not supported yet.");
-  }
   if (sillHeightM + heightM > wallType.heightM + 0.0001) {
     throw new ProjectCommandError("Window opening must fit below the top of its host wall.");
   }
@@ -974,11 +961,6 @@ export function updateWall(project: Project, wallId: string, patch: UpdateWallIn
 
   expectLevel(nextProject, candidate.levelId);
   expectWallType(nextProject, candidate.wallTypeId);
-
-  const nextTopMode = patch.topMode ?? currentWall.topMode;
-  if (nextTopMode === "FollowRoof" && wallHasOpenings(nextProject, wallId)) {
-    throw new ProjectCommandError("Walls with doors or windows cannot follow the roof yet.");
-  }
 
   const startNode = expectNode(nextProject, candidate.startNodeId);
   const endNode = expectNode(nextProject, candidate.endNodeId);
