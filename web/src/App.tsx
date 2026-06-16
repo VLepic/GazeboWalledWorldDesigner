@@ -15,6 +15,7 @@ import {
   createNode,
   createShape,
   createSlab,
+  createRoofOpening,
   createRoofSketch,
   createStair,
   createWall,
@@ -23,6 +24,7 @@ import {
   deleteMeasurement,
   deleteDoor,
   deleteWindow,
+  deleteRoofOpening,
   deleteExternalModel,
   deleteNode,
   deleteShape,
@@ -38,6 +40,7 @@ import {
   updateLevel,
   updateProjectSettings,
   updateRoofSketch,
+  updateRoofOpening,
   updateStair,
   updateWall,
   updateWallType,
@@ -52,6 +55,7 @@ import {
   type DoorOpening,
   type WindowOpening,
   type WindowDesign3D,
+  DEFAULT_ROOF_LAYER_ID,
   createExternalModel as buildExternalModel,
   createId,
   createNodeData,
@@ -66,6 +70,8 @@ import {
   type NodeData,
   type Project,
   type RoofSketch,
+  type RoofOpeningCutMode,
+  type RoofOpeningRotationDeg,
   type WallTopMode,
   type RoofType,
   type Shape,
@@ -74,7 +80,6 @@ import {
   type Vec2,
   type Wall,
 } from "./domain/project-model";
-import { sampleProject } from "./domain/sample-project";
 import {
   createProjectFileBlob,
   stringifyProject,
@@ -113,11 +118,20 @@ const editorTools: EditorTool[] = [
   "Stair",
   "Shape",
   "Slab",
-  "Roof",
   "Model",
 ];
 
-const editorTools3D: EditorTool[] = ["Measure", "Door", "Window"];
+const roofLayerEditorTools: EditorTool[] = ["Move", "Measure", "Roof", "RoofOpening", "RoofWindow"];
+const editorTools3D: EditorTool[] = ["Measure", "Door", "Window", "RoofWindow"];
+const BUILT_IN_SAMPLE_URL = `${import.meta.env.BASE_URL}samples/default.wawod`;
+
+function getEditorToolLabel(tool: EditorTool) {
+  if (tool === "RoofOpening") {
+    return "Roof Opening";
+  }
+
+  return tool === "RoofWindow" ? "Roof Window" : tool;
+}
 
 function toCentimeters(valueM: number) {
   return Number((valueM * 100).toFixed(1));
@@ -488,9 +502,12 @@ export default function App() {
   const viewportMode = useEditorUiStore((state) => state.viewportMode);
   const wallAuthoringMode = useEditorUiStore((state) => state.wallAuthoringMode);
   const activeLevelId = useEditorUiStore((state) => state.activeLevelId);
+  const activeRoofLayerId = useEditorUiStore((state) => state.activeRoofLayerId);
   const activeWallTypeId = useEditorUiStore((state) => state.activeWallTypeId);
   const hiddenLevelIds2D = useEditorUiStore((state) => state.hiddenLevelIds2D);
   const hiddenLevelIds3D = useEditorUiStore((state) => state.hiddenLevelIds3D);
+  const hiddenRoofLayerIds2D = useEditorUiStore((state) => state.hiddenRoofLayerIds2D);
+  const hiddenRoofLayerIds3D = useEditorUiStore((state) => state.hiddenRoofLayerIds3D);
   const currentSelection = useEditorUiStore((state) => state.currentSelection);
   const selectionSet = useEditorUiStore((state) => state.selectionSet);
   const pendingWallStartNodeId = useEditorUiStore((state) => state.pendingWallStartNodeId);
@@ -503,8 +520,10 @@ export default function App() {
   const setWallAuthoringMode = useEditorUiStore((state) => state.setWallAuthoringMode);
   const setActiveTool = useEditorUiStore((state) => state.setActiveTool);
   const setActiveLevelId = useEditorUiStore((state) => state.setActiveLevelId);
+  const setActiveRoofLayerId = useEditorUiStore((state) => state.setActiveRoofLayerId);
   const setActiveWallTypeId = useEditorUiStore((state) => state.setActiveWallTypeId);
   const toggleLevelVisibility = useEditorUiStore((state) => state.toggleLevelVisibility);
+  const toggleRoofLayerVisibility = useEditorUiStore((state) => state.toggleRoofLayerVisibility);
   const setSelectionSet = useEditorUiStore((state) => state.setSelectionSet);
   const clearSelection = useEditorUiStore((state) => state.clearSelection);
   const setPendingWallStartNodeId = useEditorUiStore((state) => state.setPendingWallStartNodeId);
@@ -584,6 +603,12 @@ export default function App() {
   const [shapeToolBottomM, setShapeToolBottomM] = useState(0);
   const [shapeToolTopM, setShapeToolTopM] = useState(2.5);
   const [roofToolLineElevationM, setRoofToolLineElevationM] = useState(3);
+  const [roofWindowToolWidthM, setRoofWindowToolWidthM] = useState(0.8);
+  const [roofWindowToolHeightM, setRoofWindowToolHeightM] = useState(1.0);
+  const [roofWindowToolCutMode, setRoofWindowToolCutMode] =
+    useState<RoofOpeningCutMode>("NormalToRoof");
+  const [roofWindowToolRotationDeg, setRoofWindowToolRotationDeg] =
+    useState<RoofOpeningRotationDeg>(0);
   const [stairToolWidthM, setStairToolWidthM] = useState(1.1);
   const [stairToolEndElevationOffsetM, setStairToolEndElevationOffsetM] = useState(3);
   const [stairToolRiserHeightM, setStairToolRiserHeightM] = useState(0.17);
@@ -601,14 +626,26 @@ export default function App() {
         return editorTools3D;
       }
 
+      if (activeRoofLayerId) {
+        return roofLayerEditorTools;
+      }
+
       return wallAuthoringMode === "AutoWall"
         ? editorTools.filter((tool) => tool !== "Node")
         : editorTools;
     },
-    [viewportMode, wallAuthoringMode],
+    [activeRoofLayerId, viewportMode, wallAuthoringMode],
   );
   const hiddenLevelIdSet2D = useMemo(() => new Set(hiddenLevelIds2D), [hiddenLevelIds2D]);
   const hiddenLevelIdSet3D = useMemo(() => new Set(hiddenLevelIds3D), [hiddenLevelIds3D]);
+  const hiddenRoofLayerIdSet2D = useMemo(
+    () => new Set(hiddenRoofLayerIds2D),
+    [hiddenRoofLayerIds2D],
+  );
+  const hiddenRoofLayerIdSet3D = useMemo(
+    () => new Set(hiddenRoofLayerIds3D),
+    [hiddenRoofLayerIds3D],
+  );
 
   const filterProjectByHiddenLevels = useMemo(
     () =>
@@ -642,15 +679,38 @@ export default function App() {
     [project],
   );
   const visibleProject2D = useMemo(
-    () => filterProjectByHiddenLevels(hiddenLevelIdSet2D),
-    [filterProjectByHiddenLevels, hiddenLevelIdSet2D],
+    () => {
+      const baseProject = filterProjectByHiddenLevels(hiddenLevelIdSet2D);
+      return {
+        ...baseProject,
+        roofSketches: baseProject.roofSketches.filter((sketch) =>
+          !hiddenRoofLayerIdSet2D.has(sketch.layerId),
+        ),
+        roofOpenings: baseProject.roofOpenings.filter((opening) =>
+          baseProject.roofSketches.some(
+            (sketch) =>
+              sketch.id === opening.roofSketchId &&
+              !hiddenRoofLayerIdSet2D.has(sketch.layerId),
+          ),
+        ),
+      } satisfies Project;
+    },
+    [filterProjectByHiddenLevels, hiddenLevelIdSet2D, hiddenRoofLayerIdSet2D],
   );
   const visibleProject3D = useMemo(
     () => filterProjectByHiddenLevels(hiddenLevelIdSet3D),
     [filterProjectByHiddenLevels, hiddenLevelIdSet3D],
   );
   const currentHiddenLevelIdSet = viewportMode === "3d" ? hiddenLevelIdSet3D : hiddenLevelIdSet2D;
+  const currentHiddenRoofLayerIdSet =
+    viewportMode === "3d" ? hiddenRoofLayerIdSet3D : hiddenRoofLayerIdSet2D;
   const activeLevel = project.levels.find((level) => level.id === activeLevelId) ?? null;
+  const defaultRoofLayer =
+    project.roofLayers.find((roofLayer) => roofLayer.id === DEFAULT_ROOF_LAYER_ID) ??
+    project.roofLayers[0] ??
+    null;
+  const isDefaultRoofLayerVisible =
+    defaultRoofLayer !== null && !currentHiddenRoofLayerIdSet.has(defaultRoofLayer.id);
   const editingLevel =
     editingLevelId ? project.levels.find((level) => level.id === editingLevelId) ?? null : null;
   const activeWallType =
@@ -720,6 +780,20 @@ export default function App() {
       ? (selectedRoofSketch.vertices.find(
           (vertex) => vertex.id === selectedRoofEdge.endVertexId,
         ) ?? null)
+      : null;
+  const selectedRoofFaceSketch =
+    currentSelection?.kind === "roofFace"
+      ? (project.roofSketches.find((sketch) =>
+          sketch.faces.some((face) => face.id === currentSelection.id),
+        ) ?? null)
+      : null;
+  const selectedRoofFace =
+    currentSelection?.kind === "roofFace" && selectedRoofFaceSketch
+      ? (selectedRoofFaceSketch.faces.find((face) => face.id === currentSelection.id) ?? null)
+      : null;
+  const selectedRoofOpening =
+    currentSelection?.kind === "roofOpening"
+      ? (project.roofOpenings.find((opening) => opening.id === currentSelection.id) ?? null)
       : null;
   const selectedExternalModel =
     currentSelection?.kind === "externalModel"
@@ -833,6 +907,18 @@ export default function App() {
   }, [activeTool, setActiveTool, wallAuthoringMode]);
 
   useEffect(() => {
+    if (availableEditorTools.includes(activeTool)) {
+      return;
+    }
+
+    setActiveTool(
+      activeRoofLayerId && availableEditorTools.includes("Roof")
+        ? "Roof"
+        : availableEditorTools[0],
+    );
+  }, [activeRoofLayerId, activeTool, availableEditorTools, setActiveTool]);
+
+  useEffect(() => {
     setProjectNameDraft(project.projectName);
   }, [project.projectName]);
 
@@ -874,6 +960,7 @@ export default function App() {
       stringifyProject(project),
       preview3D,
       hiddenLevelIds3D,
+      hiddenRoofLayerIds3D,
     );
     writePreviewWindowSnapshot(snapshot);
 
@@ -906,6 +993,7 @@ export default function App() {
           stringifyProject(project),
           preview3D,
           hiddenLevelIds3D,
+          hiddenRoofLayerIds3D,
         ),
       } satisfies PreviewWindowMessage);
     };
@@ -915,7 +1003,7 @@ export default function App() {
       channel.removeEventListener("message", handleMessage);
       channel.close();
     };
-  }, [hiddenLevelIds3D, preview3D, project]);
+  }, [hiddenLevelIds3D, hiddenRoofLayerIds3D, preview3D, project]);
 
   useEffect(() => {
     function isEditableTarget(target: EventTarget | null) {
@@ -1310,6 +1398,31 @@ export default function App() {
           ? createViewportBoundsFromPoints([startVertex.position, endVertex.position])
           : null;
       }
+      case "roofFace": {
+        const sketch = project.roofSketches.find((candidate) =>
+          candidate.faces.some((face) => face.id === currentSelection.id),
+        );
+        const face = sketch?.faces.find((candidate) => candidate.id === currentSelection.id);
+        if (!sketch || !face) {
+          return null;
+        }
+
+        const vertexById = new Map(sketch.vertices.map((vertex) => [vertex.id, vertex] as const));
+        const points = face.vertexIds
+          .map((vertexId) => vertexById.get(vertexId)?.position ?? null)
+          .filter((point): point is Vec2 => point !== null);
+        return points.length >= 3 ? createViewportBoundsFromPoints(points) : null;
+      }
+      case "roofOpening": {
+        const opening = project.roofOpenings.find((candidate) => candidate.id === currentSelection.id);
+        if (!opening) {
+          return null;
+        }
+
+        const widthM = opening.rotationDeg === 90 ? opening.widthM : opening.heightM;
+        const heightM = opening.rotationDeg === 90 ? opening.heightM : opening.widthM;
+        return createRectBounds(opening.center, widthM, heightM);
+      }
       case "externalModel":
         return selectedExternalModel
           ? createCircularBounds(selectedExternalModel.position, 0.8)
@@ -1496,6 +1609,25 @@ export default function App() {
     }
   }
 
+  async function handleLoadBuiltInSample() {
+    try {
+      const response = await fetch(BUILT_IN_SAMPLE_URL, { cache: "no-cache" });
+      if (!response.ok) {
+        throw new Error(`Sample project could not be loaded (${response.status}).`);
+      }
+
+      const result = importProjectJson(await response.text());
+      reportSuccess(
+        result.warnings.length > 0
+          ? `Loaded built-in sample with ${result.warnings.length} migration warning(s).`
+          : "Loaded the built-in sample project.",
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Built-in sample load failed.";
+      reportError(message);
+    }
+  }
+
   async function handleImportChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) {
@@ -1533,6 +1665,7 @@ export default function App() {
       stringifyProject(project),
       preview3D,
       hiddenLevelIds3D,
+      hiddenRoofLayerIds3D,
     );
     writePreviewWindowSnapshot(snapshot);
     window.open(createPreviewWindowUrl(window.location.href), "_blank", "noopener,noreferrer");
@@ -1842,6 +1975,19 @@ export default function App() {
     }
   }
 
+  function handleDeleteRoofOpening(roofOpeningId: string) {
+    try {
+      applyCommand((current) => deleteRoofOpening(current, roofOpeningId));
+      if (currentSelection?.kind === "roofOpening" && currentSelection.id === roofOpeningId) {
+        removeSelectionEntry("roofOpening", roofOpeningId);
+      }
+      reportSuccess("Deleted roof window opening.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Roof window delete failed.";
+      reportError(message);
+    }
+  }
+
   function createCurrentWindow3DDesign(): WindowDesign3D {
     return {
       glassThicknessM: window3DGlassThicknessM,
@@ -1932,8 +2078,47 @@ export default function App() {
     reportSuccess(`Selected window opening "${windowId}" for 3D editing.`);
   }
 
+  function handleSelectRoofWindow3D(roofOpeningId: string) {
+    const targetRoofOpening = project.roofOpenings.find(
+      (roofOpening) => roofOpening.id === roofOpeningId,
+    );
+    if (!targetRoofOpening) {
+      return;
+    }
+
+    setActiveTool("RoofWindow");
+    setSingleSelection({ kind: "roofOpening", id: roofOpeningId });
+    reportSuccess(`Selected roof window opening "${roofOpeningId}" for 3D editing.`);
+  }
+
+  function handleApplyRoofWindow3DInsert(roofOpeningId: string) {
+    try {
+      const design3D = createCurrentWindow3DDesign();
+      applyCommand((current) => updateRoofOpening(current, roofOpeningId, { design3D }));
+      setSingleSelection({ kind: "roofOpening", id: roofOpeningId });
+      reportSuccess("Inserted 3D skylight into the selected roof opening.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "3D skylight insert failed.";
+      reportError(message);
+    }
+  }
+
+  function handleRemoveRoofWindow3DInsert(roofOpeningId: string) {
+    try {
+      applyCommand((current) => updateRoofOpening(current, roofOpeningId, { design3D: null }));
+      reportSuccess("Removed 3D skylight from the selected roof opening.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "3D skylight removal failed.";
+      reportError(message);
+    }
+  }
+
   function handleClear3DOpeningSelection() {
-    if (currentSelection?.kind !== "window" && currentSelection?.kind !== "door") {
+    if (
+      currentSelection?.kind !== "window" &&
+      currentSelection?.kind !== "door" &&
+      currentSelection?.kind !== "roofOpening"
+    ) {
       return;
     }
 
@@ -2094,6 +2279,51 @@ export default function App() {
     }
   }
 
+  function handleMoveRoofVertex(roofSketchId: string, roofVertexId: string, position: Vec2) {
+    try {
+      applyCommand((current) => {
+        const sketch = current.roofSketches.find((candidate) => candidate.id === roofSketchId);
+        const vertex = sketch?.vertices.find((candidate) => candidate.id === roofVertexId);
+        if (!sketch || !vertex) {
+          throw new Error(`Roof vertex "${roofVertexId}" does not exist.`);
+        }
+
+        if (Math.hypot(vertex.position.x - position.x, vertex.position.y - position.y) < 0.0001) {
+          return current;
+        }
+
+        return updateRoofSketch(current, roofSketchId, {
+          vertices: sketch.vertices.map((candidate) =>
+            candidate.id === roofVertexId
+              ? {
+                  ...candidate,
+                  position: createVec2(position.x, position.y),
+                }
+              : candidate,
+          ),
+        });
+      });
+      setErrorMessage(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Roof line endpoint move failed.";
+      reportError(message);
+    }
+  }
+
+  function handleMoveRoofOpening(roofOpeningId: string, position: Vec2) {
+    try {
+      applyCommand((current) =>
+        updateRoofOpening(current, roofOpeningId, {
+          center: createVec2(position.x, position.y),
+        }),
+      );
+      setErrorMessage(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Roof window move failed.";
+      reportError(message);
+    }
+  }
+
   function handleUpdateSelectedRoofEdgeElevation(elevationM: number) {
     if (
       !selectedRoofSketch ||
@@ -2126,6 +2356,37 @@ export default function App() {
       reportSuccess(`Updated roof line elevation to ${formatNumber(elevationM)} m.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Roof line elevation update failed.";
+      reportError(message);
+    }
+  }
+
+  function handleUpdateSelectedRoofFaceThickness(thicknessM: number) {
+    if (!selectedRoofFaceSketch || !selectedRoofFace) {
+      reportError("Select a roof face before editing its thickness.");
+      return;
+    }
+
+    if (!Number.isFinite(thicknessM) || thicknessM <= 0) {
+      reportError("Roof face thickness must be greater than zero.");
+      return;
+    }
+
+    try {
+      applyCommand((current) =>
+        updateRoofSketch(current, selectedRoofFaceSketch.id, {
+          faces: selectedRoofFaceSketch.faces.map((face) =>
+            face.id === selectedRoofFace.id
+              ? {
+                  ...face,
+                  thicknessM,
+                }
+              : face,
+          ),
+        }),
+      );
+      reportSuccess(`Updated roof face thickness to ${formatNumber(thicknessM)} m.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Roof face thickness update failed.";
       reportError(message);
     }
   }
@@ -2256,10 +2517,37 @@ export default function App() {
     }
   }
 
+  function handleUpdateSelectedRoofOpening(
+    patch: Parameters<typeof updateRoofOpening>[2],
+    message: string,
+  ) {
+    if (!selectedRoofOpening) {
+      return;
+    }
+
+    try {
+      applyCommand((current) => updateRoofOpening(current, selectedRoofOpening.id, patch));
+      reportSuccess(message);
+    } catch (error) {
+      const nextMessage = error instanceof Error ? error.message : "Roof window update failed.";
+      reportError(nextMessage);
+    }
+  }
+
   function handleCommitWindow3DToolDesign(
     patch: Partial<WindowDesign3D>,
     message = "Updated 3D window design.",
   ) {
+    if (selectedRoofOpening) {
+      const nextDesign: WindowDesign3D = {
+        ...(selectedRoofOpening.design3D ?? createCurrentWindow3DDesign()),
+        ...patch,
+      };
+
+      handleUpdateSelectedRoofOpening({ design3D: nextDesign }, message);
+      return;
+    }
+
     if (!selectedWindow) {
       const nextDesign: WindowDesign3D = {
         ...createCurrentWindow3DDesign(),
@@ -2606,7 +2894,10 @@ export default function App() {
 
     let createdEdgeId: string | null = null;
     applyCommand((current) => {
-      const roofLayer = current.roofLayers[0];
+      const roofLayer =
+        current.roofLayers.find((candidate) => candidate.id === activeRoofLayerId) ??
+        current.roofLayers.find((candidate) => candidate.id === DEFAULT_ROOF_LAYER_ID) ??
+        current.roofLayers[0];
       if (!roofLayer) {
         throw new Error("Project has no roof layer.");
       }
@@ -2664,6 +2955,32 @@ export default function App() {
     );
   }
 
+  function handleCreateRoofOpening(input: {
+    roofSketchId: string;
+    roofFaceId: string;
+    center: Vec2;
+  }) {
+    try {
+      applyCommand((current) =>
+        createRoofOpening(current, {
+          roofSketchId: input.roofSketchId,
+          roofFaceId: input.roofFaceId,
+          center: createVec2(input.center.x, input.center.y),
+          widthM: roofWindowToolWidthM,
+          heightM: roofWindowToolHeightM,
+          cutMode: roofWindowToolCutMode,
+          rotationDeg: roofWindowToolRotationDeg,
+        }),
+      );
+      reportSuccess(
+        `Placed roof window opening ${formatNumber(roofWindowToolWidthM)} x ${formatNumber(roofWindowToolHeightM)} m.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Roof window create failed.";
+      reportError(message);
+    }
+  }
+
   function handleLinkSelectedRoofEdges() {
     if (selectedRoofEdgeIds.length !== 2) {
       reportError("Select exactly two roof lines before linking them.");
@@ -2719,6 +3036,7 @@ export default function App() {
             ],
             edgeIds: [firstEdge.id, secondEdge.id],
             constraintIds: [],
+            thicknessM: sketch.thicknessM,
           },
         ],
       });
@@ -2729,6 +3047,82 @@ export default function App() {
       linkedFaceId
         ? `Linked selected roof lines into face ${linkedFaceId}.`
         : "Linked selected roof lines into a roof face.",
+    );
+  }
+
+  function handleLinkSelectedRoofEdgeToEndpoint() {
+    if (selectedRoofEdgeIds.length !== 2) {
+      reportError("Select exactly two roof lines before linking one line to an endpoint.");
+      return;
+    }
+
+    let linkedFaceId: string | null = null;
+    applyCommand((current) => {
+      const sketch = current.roofSketches.find((candidate) =>
+        selectedRoofEdgeIds.every((edgeId) => candidate.edges.some((edge) => edge.id === edgeId)),
+      );
+      if (!sketch) {
+        throw new Error("Selected roof lines must belong to the same roof sketch.");
+      }
+
+      const [baseEdgeId, endpointEdgeId] = selectedRoofEdgeIds;
+      const baseEdge = sketch.edges.find((edge) => edge.id === baseEdgeId);
+      const endpointEdge = sketch.edges.find((edge) => edge.id === endpointEdgeId);
+      if (!baseEdge || !endpointEdge) {
+        throw new Error("Selected roof line no longer exists.");
+      }
+
+      const vertexById = new Map(sketch.vertices.map((vertex) => [vertex.id, vertex] as const));
+      const baseStart = vertexById.get(baseEdge.startVertexId);
+      const baseEnd = vertexById.get(baseEdge.endVertexId);
+      const endpointStart = vertexById.get(endpointEdge.startVertexId);
+      const endpointEnd = vertexById.get(endpointEdge.endVertexId);
+      if (!baseStart || !baseEnd || !endpointStart || !endpointEnd) {
+        throw new Error("Selected roof line has missing vertices.");
+      }
+
+      const baseVertexIds = new Set([baseEdge.startVertexId, baseEdge.endVertexId]);
+      const endpointCandidates = [
+        { id: endpointEdge.startVertexId, vertex: endpointStart },
+        { id: endpointEdge.endVertexId, vertex: endpointEnd },
+      ]
+        .filter((candidate) => !baseVertexIds.has(candidate.id))
+        .map((candidate) => ({
+          ...candidate,
+          distanceSquared: projectPointOntoSegment(
+            candidate.vertex.position,
+            baseStart.position,
+            baseEnd.position,
+          ).distanceSquared,
+        }))
+        .sort((left, right) => left.distanceSquared - right.distanceSquared);
+
+      const endpoint = endpointCandidates[0];
+      if (!endpoint) {
+        throw new Error("The second roof line does not have a free endpoint for a triangular face.");
+      }
+
+      const faceId = createId("roof_face");
+      linkedFaceId = faceId;
+      return updateRoofSketch(current, sketch.id, {
+        faces: [
+          ...sketch.faces,
+          {
+            id: faceId,
+            vertexIds: [baseEdge.startVertexId, baseEdge.endVertexId, endpoint.id],
+            edgeIds: [baseEdge.id, endpointEdge.id],
+            constraintIds: [],
+            thicknessM: sketch.thicknessM,
+          },
+        ],
+      });
+    });
+
+    clearSelection();
+    reportSuccess(
+      linkedFaceId
+        ? `Linked selected roof line to endpoint into triangular face ${linkedFaceId}.`
+        : "Linked selected roof line to endpoint into a triangular roof face.",
     );
   }
 
@@ -2799,6 +3193,17 @@ export default function App() {
       const message = error instanceof Error ? error.message : "Level delete failed.";
       reportError(message);
     }
+  }
+
+  function handleToggleDefaultRoofLayerVisibility() {
+    if (!defaultRoofLayer) {
+      reportError("Project has no roof layer.");
+      return;
+    }
+
+    const nextVisible = currentHiddenRoofLayerIdSet.has(defaultRoofLayer.id);
+    toggleRoofLayerVisibility(defaultRoofLayer.id, viewportMode);
+    reportSuccess(`${nextVisible ? "Showing" : "Hiding"} Roof in ${viewportMode.toUpperCase()}.`);
   }
 
   function handleAddWallType() {
@@ -2879,6 +3284,8 @@ export default function App() {
       activeTool === "Stair" ||
       activeTool === "Slab" ||
       activeTool === "Roof" ||
+      activeTool === "RoofOpening" ||
+      activeTool === "RoofWindow" ||
       viewportMode === "3d");
 
   const showContextWindow =
@@ -2887,7 +3294,8 @@ export default function App() {
     !(
       viewportMode === "3d" &&
       ((activeTool === "Window" && currentSelection.kind === "window") ||
-        (activeTool === "Door" && currentSelection.kind === "door"))
+        (activeTool === "Door" && currentSelection.kind === "door") ||
+        (activeTool === "RoofWindow" && currentSelection.kind === "roofOpening"))
     );
 
   function renderToolWindowContent() {
@@ -3239,6 +3647,135 @@ export default function App() {
         );
       }
 
+      if (activeTool === "RoofWindow") {
+        const effectiveRoofWindow3DDesign =
+          selectedRoofOpening?.design3D ?? createCurrentWindow3DDesign();
+        return (
+          <div className="field-grid">
+            {selectedRoofOpening ? (
+              <>
+                <div className="stat-row">
+                  <span>Selected Roof Opening</span>
+                  <strong>{selectedRoofOpening.id}</strong>
+                </div>
+                <div className="stat-row">
+                  <span>Opening Size</span>
+                  <strong>
+                    {formatNumber(selectedRoofOpening.widthM)} x{" "}
+                    {formatNumber(selectedRoofOpening.heightM)} m
+                  </strong>
+                </div>
+              </>
+            ) : null}
+            <label className="field-label">
+              <span>Glass Thickness (m)</span>
+              <DraftNumberInput
+                step="0.005"
+                min="0.001"
+                value={effectiveRoofWindow3DDesign.glassThicknessM}
+                onCommit={(nextValue) => {
+                  if (nextValue > 0) {
+                    handleCommitWindow3DToolDesign(
+                      { glassThicknessM: nextValue },
+                      "Updated skylight glass thickness.",
+                    );
+                  }
+                }}
+              />
+            </label>
+            <label className="field-label">
+              <span>Frame Thickness (m)</span>
+              <DraftNumberInput
+                step="0.01"
+                min="0.005"
+                value={effectiveRoofWindow3DDesign.frameThicknessM}
+                onCommit={(nextValue) => {
+                  if (nextValue > 0) {
+                    handleCommitWindow3DToolDesign(
+                      { frameThicknessM: nextValue },
+                      "Updated skylight frame thickness.",
+                    );
+                  }
+                }}
+              />
+            </label>
+            <label className="field-label">
+              <span>Frame Color</span>
+              <input
+                type="color"
+                value={effectiveRoofWindow3DDesign.frameColorHex}
+                onChange={(event) =>
+                  handleCommitWindow3DToolDesign(
+                    { frameColorHex: event.target.value },
+                    "Updated skylight frame color.",
+                  )
+                }
+              />
+            </label>
+            <label className="field-label">
+              <span>Vertical Divisions</span>
+              <DraftNumberInput
+                step="1"
+                min="0"
+                value={effectiveRoofWindow3DDesign.verticalDivisions}
+                onCommit={(nextValue) => {
+                  if (nextValue >= 0) {
+                    handleCommitWindow3DToolDesign(
+                      { verticalDivisions: Math.max(0, Math.round(nextValue)) },
+                      "Updated skylight vertical divisions.",
+                    );
+                  }
+                }}
+              />
+            </label>
+            <label className="field-label">
+              <span>Horizontal Divisions</span>
+              <DraftNumberInput
+                step="1"
+                min="0"
+                value={effectiveRoofWindow3DDesign.horizontalDivisions}
+                onCommit={(nextValue) => {
+                  if (nextValue >= 0) {
+                    handleCommitWindow3DToolDesign(
+                      { horizontalDivisions: Math.max(0, Math.round(nextValue)) },
+                      "Updated skylight horizontal divisions.",
+                    );
+                  }
+                }}
+              />
+            </label>
+            <label className="field-label">
+              <span>Depth Offset From Roof Surface (cm)</span>
+              <DraftNumberInput
+                step="0.5"
+                value={toCentimeters(effectiveRoofWindow3DDesign.wallDepthOffsetM)}
+                onCommit={(nextValue) =>
+                  handleCommitWindow3DToolDesign(
+                    { wallDepthOffsetM: toMetersFromCentimeters(nextValue) },
+                    "Updated skylight depth offset.",
+                  )
+                }
+              />
+            </label>
+            {selectedRoofOpening ? (
+              <div className="window-tool-action-row">
+                <button
+                  type="button"
+                  className="toolbar-button"
+                  onClick={() =>
+                    selectedRoofOpening.design3D
+                      ? handleRemoveRoofWindow3DInsert(selectedRoofOpening.id)
+                      : handleApplyRoofWindow3DInsert(selectedRoofOpening.id)
+                  }
+                >
+                  {selectedRoofOpening.design3D ? "Remove 3D Window" : "Insert 3D Window"}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        );
+      }
+
       return <p className="muted">Select a 3D tool to configure it here.</p>;
     }
 
@@ -3503,13 +4040,246 @@ export default function App() {
             >
               Link Selected Lines
             </button>
+            <button
+              type="button"
+              onClick={handleLinkSelectedRoofEdgeToEndpoint}
+              disabled={selectedRoofEdgeIds.length !== 2}
+            >
+              Link Line To Endpoint
+            </button>
             <button type="button" onClick={clearSelection} disabled={selectedRoofEdgeIds.length === 0}>
               Clear Selection
             </button>
           </div>
           <p className="muted">
-            Selected roof lines: {selectedRoofEdgeIds.length}. First version links the two selected lines as
-            a single four-point planar face.
+            Selected roof lines: {selectedRoofEdgeIds.length}. Link Selected Lines creates a four-point
+            face. Link Line To Endpoint uses the first selected line as the full edge and the closest
+            free endpoint of the second selected line as a triangular face tip.
+          </p>
+        </div>
+      );
+    }
+
+    if (activeTool === "RoofOpening") {
+      return (
+        <div className="field-stack">
+          {selectedRoofOpening ? (
+            <>
+              <div className="stat-row">
+                <span>Selected Roof Opening</span>
+                <strong>{selectedRoofOpening.id}</strong>
+              </div>
+              <div className="stat-row">
+                <span>Opening Size</span>
+                <strong>
+                  {formatNumber(selectedRoofOpening.widthM)} x{" "}
+                  {formatNumber(selectedRoofOpening.heightM)} m
+                </strong>
+              </div>
+            </>
+          ) : null}
+          <label className="field-label">
+            <span>Opening Width (m)</span>
+            <DraftNumberInput
+              value={roofWindowToolWidthM}
+              step="0.1"
+              min="0.1"
+              onCommit={(nextValue) => {
+                if (nextValue > 0) {
+                  setRoofWindowToolWidthM(nextValue);
+                }
+              }}
+            />
+          </label>
+          <label className="field-label">
+            <span>Opening Height (m)</span>
+            <DraftNumberInput
+              value={roofWindowToolHeightM}
+              step="0.1"
+              min="0.1"
+              onCommit={(nextValue) => {
+                if (nextValue > 0) {
+                  setRoofWindowToolHeightM(nextValue);
+                }
+              }}
+            />
+          </label>
+          <label className="field-label">
+            <span>Cut Mode</span>
+            <select
+              value={roofWindowToolCutMode}
+              onChange={(event) =>
+                setRoofWindowToolCutMode(event.target.value as RoofOpeningCutMode)
+              }
+            >
+              <option value="NormalToRoof">Normal To Roof</option>
+              <option value="Vertical">Vertical</option>
+            </select>
+          </label>
+          <label className="field-label">
+            <span>Rotation</span>
+            <select
+              value={roofWindowToolRotationDeg}
+              onChange={(event) =>
+                setRoofWindowToolRotationDeg(Number(event.target.value) as RoofOpeningRotationDeg)
+              }
+            >
+              <option value={0}>0 deg</option>
+              <option value={90}>90 deg</option>
+            </select>
+          </label>
+          {selectedRoofOpening ? (
+            <div className="window-tool-action-row">
+              <button
+                type="button"
+                className="toolbar-button"
+                onClick={() => handleDeleteRoofOpening(selectedRoofOpening.id)}
+              >
+                Delete Opening
+              </button>
+            </div>
+          ) : null}
+          <p className="muted">
+            Click a roof face to place a roof opening. Right-click an opening while this tool is
+            active to delete it.
+          </p>
+        </div>
+      );
+    }
+
+    if (activeTool === "RoofWindow") {
+      const effectiveRoofWindow3DDesign =
+        selectedRoofOpening?.design3D ?? createCurrentWindow3DDesign();
+      return (
+        <div className="field-stack">
+          {selectedRoofOpening ? (
+            <>
+              <div className="stat-row">
+                <span>Selected Roof Opening</span>
+                <strong>{selectedRoofOpening.id}</strong>
+              </div>
+              <div className="stat-row">
+                <span>Opening Size</span>
+                <strong>
+                  {formatNumber(selectedRoofOpening.widthM)} x{" "}
+                  {formatNumber(selectedRoofOpening.heightM)} m
+                </strong>
+              </div>
+            </>
+          ) : (
+            <p className="muted">
+              Select a roof opening in 2D or right-click one in the 3D view, then insert or edit the
+              skylight frame and glass.
+            </p>
+          )}
+          <label className="field-label">
+            <span>Glass Thickness (m)</span>
+            <DraftNumberInput
+              value={effectiveRoofWindow3DDesign.glassThicknessM}
+              step="0.005"
+              min="0.001"
+              onCommit={(nextValue) => {
+                if (nextValue > 0) {
+                  handleCommitWindow3DToolDesign(
+                    { glassThicknessM: nextValue },
+                    "Updated skylight glass thickness.",
+                  );
+                }
+              }}
+            />
+          </label>
+          <label className="field-label">
+            <span>Frame Thickness (m)</span>
+            <DraftNumberInput
+              value={effectiveRoofWindow3DDesign.frameThicknessM}
+              step="0.01"
+              min="0.005"
+              onCommit={(nextValue) => {
+                if (nextValue > 0) {
+                  handleCommitWindow3DToolDesign(
+                    { frameThicknessM: nextValue },
+                    "Updated skylight frame thickness.",
+                  );
+                }
+              }}
+            />
+          </label>
+          <label className="field-label">
+            <span>Frame Color</span>
+            <input
+              type="color"
+              value={effectiveRoofWindow3DDesign.frameColorHex}
+              onChange={(event) =>
+                handleCommitWindow3DToolDesign(
+                  { frameColorHex: event.target.value },
+                  "Updated skylight frame color.",
+                )
+              }
+            />
+          </label>
+          <label className="field-label">
+            <span>Vertical Divisions</span>
+            <DraftNumberInput
+              value={effectiveRoofWindow3DDesign.verticalDivisions}
+              step="1"
+              min="0"
+              onCommit={(nextValue) => {
+                if (nextValue >= 0) {
+                  handleCommitWindow3DToolDesign(
+                    { verticalDivisions: Math.max(0, Math.round(nextValue)) },
+                    "Updated skylight vertical divisions.",
+                  );
+                }
+              }}
+            />
+          </label>
+          <label className="field-label">
+            <span>Horizontal Divisions</span>
+            <DraftNumberInput
+              value={effectiveRoofWindow3DDesign.horizontalDivisions}
+              step="1"
+              min="0"
+              onCommit={(nextValue) => {
+                if (nextValue >= 0) {
+                  handleCommitWindow3DToolDesign(
+                    { horizontalDivisions: Math.max(0, Math.round(nextValue)) },
+                    "Updated skylight horizontal divisions.",
+                  );
+                }
+              }}
+            />
+          </label>
+          <label className="field-label">
+            <span>Depth Offset From Roof Surface (cm)</span>
+            <DraftNumberInput
+              value={toCentimeters(effectiveRoofWindow3DDesign.wallDepthOffsetM)}
+              step="0.5"
+              onCommit={(nextValue) =>
+                handleCommitWindow3DToolDesign(
+                  { wallDepthOffsetM: toMetersFromCentimeters(nextValue) },
+                  "Updated skylight depth offset.",
+                )
+              }
+            />
+          </label>
+          {selectedRoofOpening ? (
+              <div className="window-tool-action-row">
+                <button
+                  type="button"
+                  className="toolbar-button"
+                  onClick={() =>
+                    selectedRoofOpening.design3D
+                      ? handleRemoveRoofWindow3DInsert(selectedRoofOpening.id)
+                      : handleApplyRoofWindow3DInsert(selectedRoofOpening.id)
+                  }
+                >
+                  {selectedRoofOpening.design3D ? "Remove 3D Window" : "Insert 3D Window"}
+                </button>
+              </div>
+          ) : null}
+          <p className="muted">
+            Use Roof Opening to create or delete the hole. This tool only inserts and edits the
+            skylight frame and glass inside an existing opening.
           </p>
         </div>
       );
@@ -4023,6 +4793,34 @@ export default function App() {
       );
     }
 
+    if (selectedRoofFaceSketch && selectedRoofFace) {
+      const faceThicknessM = selectedRoofFace.thicknessM ?? selectedRoofFaceSketch.thicknessM;
+      return (
+        <div className="field-grid">
+          <label className="field-label">
+            <span>Thickness Down (m)</span>
+            <DraftNumberInput
+              min={0.01}
+              step="0.01"
+              value={faceThicknessM}
+              onCommit={handleUpdateSelectedRoofFaceThickness}
+            />
+          </label>
+          <div className="field-label">
+            <span>Vertices</span>
+            <strong>{selectedRoofFace.vertexIds.length}</strong>
+          </div>
+          <div className="field-label">
+            <span>Sketch</span>
+            <strong>{selectedRoofFaceSketch.name}</strong>
+          </div>
+          <p className="muted">
+            Roof face thickness is currently extruded vertically downward in 3D and used by roof-following walls.
+          </p>
+        </div>
+      );
+    }
+
     if (selectedExternalModel) {
       return (
         <div className="field-grid">
@@ -4085,7 +4883,7 @@ export default function App() {
                 className={tool === activeTool ? "toolbar-button is-active" : "toolbar-button"}
                 onClick={() => setActiveTool(tool)}
               >
-                {tool}
+                {getEditorToolLabel(tool)}
               </button>
             ))}
           </div>
@@ -4321,6 +5119,7 @@ export default function App() {
                   onCreateShapeAt={handleCreateShapeAt}
                   onCreateSlabAt={handleCreateSlabAt}
                   onCreateRoofLine={handleCreateRoofLine}
+                  onCreateRoofOpening={handleCreateRoofOpening}
                   onCreateExternalModelAt={handleCreateExternalModelAt}
                   onCreateWallBetweenNodes={handleCreateWallBetweenNodes}
                   onCreateWallByDrag={handleCreateWallByDrag}
@@ -4328,6 +5127,7 @@ export default function App() {
                   onDeleteWall={handleDeleteWall}
                   onDeleteDoor={handleDeleteDoor}
                   onDeleteWindow={handleDeleteWindow}
+                  onDeleteRoofOpening={handleDeleteRoofOpening}
                   onDeleteMeasurement={handleDeleteMeasurement}
                   onDeleteStair={handleDeleteStair}
                   onDeleteWallsConnectedToNode={handleDeleteWallsConnectedToNode}
@@ -4345,6 +5145,8 @@ export default function App() {
                   onMoveShape={handleMoveShape}
                   onMoveSlab={handleMoveSlab}
                   onMoveRoofEdge={handleMoveRoofEdge}
+                  onMoveRoofVertex={handleMoveRoofVertex}
+                  onMoveRoofOpening={handleMoveRoofOpening}
                   onMoveExternalModel={handleMoveExternalModel}
                 />
                 <div className="viewport-overlay viewport-overlay-top">+Y</div>
@@ -4363,8 +5165,12 @@ export default function App() {
                 onSelectWindow={handleSelectWindow3D}
                 onClearOpeningSelection={handleClear3DOpeningSelection}
                 onInsertWindow3D={handleApplyWindow3DInsert}
+                selectedRoofOpeningId={selectedRoofOpening?.id ?? null}
+                onSelectRoofOpening={handleSelectRoofWindow3D}
+                onInsertRoofWindow3D={handleApplyRoofWindow3DInsert}
                 door3DToolDesign={createCurrentDoor3DDesign()}
                 window3DToolDesign={createCurrentWindow3DDesign()}
+                hiddenRoofLayerIds={hiddenRoofLayerIds3D}
               />
             )}
 
@@ -4395,8 +5201,9 @@ export default function App() {
               </p>
               <p className="muted">
                 Move Tool: left-drag moves the current entity or the whole selected set,
-                right-drag draws a box selection, and Ctrl/Cmd+C then Ctrl/Cmd+V copies and pastes
-                the current movable selection with a small offset.
+                drag roof line endpoints to stretch roof lines, right-drag draws a box selection,
+                and Ctrl/Cmd+C then Ctrl/Cmd+V copies and pastes the current movable selection
+                with a small offset.
               </p>
               <p className="muted">
                 Node Tool: left-click places a node, or hold and drag to measure from the start point
@@ -4481,10 +5288,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    replaceProject(sampleProject, false);
-                    reportSuccess("Loaded the built-in sample project into the shell.");
-                  }}
+                  onClick={() => void handleLoadBuiltInSample()}
                 >
                   Load Built-In Sample
                 </button>
@@ -4569,7 +5373,7 @@ export default function App() {
                       <button
                         type="button"
                         className={
-                          level.id === activeLevelId
+                          !activeRoofLayerId && level.id === activeLevelId
                             ? "list-selector-item segmented-list-item is-active"
                             : "list-selector-item segmented-list-item"
                         }
@@ -4591,6 +5395,48 @@ export default function App() {
                       </button>
                     </div>
                   ))}
+                  {defaultRoofLayer ? (
+                    <div key={defaultRoofLayer.id} className="segmented-list-row">
+                      <button
+                        type="button"
+                        className={
+                          isDefaultRoofLayerVisible
+                            ? "list-visibility-toggle"
+                            : "list-visibility-toggle is-off"
+                        }
+                        onClick={handleToggleDefaultRoofLayerVisibility}
+                        aria-label={`${isDefaultRoofLayerVisible ? "Hide" : "Show"} Roof`}
+                        aria-pressed={isDefaultRoofLayerVisible}
+                        title={isDefaultRoofLayerVisible ? "Hide roof layer" : "Show roof layer"}
+                      >
+                        <EyeToggleIcon visible={isDefaultRoofLayerVisible} />
+                      </button>
+                      <button
+                        type="button"
+                        className={
+                          activeRoofLayerId === defaultRoofLayer.id
+                            ? "list-selector-item segmented-list-item is-active"
+                            : "list-selector-item segmented-list-item"
+                        }
+                        onClick={() => {
+                          setActiveRoofLayerId(defaultRoofLayer.id);
+                          setActiveTool("Roof");
+                        }}
+                      >
+                        <strong>{defaultRoofLayer.name}</strong>
+                        <span>roof drawing layer</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="list-selector-action segmented-list-action"
+                        disabled
+                        aria-label="Roof layer is locked"
+                        title="Default roof layer is locked for now"
+                      >
+                        Locked
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="button-row">
                   <button type="button" onClick={handleAddLevel}>
@@ -5067,6 +5913,44 @@ export default function App() {
                 </div>
                 {viewportMode === "3d" ? (
                   <div className="field-stack">
+                    <div className="stat-row">
+                      <span>3D Camera Mode</span>
+                      <strong>
+                        {(preview3D.cameraMode as string | undefined) === "FreeCamera"
+                          ? "Free Camera"
+                          : (preview3D.cameraMode as string | undefined) === "FreeOrbit" ||
+                              (preview3D.cameraMode as string | undefined) === "Free"
+                            ? "Free Orbit"
+                            : "Orbit Center"}
+                      </strong>
+                    </div>
+                    <label className="field-label">
+                      <span>3D Camera Mode</span>
+                      <select
+                        value={
+                          (preview3D.cameraMode as string | undefined) === "Free"
+                            ? "FreeOrbit"
+                            : (preview3D.cameraMode ?? "Orbit")
+                        }
+                        onChange={(event) =>
+                          setPreview3D({
+                            cameraMode: event.target.value as typeof preview3D.cameraMode,
+                            targetOffset:
+                              event.target.value === "FreeOrbit"
+                                ? (preview3D.targetOffset ?? [0, 0, 0])
+                                : [0, 0, 0],
+                            cameraPositionOffset:
+                              event.target.value === "FreeCamera"
+                                ? (preview3D.cameraPositionOffset ?? null)
+                                : null,
+                          })
+                        }
+                      >
+                        <option value="Orbit">Orbit Center</option>
+                        <option value="FreeOrbit">Free Orbit</option>
+                        <option value="FreeCamera">Free Camera</option>
+                      </select>
+                    </label>
                     <div className="stat-row">
                       <span>3D Join Mode</span>
                       <strong>
@@ -6645,10 +7529,7 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      replaceProject(sampleProject, false);
-                      reportSuccess("Loaded the built-in sample project into the shell.");
-                    }}
+                    onClick={() => void handleLoadBuiltInSample()}
                   >
                     Load Built-In Sample
                   </button>
@@ -6687,7 +7568,7 @@ export default function App() {
             </>
           ) : (
             <span>
-              Orbit Yaw {formatNumber(preview3D.yawDeg)} | Pitch {formatNumber(preview3D.pitchDeg)} | Distance {formatNumber(preview3D.distanceMultiplier)}x | Join {preview3D.renderMode === "ArchitecturalJoin" ? "Architectural" : "Node Post"} | Surface {preview3D.surfaceMode === "LevelColor" ? "Level Color" : "Gray Opaque"}
+              Camera {(preview3D.cameraMode as string | undefined) === "FreeCamera" ? "Free" : (preview3D.cameraMode as string | undefined) === "FreeOrbit" || (preview3D.cameraMode as string | undefined) === "Free" ? "Free Orbit" : "Orbit"} | Yaw {formatNumber(preview3D.yawDeg)} | Pitch {formatNumber(preview3D.pitchDeg)} | Distance {formatNumber(preview3D.distanceMultiplier)}x | Join {preview3D.renderMode === "ArchitecturalJoin" ? "Architectural" : "Node Post"} | Surface {preview3D.surfaceMode === "LevelColor" ? "Level Color" : "Gray Opaque"}
             </span>
           )}
           <span>

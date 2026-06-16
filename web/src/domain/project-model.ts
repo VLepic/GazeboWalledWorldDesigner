@@ -6,6 +6,8 @@ export type MeasurementUnit = "cm" | "dm" | "m";
 export type RoofVertexElevationMode = "Explicit" | "Computed";
 export type RoofEdgeRole = "Generic" | "LowerEave" | "UpperEave" | "Ridge" | "Hip" | "Valley";
 export type RoofConstraintDirection = "AwayFromReference" | "TowardReference";
+export type RoofOpeningCutMode = "NormalToRoof" | "Vertical";
+export type RoofOpeningRotationDeg = 0 | 90;
 
 export interface Vec2 {
   x: number;
@@ -26,6 +28,9 @@ export interface ProjectSettings {
   pixelsPerMeter: number;
   snapToGrid: boolean;
 }
+
+export const DEFAULT_ROOF_LAYER_ID = "roof_layer_default";
+export const DEFAULT_ROOF_LAYER_NAME = "Roof";
 
 export interface Level {
   id: string;
@@ -88,6 +93,7 @@ export interface RoofFaceDefinition {
   vertexIds: string[];
   edgeIds: string[];
   constraintIds: string[];
+  thicknessM?: number;
 }
 
 export interface RoofSketch {
@@ -100,6 +106,18 @@ export interface RoofSketch {
   edges: RoofEdge[];
   faces: RoofFaceDefinition[];
   constraints: RoofConstraint[];
+}
+
+export interface RoofOpening {
+  id: string;
+  roofSketchId: string;
+  roofFaceId: string;
+  center: Vec2;
+  widthM: number;
+  heightM: number;
+  cutMode: RoofOpeningCutMode;
+  rotationDeg: RoofOpeningRotationDeg;
+  design3D?: WindowDesign3D | null;
 }
 
 export interface NodeData {
@@ -225,6 +243,7 @@ export interface Project {
   wallTypes: WallType[];
   roofLayers: RoofLayer[];
   roofSketches: RoofSketch[];
+  roofOpenings: RoofOpening[];
   nodes: NodeData[];
   walls: Wall[];
   doors: DoorOpening[];
@@ -286,7 +305,7 @@ export function createWallType(overrides: Partial<WallType> = {}): WallType {
 export function createRoofLayer(overrides: Partial<RoofLayer> = {}): RoofLayer {
   return {
     id: overrides.id ?? createId("roof_layer"),
-    name: overrides.name ?? "Roofs",
+    name: overrides.name ?? "Roof",
     visible2D: overrides.visible2D ?? true,
     visible3D: overrides.visible3D ?? true,
   };
@@ -303,6 +322,20 @@ export function createRoofSketch(overrides: Partial<RoofSketch> = {}): RoofSketc
     edges: overrides.edges ?? [],
     faces: overrides.faces ?? [],
     constraints: overrides.constraints ?? [],
+  };
+}
+
+export function createRoofOpening(overrides: Partial<RoofOpening> = {}): RoofOpening {
+  return {
+    id: overrides.id ?? createId("roof_opening"),
+    roofSketchId: overrides.roofSketchId ?? "",
+    roofFaceId: overrides.roofFaceId ?? "",
+    center: overrides.center ?? createVec2(),
+    widthM: overrides.widthM ?? 0.8,
+    heightM: overrides.heightM ?? 1.0,
+    cutMode: overrides.cutMode ?? "NormalToRoof",
+    rotationDeg: overrides.rotationDeg ?? 0,
+    design3D: overrides.design3D ?? null,
   };
 }
 
@@ -425,6 +458,7 @@ export function createEmptyProject(overrides: Partial<Project> = {}): Project {
     wallTypes: overrides.wallTypes ?? [],
     roofLayers: overrides.roofLayers ?? [],
     roofSketches: overrides.roofSketches ?? [],
+    roofOpenings: overrides.roofOpenings ?? [],
     nodes: overrides.nodes ?? [],
     walls: overrides.walls ?? [],
     doors: overrides.doors ?? [],
@@ -443,11 +477,37 @@ export function ensureProjectDefaults(project: Project): Project {
   const levels = project.levels.length > 0 ? [...project.levels] : [createLevel()];
   const wallTypes =
     project.wallTypes.length > 0 ? [...project.wallTypes] : [createWallType()];
-  const roofLayers =
-    project.roofLayers.length > 0
-      ? [...project.roofLayers]
-      : [createRoofLayer({ id: "roof_layer_default", name: "Roofs" })];
+  const suppliedRoofLayers = project.roofLayers.length > 0 ? [...project.roofLayers] : [];
+  const roofLayersWithDefault = suppliedRoofLayers.some(
+    (layer) => layer.id === DEFAULT_ROOF_LAYER_ID,
+  )
+    ? suppliedRoofLayers
+    : [
+        createRoofLayer({
+          id: DEFAULT_ROOF_LAYER_ID,
+          name: DEFAULT_ROOF_LAYER_NAME,
+        }),
+        ...suppliedRoofLayers,
+      ];
+  const roofLayers = roofLayersWithDefault.map((layer) =>
+    layer.id === DEFAULT_ROOF_LAYER_ID
+      ? {
+          ...layer,
+          name: DEFAULT_ROOF_LAYER_NAME,
+          visible2D: layer.visible2D ?? true,
+          visible3D: layer.visible3D ?? true,
+        }
+      : layer,
+  );
   const roofLayerIds = new Set(roofLayers.map((layer) => layer.id));
+  const roofSketches = project.roofSketches.filter((sketch) => roofLayerIds.has(sketch.layerId));
+  const roofSketchIds = new Set(roofSketches.map((sketch) => sketch.id));
+  const roofFaceIdsBySketchId = new Map(
+    roofSketches.map((sketch) => [
+      sketch.id,
+      new Set(sketch.faces.map((face) => face.id)),
+    ]),
+  );
 
   return {
     ...project,
@@ -457,7 +517,20 @@ export function ensureProjectDefaults(project: Project): Project {
     levels,
     wallTypes,
     roofLayers,
-    roofSketches: project.roofSketches.filter((sketch) => roofLayerIds.has(sketch.layerId)),
+    roofSketches,
+    roofOpenings: (project.roofOpenings ?? [])
+      .filter(
+        (opening) =>
+          roofSketchIds.has(opening.roofSketchId) &&
+          (roofFaceIdsBySketchId.get(opening.roofSketchId)?.has(opening.roofFaceId) ?? false),
+      )
+      .map((opening) =>
+        createRoofOpening({
+          ...opening,
+          center: { ...opening.center },
+          rotationDeg: opening.rotationDeg ?? 0,
+        }),
+      ),
   };
 }
 
@@ -479,6 +552,7 @@ export function describeProject(project: Project) {
     `${project.wallTypes.length} wall type(s)`,
     `${project.roofLayers.length} roof layer(s)`,
     `${project.roofSketches.length} roof sketch(es)`,
+    `${project.roofOpenings.length} roof opening(s)`,
     `${project.nodes.length} node(s)`,
     `${project.walls.length} wall(s)`,
     `${project.doors.length} door(s)`,

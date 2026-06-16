@@ -5,6 +5,8 @@ import {
   createLevel as buildLevel,
   createMeasurement as buildMeasurement,
   createNodeData,
+  createVec2,
+  createRoofOpening as buildRoofOpening,
   createRoofSketch as buildRoofSketch,
   createShape as buildShape,
   createSlab as buildSlab,
@@ -24,6 +26,8 @@ import type {
   MeasurementUnit,
   Project,
   ProjectSettings,
+  RoofLayer,
+  RoofOpening,
   RoofSketch,
   Shape,
   Slab,
@@ -78,6 +82,9 @@ export type CreateShapeInput = Omit<Shape, "id"> & { id?: string };
 export type UpdateShapeInput = Partial<Omit<Shape, "id">>;
 export type CreateRoofSketchInput = Omit<RoofSketch, "id"> & { id?: string };
 export type UpdateRoofSketchInput = Partial<Omit<RoofSketch, "id">>;
+export type UpdateRoofLayerInput = Partial<Omit<RoofLayer, "id">>;
+export type CreateRoofOpeningInput = Omit<RoofOpening, "id"> & { id?: string };
+export type UpdateRoofOpeningInput = Partial<Omit<RoofOpening, "id" | "roofSketchId" | "roofFaceId">>;
 export type CreateSlabInput = Omit<Slab, "id" | "roofType" | "roofRiseM"> & {
   id?: string;
   roofType?: Slab["roofType"];
@@ -165,13 +172,6 @@ function expectRoofLayer(project: Project, roofLayerId: string) {
   return roofLayer;
 }
 
-function wallHasOpenings(project: Project, wallId: string) {
-  return (
-    project.doors.some((door) => door.wallId === wallId) ||
-    project.windows.some((windowOpening) => windowOpening.wallId === wallId)
-  );
-}
-
 function validateSlabSurface(
   kind: Slab["kind"],
   roofType: Slab["roofType"],
@@ -197,6 +197,25 @@ function expectExternalModel(project: Project, modelId: string) {
   }
 
   return model;
+}
+
+function expectRoofFace(project: Project, roofSketchId: string, roofFaceId: string) {
+  const roofSketch = expectRoofSketch(project, roofSketchId);
+  const roofFace = roofSketch.faces.find((face) => face.id === roofFaceId);
+  if (!roofFace) {
+    throw new ProjectCommandError(`Roof face "${roofFaceId}" does not exist.`);
+  }
+
+  return { roofSketch, roofFace };
+}
+
+function expectRoofOpening(project: Project, roofOpeningId: string) {
+  const roofOpening = project.roofOpenings.find((item) => item.id === roofOpeningId);
+  if (!roofOpening) {
+    throw new ProjectCommandError(`Roof opening "${roofOpeningId}" does not exist.`);
+  }
+
+  return roofOpening;
 }
 
 function expectWall(project: Project, wallId: string) {
@@ -364,6 +383,9 @@ function validateRoofSketchInput(project: Project, input: Omit<RoofSketch, "id">
   });
 
   input.faces.forEach((face, index) => {
+    if (face.thicknessM !== undefined) {
+      expectPositive(face.thicknessM, `${labelPrefix} face ${index + 1} thickness`);
+    }
     if (face.vertexIds.length < 3 || face.vertexIds.some((vertexId) => !vertexIds.has(vertexId))) {
       throw new ProjectCommandError(`${labelPrefix} face ${index + 1} has invalid vertices.`);
     }
@@ -516,9 +538,6 @@ function validateDoorAgainstWall(
   expectPositive(heightM, "Door height");
 
   const { wall, wallType } = getWallGeometry(project, wallId);
-  if (wall.topMode === "FollowRoof") {
-    throw new ProjectCommandError("Doors on roof-following walls are not supported yet.");
-  }
 
   if (heightM > wallType.heightM + 0.0001) {
     throw new ProjectCommandError("Door height cannot exceed the height of its host wall.");
@@ -541,9 +560,6 @@ function validateWindowAgainstWall(
   expectNonNegative(sillHeightM, "Window sill height");
 
   const { wall, wallType } = getWallGeometry(project, wallId);
-  if (wall.topMode === "FollowRoof") {
-    throw new ProjectCommandError("Windows on roof-following walls are not supported yet.");
-  }
   if (sillHeightM + heightM > wallType.heightM + 0.0001) {
     throw new ProjectCommandError("Window opening must fit below the top of its host wall.");
   }
@@ -946,11 +962,6 @@ export function updateWall(project: Project, wallId: string, patch: UpdateWallIn
   expectLevel(nextProject, candidate.levelId);
   expectWallType(nextProject, candidate.wallTypeId);
 
-  const nextTopMode = patch.topMode ?? currentWall.topMode;
-  if (nextTopMode === "FollowRoof" && wallHasOpenings(nextProject, wallId)) {
-    throw new ProjectCommandError("Walls with doors or windows cannot follow the roof yet.");
-  }
-
   const startNode = expectNode(nextProject, candidate.startNodeId);
   const endNode = expectNode(nextProject, candidate.endNodeId);
 
@@ -1287,6 +1298,83 @@ export function createRoofSketch(project: Project, input: CreateRoofSketchInput)
   });
 }
 
+export function createRoofOpening(project: Project, input: CreateRoofOpeningInput) {
+  const nextProject = normalizeProject(project);
+  expectRoofFace(nextProject, input.roofSketchId, input.roofFaceId);
+  expectFinite(input.center.x, "Roof opening center X");
+  expectFinite(input.center.y, "Roof opening center Y");
+  expectPositive(input.widthM, "Roof opening width");
+  expectPositive(input.heightM, "Roof opening height");
+  if (input.rotationDeg !== 0 && input.rotationDeg !== 90) {
+    throw new ProjectCommandError("Roof opening rotation must be 0 or 90 degrees.");
+  }
+
+  return normalizeProject({
+    ...nextProject,
+    roofOpenings: [
+      ...nextProject.roofOpenings,
+      buildRoofOpening({
+        ...input,
+        center: { ...input.center },
+      }),
+    ],
+  });
+}
+
+export function updateRoofOpening(
+  project: Project,
+  roofOpeningId: string,
+  patch: UpdateRoofOpeningInput,
+) {
+  const nextProject = normalizeProject(project);
+  const currentRoofOpening = expectRoofOpening(nextProject, roofOpeningId);
+
+  if (patch.center !== undefined) {
+    expectFinite(patch.center.x, "Roof opening center X");
+    expectFinite(patch.center.y, "Roof opening center Y");
+  }
+  if (patch.widthM !== undefined) {
+    expectPositive(patch.widthM, "Roof opening width");
+  }
+  if (patch.heightM !== undefined) {
+    expectPositive(patch.heightM, "Roof opening height");
+  }
+  if (
+    patch.rotationDeg !== undefined &&
+    patch.rotationDeg !== 0 &&
+    patch.rotationDeg !== 90
+  ) {
+    throw new ProjectCommandError("Roof opening rotation must be 0 or 90 degrees.");
+  }
+
+  return normalizeProject({
+    ...nextProject,
+    roofOpenings: nextProject.roofOpenings.map((roofOpening) =>
+      roofOpening.id === roofOpeningId
+        ? buildRoofOpening({
+            ...currentRoofOpening,
+            ...patch,
+            center: patch.center
+              ? createVec2(patch.center.x, patch.center.y)
+              : { ...currentRoofOpening.center },
+          })
+        : roofOpening,
+    ),
+  });
+}
+
+export function deleteRoofOpening(project: Project, roofOpeningId: string) {
+  const nextProject = normalizeProject(project);
+  expectRoofOpening(nextProject, roofOpeningId);
+
+  return normalizeProject({
+    ...nextProject,
+    roofOpenings: nextProject.roofOpenings.filter(
+      (roofOpening) => roofOpening.id !== roofOpeningId,
+    ),
+  });
+}
+
 export function updateRoofSketch(
   project: Project,
   roofSketchId: string,
@@ -1337,6 +1425,9 @@ export function deleteRoofSketch(project: Project, roofSketchId: string) {
   return normalizeProject({
     ...nextProject,
     roofSketches: nextProject.roofSketches.filter((roofSketch) => roofSketch.id !== roofSketchId),
+    roofOpenings: nextProject.roofOpenings.filter(
+      (roofOpening) => roofOpening.roofSketchId !== roofSketchId,
+    ),
   });
 }
 
@@ -1530,6 +1621,27 @@ export function updateLevel(project: Project, levelId: string, patch: UpdateLeve
             ...patch,
           }
         : level,
+    ),
+  });
+}
+
+export function updateRoofLayer(project: Project, roofLayerId: string, patch: UpdateRoofLayerInput) {
+  const nextProject = normalizeProject(project);
+  const currentRoofLayer = expectRoofLayer(nextProject, roofLayerId);
+
+  if (patch.name !== undefined) {
+    ensureNonEmptyName(patch.name, "Roof layer name");
+  }
+
+  return normalizeProject({
+    ...nextProject,
+    roofLayers: nextProject.roofLayers.map((roofLayer) =>
+      roofLayer.id === roofLayerId
+        ? {
+            ...currentRoofLayer,
+            ...patch,
+          }
+        : roofLayer,
     ),
   });
 }

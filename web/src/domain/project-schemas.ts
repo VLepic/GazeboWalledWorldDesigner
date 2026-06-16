@@ -14,6 +14,9 @@ import type {
   RoofEdgeRole,
   RoofFaceDefinition,
   RoofLayer,
+  RoofOpening,
+  RoofOpeningCutMode,
+  RoofOpeningRotationDeg,
   RoofSketch,
   RoofType,
   RoofVertex,
@@ -42,6 +45,8 @@ export const wallTopModeSchema = z.enum(["FixedHeight", "FollowRoof"]) satisfies
 export const measurementUnitSchema = z.enum(["cm", "dm", "m"]) satisfies z.ZodType<MeasurementUnit>;
 export const roofVertexElevationModeSchema = z.enum(["Explicit", "Computed"]) satisfies z.ZodType<RoofVertexElevationMode>;
 export const roofEdgeRoleSchema = z.enum(["Generic", "LowerEave", "UpperEave", "Ridge", "Hip", "Valley"]) satisfies z.ZodType<RoofEdgeRole>;
+export const roofOpeningCutModeSchema = z.enum(["NormalToRoof", "Vertical"]) satisfies z.ZodType<RoofOpeningCutMode>;
+export const roofOpeningRotationDegSchema = z.union([z.literal(0), z.literal(90)]) satisfies z.ZodType<RoofOpeningRotationDeg>;
 export const doorDesign3DKindSchema = z.enum(["Normal", "Garage"]);
 export const door3DOpenStateSchema = z.enum(["Closed", "Open"]);
 export const door3DHingeSideSchema = z.enum(["Left", "Right"]);
@@ -129,6 +134,7 @@ export const roofFaceDefinitionSchema = z.object({
   vertexIds: z.array(nonEmptyStringSchema).min(3),
   edgeIds: z.array(nonEmptyStringSchema),
   constraintIds: z.array(nonEmptyStringSchema),
+  thicknessM: positiveNumberSchema.optional(),
 }) satisfies z.ZodType<RoofFaceDefinition>;
 
 export const roofSketchSchema = z.object({
@@ -142,6 +148,28 @@ export const roofSketchSchema = z.object({
   faces: z.array(roofFaceDefinitionSchema),
   constraints: z.array(roofConstraintSchema),
 }) satisfies z.ZodType<RoofSketch>;
+
+export const roofOpeningSchema = z.object({
+  id: nonEmptyStringSchema,
+  roofSketchId: nonEmptyStringSchema,
+  roofFaceId: nonEmptyStringSchema,
+  center: vec2Schema,
+  widthM: positiveNumberSchema,
+  heightM: positiveNumberSchema,
+  cutMode: roofOpeningCutModeSchema,
+  rotationDeg: roofOpeningRotationDegSchema,
+  design3D: z
+    .object({
+      glassThicknessM: positiveNumberSchema,
+      frameThicknessM: positiveNumberSchema,
+      verticalDivisions: z.number().int().nonnegative(),
+      horizontalDivisions: z.number().int().nonnegative(),
+      wallDepthOffsetM: z.number().finite(),
+      frameColorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+    })
+    .nullable()
+    .optional(),
+}) satisfies z.ZodType<RoofOpening>;
 
 export const nodeDataSchema = z.object({
   id: nonEmptyStringSchema,
@@ -263,6 +291,7 @@ export const projectSchema = z.object({
   wallTypes: z.array(wallTypeSchema).min(1),
   roofLayers: z.array(roofLayerSchema).min(1),
   roofSketches: z.array(roofSketchSchema),
+  roofOpenings: z.array(roofOpeningSchema),
   nodes: z.array(nodeDataSchema),
   walls: z.array(wallSchema),
   doors: z.array(doorOpeningSchema),

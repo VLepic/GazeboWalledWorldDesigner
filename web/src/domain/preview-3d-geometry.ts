@@ -14,6 +14,7 @@ import {
   solveRoofFromSlab,
   solveWallSegmentsAgainstRoof,
 } from "./roof-solver";
+import type { RoofWallSegment } from "./roof-solver";
 import type {
   Preview3DRenderMode,
   Preview3DSurfaceMode,
@@ -47,6 +48,7 @@ export interface Preview3DMeshPrimitive {
   vertices: [number, number, number][];
   indices: number[];
   color: string;
+  opacity?: number;
 }
 
 export interface Preview3DSceneData {
@@ -104,6 +106,14 @@ function dot3(left: Vec3, right: Vec3) {
   return left.x * right.x + left.y * right.y + left.z * right.z;
 }
 
+function cross3(left: Vec3, right: Vec3) {
+  return vec3(
+    left.y * right.z - left.z * right.y,
+    left.z * right.x - left.x * right.z,
+    left.x * right.y - left.y * right.x,
+  );
+}
+
 function length3(value: Vec3) {
   return Math.sqrt(dot3(value, value));
 }
@@ -119,6 +129,97 @@ function normalize3(value: Vec3) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+function signedPolygonArea(points: Vec2[]) {
+  let area = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    area += current.x * next.y - next.x * current.y;
+  }
+
+  return area / 2;
+}
+
+function lineIntersection2D(
+  lineStart: Vec2,
+  lineEnd: Vec2,
+  clipStart: Vec2,
+  clipEnd: Vec2,
+) {
+  const lineDeltaX = lineEnd.x - lineStart.x;
+  const lineDeltaY = lineEnd.y - lineStart.y;
+  const clipDeltaX = clipEnd.x - clipStart.x;
+  const clipDeltaY = clipEnd.y - clipStart.y;
+  const denominator = lineDeltaX * clipDeltaY - lineDeltaY * clipDeltaX;
+  if (Math.abs(denominator) < 0.000001) {
+    return lineEnd;
+  }
+
+  const t =
+    ((clipStart.x - lineStart.x) * clipDeltaY -
+      (clipStart.y - lineStart.y) * clipDeltaX) /
+    denominator;
+  return createVec2(lineStart.x + lineDeltaX * t, lineStart.y + lineDeltaY * t);
+}
+
+function clipPolygonToConvexPolygon(subject: Vec2[], clipPolygon: Vec2[]) {
+  if (subject.length < 3 || clipPolygon.length < 3) {
+    return [];
+  }
+
+  const orientation = signedPolygonArea(clipPolygon) >= 0 ? 1 : -1;
+  let output = subject;
+
+  for (let clipIndex = 0; clipIndex < clipPolygon.length; clipIndex += 1) {
+    const clipStart = clipPolygon[clipIndex];
+    const clipEnd = clipPolygon[(clipIndex + 1) % clipPolygon.length];
+    const input = output;
+    output = [];
+
+    if (input.length === 0) {
+      break;
+    }
+
+    const isInside = (point: Vec2) => {
+      const cross =
+        (clipEnd.x - clipStart.x) * (point.y - clipStart.y) -
+        (clipEnd.y - clipStart.y) * (point.x - clipStart.x);
+      return orientation * cross >= -0.000001;
+    };
+
+    let previous = input[input.length - 1];
+    let previousInside = isInside(previous);
+
+    for (const current of input) {
+      const currentInside = isInside(current);
+      if (currentInside) {
+        if (!previousInside) {
+          output.push(lineIntersection2D(previous, current, clipStart, clipEnd));
+        }
+        output.push(current);
+      } else if (previousInside) {
+        output.push(lineIntersection2D(previous, current, clipStart, clipEnd));
+      }
+
+      previous = current;
+      previousInside = currentInside;
+    }
+  }
+
+  return output.filter(
+    (point, index, points) =>
+      index === 0 ||
+      Math.hypot(point.x - points[index - 1].x, point.y - points[index - 1].y) > 0.0001,
+  );
+}
+
+function uniqueSortedCuts(values: number[]) {
+  return [...values]
+    .filter((value) => Number.isFinite(value))
+    .sort((left, right) => left - right)
+    .filter((value, index, sorted) => index === 0 || Math.abs(value - sorted[index - 1]) > 0.001);
 }
 
 function toWorldPoint2D(position: Vec2, elevationM: number) {
@@ -165,6 +266,58 @@ function getBaseSurfaceColor(index: number, surfaceMode: Preview3DSurfaceMode) {
 
 function pointAlongWall(start: Vec3, direction: Vec3, offsetM: number) {
   return add3(start, scale3(direction, offsetM));
+}
+
+function interpolateVec2(start: Vec2, end: Vec2, t: number) {
+  return createVec2(
+    start.x + (end.x - start.x) * t,
+    start.y + (end.y - start.y) * t,
+  );
+}
+
+function splitAndClampRoofWallSegmentHeight(
+  segment: RoofWallSegment,
+  minTopHeightM: number,
+  maxTopHeightM: number,
+) {
+  const clampTopHeight = (heightM: number) => clamp(heightM, minTopHeightM, maxTopHeightM);
+  const startHeightM = clampTopHeight(segment.startHeightM);
+  const endHeightM = clampTopHeight(segment.endHeightM);
+  const crossesMax =
+    (segment.startHeightM < maxTopHeightM && segment.endHeightM > maxTopHeightM) ||
+    (segment.startHeightM > maxTopHeightM && segment.endHeightM < maxTopHeightM);
+
+  if (!crossesMax || Math.abs(segment.endHeightM - segment.startHeightM) < 0.000001) {
+    return [
+      {
+        ...segment,
+        startHeightM,
+        endHeightM,
+      },
+    ];
+  }
+
+  const t = clamp(
+    (maxTopHeightM - segment.startHeightM) /
+      (segment.endHeightM - segment.startHeightM),
+    0,
+    1,
+  );
+  const splitPoint = interpolateVec2(segment.start, segment.end, t);
+  const first: RoofWallSegment = {
+    ...segment,
+    end: splitPoint,
+    startHeightM,
+    endHeightM: maxTopHeightM,
+  };
+  const second: RoofWallSegment = {
+    ...segment,
+    start: splitPoint,
+    startHeightM: maxTopHeightM,
+    endHeightM,
+  };
+
+  return [first, second];
 }
 
 function extendWallEndpoint(
@@ -258,10 +411,11 @@ export function buildPreview3DScene(
   project: Project,
   renderMode: Preview3DRenderMode,
   surfaceMode: Preview3DSurfaceMode,
+  hiddenRoofLayerIds: readonly string[] = [],
 ): Preview3DSceneData {
   const levelById = new Map(project.levels.map((level) => [level.id, level] as const));
   const levelIndexById = new Map(project.levels.map((level, index) => [level.id, index] as const));
-  const roofLayerById = new Map(project.roofLayers.map((roofLayer) => [roofLayer.id, roofLayer] as const));
+  const hiddenRoofLayerIdSet = new Set(hiddenRoofLayerIds);
   const wallTypeById = new Map(project.wallTypes.map((wallType) => [wallType.id, wallType] as const));
   const nodeById = new Map(project.nodes.map((node) => [node.id, node] as const));
   const wallOpeningsByWallId = new Map<string, WallOpeningRender[]>();
@@ -315,14 +469,100 @@ export function buildPreview3DScene(
     ]);
   };
 
-  const addMeshPrimitive = (vertices: Vec3[], indices: number[], color: RgbColor) => {
+  const addMeshPrimitive = (
+    vertices: Vec3[],
+    indices: number[],
+    color: RgbColor,
+    opacity?: number,
+  ) => {
     meshes.push({
       kind: "mesh",
       vertices: vertices.map((vertex) => [vertex.x, vertex.y, vertex.z]),
       indices,
       color: rgbToCss(color),
+      opacity,
     });
     registerPoints(vertices);
+  };
+
+  type SolvedRoof = ReturnType<typeof solveProjectRoofs>[number];
+  type SolvedRoofFace = SolvedRoof["faces"][number];
+
+  const getRoofFaceBasis = (face: SolvedRoofFace) => {
+    const originPlan = face.polygonLocal[0] ?? createVec2();
+    const origin = vec3(
+      originPlan.x,
+      face.planeOuter.uCoeff * originPlan.x +
+        face.planeOuter.vCoeff * originPlan.y +
+        face.planeOuter.constantM,
+      -originPlan.y,
+    );
+    const tangentX = vec3(1, face.planeOuter.uCoeff, 0);
+    const tangentY = vec3(0, face.planeOuter.vCoeff, -1);
+    const normal = normalize3(cross3(tangentX, tangentY));
+    const gradientLength = Math.hypot(face.planeOuter.uCoeff, face.planeOuter.vCoeff);
+    const widthAxis =
+      gradientLength > 0.0001
+        ? normalize3(vec3(-face.planeOuter.vCoeff, 0, -face.planeOuter.uCoeff))
+        : normalize3(tangentX);
+    const heightAxis = normalize3(cross3(normal, widthAxis));
+
+    const toWorld = (point: Vec2) => {
+      return vec3(
+        point.x,
+        face.planeOuter.uCoeff * point.x +
+          face.planeOuter.vCoeff * point.y +
+          face.planeOuter.constantM,
+        -point.y,
+      );
+    };
+    const toUv = (point: Vec2) => {
+      const delta = subtract3(toWorld(point), origin);
+      return createVec2(dot3(delta, widthAxis), dot3(delta, heightAxis));
+    };
+    const fromUv = (point: Vec2) =>
+      add3(origin, add3(scale3(widthAxis, point.x), scale3(heightAxis, point.y)));
+
+    return { origin, widthAxis, heightAxis, normal, toUv, fromUv };
+  };
+
+  const getRoofOpeningDimensions = (opening: Project["roofOpenings"][number]) => {
+    return opening.rotationDeg === 90
+      ? { widthM: opening.heightM, heightM: opening.widthM }
+      : { widthM: opening.widthM, heightM: opening.heightM };
+  };
+
+  const addRoofFaceShell = (topVertices: Vec3[], thicknessM: number, color: RgbColor) => {
+    if (topVertices.length < 3) {
+      return;
+    }
+
+    const safeThicknessM = Math.max(thicknessM, 0.01);
+    const bottomVertices = topVertices.map((vertex) =>
+      vec3(vertex.x, vertex.y - safeThicknessM, vertex.z),
+    );
+    const vertices = [...topVertices, ...bottomVertices];
+    const vertexCount = topVertices.length;
+    const indices: number[] = [];
+
+    for (let index = 1; index < vertexCount - 1; index += 1) {
+      indices.push(0, index, index + 1);
+    }
+
+    for (let index = 1; index < vertexCount - 1; index += 1) {
+      indices.push(vertexCount, vertexCount + index + 1, vertexCount + index);
+    }
+
+    for (let index = 0; index < vertexCount; index += 1) {
+      const nextIndex = (index + 1) % vertexCount;
+      const topStart = index;
+      const topEnd = nextIndex;
+      const bottomStart = vertexCount + index;
+      const bottomEnd = vertexCount + nextIndex;
+      indices.push(topStart, topEnd, bottomEnd, topStart, bottomEnd, bottomStart);
+    }
+
+    addMeshPrimitive(vertices, indices, color);
   };
 
   const addSectionBox = (
@@ -418,25 +658,102 @@ export function buildPreview3DScene(
     addBoxPrimitive(center, shape.sizeM, shape.heightM, shape.sizeM, 0, color);
   };
 
-  const addSolvedRoofMesh = (
-    solvedRoof: ReturnType<typeof solveProjectRoofs>[number],
-    color: RgbColor,
-  ) => {
+  const addSolvedRoofMesh = (solvedRoof: SolvedRoof, color: RgbColor) => {
     solvedRoof.faces.forEach((face) => {
-      const vertices = face.polygonLocal.map((localPoint, index) =>
-        vec3(
-          face.polygonWorld[index].x,
-          face.planeOuter.uCoeff * localPoint.x +
-            face.planeOuter.vCoeff * localPoint.y +
-            face.planeOuter.constantM,
-          -face.polygonWorld[index].y,
-        ),
+      const faceOpenings = project.roofOpenings.filter(
+        (opening) =>
+          opening.roofSketchId === solvedRoof.sketchId && opening.roofFaceId === face.id,
       );
-      const indices: number[] = [];
-      for (let index = 1; index < vertices.length - 1; index += 1) {
-        indices.push(0, index, index + 1);
+      const thicknessM = Math.max(face.thicknessM, 0.01);
+
+      if (faceOpenings.length === 0) {
+        const topVertices = face.polygonLocal.map((localPoint) =>
+          vec3(
+            localPoint.x,
+            face.planeOuter.uCoeff * localPoint.x +
+              face.planeOuter.vCoeff * localPoint.y +
+              face.planeOuter.constantM,
+            -localPoint.y,
+          ),
+        );
+        addRoofFaceShell(topVertices, thicknessM, color);
+        return;
       }
-      addMeshPrimitive(vertices, indices, color);
+
+      const basis = getRoofFaceBasis(face);
+      const polygonUv = face.polygonLocal.map((localPoint) => basis.toUv(localPoint));
+      const minU = Math.min(...polygonUv.map((point) => point.x));
+      const maxU = Math.max(...polygonUv.map((point) => point.x));
+      const minV = Math.min(...polygonUv.map((point) => point.y));
+      const maxV = Math.max(...polygonUv.map((point) => point.y));
+      const openingRects = faceOpenings.map((opening) => {
+        const centerUv = basis.toUv(opening.center);
+        const { widthM, heightM } = getRoofOpeningDimensions(opening);
+        return {
+          minU: centerUv.x - widthM / 2,
+          maxU: centerUv.x + widthM / 2,
+          minV: centerUv.y - heightM / 2,
+          maxV: centerUv.y + heightM / 2,
+        };
+      });
+      const uCuts = uniqueSortedCuts([
+        minU,
+        maxU,
+        ...openingRects.flatMap((rect) => [
+          clamp(rect.minU, minU, maxU),
+          clamp(rect.maxU, minU, maxU),
+        ]),
+      ]);
+      const vCuts = uniqueSortedCuts([
+        minV,
+        maxV,
+        ...openingRects.flatMap((rect) => [
+          clamp(rect.minV, minV, maxV),
+          clamp(rect.maxV, minV, maxV),
+        ]),
+      ]);
+
+      for (let uIndex = 0; uIndex < uCuts.length - 1; uIndex += 1) {
+        for (let vIndex = 0; vIndex < vCuts.length - 1; vIndex += 1) {
+          const cellMinU = uCuts[uIndex];
+          const cellMaxU = uCuts[uIndex + 1];
+          const cellMinV = vCuts[vIndex];
+          const cellMaxV = vCuts[vIndex + 1];
+          if (cellMaxU - cellMinU < 0.001 || cellMaxV - cellMinV < 0.001) {
+            continue;
+          }
+
+          const intersectsOpening = openingRects.some(
+            (rect) =>
+              cellMaxU > rect.minU + 0.001 &&
+              cellMinU < rect.maxU - 0.001 &&
+              cellMaxV > rect.minV + 0.001 &&
+              cellMinV < rect.maxV - 0.001,
+          );
+          if (intersectsOpening) {
+            continue;
+          }
+
+          const clippedCell = clipPolygonToConvexPolygon(
+            [
+              createVec2(cellMinU, cellMinV),
+              createVec2(cellMaxU, cellMinV),
+              createVec2(cellMaxU, cellMaxV),
+              createVec2(cellMinU, cellMaxV),
+            ],
+            polygonUv,
+          );
+          if (clippedCell.length < 3) {
+            continue;
+          }
+
+          addRoofFaceShell(
+            clippedCell.map((point) => basis.fromUv(point)),
+            thicknessM,
+            color,
+          );
+        }
+      }
     });
   };
 
@@ -763,6 +1080,11 @@ export function buildPreview3DScene(
     const wallOpenings = (wallOpeningsByWallId.get(wall.id) ?? [])
       .slice()
       .sort((left, right) => left.offsetM - right.offsetM);
+    const getWallOffsetForPlanPoint = (point: Vec2) => {
+      const pointWorld = toWorldPoint2D(point, level.elevationM);
+      const delta = subtract3(pointWorld, startWorld);
+      return dot3(delta, wallDirection);
+    };
 
     if (wall.topMode === "FollowRoof") {
       const matchingRoof = solvedRoofs.find((roof) => {
@@ -806,17 +1128,146 @@ export function buildPreview3DScene(
           return segment;
         });
 
-        adjustedRoofWallSegments.forEach((segment) => {
+        const maxWallTopHeightM = level.elevationM + wallType.heightM;
+        const renderFollowRoofSpan = (
+          segmentStartOffsetM: number,
+          segmentEndOffsetM: number,
+          bottomHeightM: number,
+          topStartHeightM: number,
+          topEndHeightM: number,
+        ) => {
+          if (segmentEndOffsetM <= segmentStartOffsetM + 0.0001) {
+            return;
+          }
+
+          if (Math.max(topStartHeightM, topEndHeightM) <= bottomHeightM + 0.0001) {
+            return;
+          }
+
           addSlopedWallSection(
             wallType.thicknessM,
-            level.elevationM,
-            segment.startHeightM,
-            segment.endHeightM,
-            vec3(segment.start.x, level.elevationM, -segment.start.y),
-            vec3(segment.end.x, level.elevationM, -segment.end.y),
+            bottomHeightM,
+            Math.max(topStartHeightM, bottomHeightM),
+            Math.max(topEndHeightM, bottomHeightM),
+            pointAlongWall(startWorld, wallDirection, segmentStartOffsetM),
+            pointAlongWall(startWorld, wallDirection, segmentEndOffsetM),
             wallColor,
           );
-        });
+        };
+
+        const renderFollowRoofSegmentWithOpenings = (segment: RoofWallSegment) => {
+          const rawStartOffsetM = getWallOffsetForPlanPoint(segment.start);
+          const rawEndOffsetM = getWallOffsetForPlanPoint(segment.end);
+          if (Math.abs(rawEndOffsetM - rawStartOffsetM) < 0.0001) {
+            return;
+          }
+
+          const startOffsetM = Math.min(rawStartOffsetM, rawEndOffsetM);
+          const endOffsetM = Math.max(rawStartOffsetM, rawEndOffsetM);
+          const heightAtOffset = (offsetM: number) => {
+            const t = clamp(
+              (offsetM - rawStartOffsetM) / (rawEndOffsetM - rawStartOffsetM),
+              0,
+              1,
+            );
+            return segment.startHeightM + (segment.endHeightM - segment.startHeightM) * t;
+          };
+          let cursorOffsetM = startOffsetM;
+
+          for (const opening of wallOpenings) {
+            const openingStartOffsetM = opening.offsetM - opening.widthM / 2;
+            const openingEndOffsetM = opening.offsetM + opening.widthM / 2;
+            const clippedOpeningStartM = Math.max(openingStartOffsetM, startOffsetM);
+            const clippedOpeningEndM = Math.min(openingEndOffsetM, endOffsetM);
+            if (clippedOpeningEndM <= clippedOpeningStartM + 0.0001) {
+              continue;
+            }
+
+            if (clippedOpeningStartM > cursorOffsetM + 0.0001) {
+              renderFollowRoofSpan(
+                cursorOffsetM,
+                clippedOpeningStartM,
+                level.elevationM,
+                heightAtOffset(cursorOffsetM),
+                heightAtOffset(clippedOpeningStartM),
+              );
+            }
+
+            if (opening.kind === "door") {
+              const lintelBottomM = level.elevationM + opening.heightM;
+              renderFollowRoofSpan(
+                clippedOpeningStartM,
+                clippedOpeningEndM,
+                lintelBottomM,
+                heightAtOffset(clippedOpeningStartM),
+                heightAtOffset(clippedOpeningEndM),
+              );
+            } else {
+              const sillTopM = level.elevationM + opening.sillHeightM;
+              const openingTopM = sillTopM + opening.heightM;
+              if (opening.sillHeightM > 0.0001) {
+                renderFollowRoofSpan(
+                  clippedOpeningStartM,
+                  clippedOpeningEndM,
+                  level.elevationM,
+                  Math.min(sillTopM, heightAtOffset(clippedOpeningStartM)),
+                  Math.min(sillTopM, heightAtOffset(clippedOpeningEndM)),
+                );
+              }
+              renderFollowRoofSpan(
+                clippedOpeningStartM,
+                clippedOpeningEndM,
+                openingTopM,
+                heightAtOffset(clippedOpeningStartM),
+                heightAtOffset(clippedOpeningEndM),
+              );
+            }
+
+            cursorOffsetM = Math.max(cursorOffsetM, clippedOpeningEndM);
+          }
+
+          if (cursorOffsetM < endOffsetM - 0.0001) {
+            renderFollowRoofSpan(
+              cursorOffsetM,
+              endOffsetM,
+              level.elevationM,
+              heightAtOffset(cursorOffsetM),
+              heightAtOffset(endOffsetM),
+            );
+          }
+        };
+
+        adjustedRoofWallSegments
+          .flatMap((segment) =>
+            splitAndClampRoofWallSegmentHeight(
+              segment,
+              level.elevationM,
+              maxWallTopHeightM,
+            ),
+          )
+          .forEach((segment) => {
+            if (
+              Math.max(segment.startHeightM, segment.endHeightM) <=
+              level.elevationM + 0.0001
+            ) {
+              return;
+            }
+
+            if (wallOpenings.length === 0) {
+              addSlopedWallSection(
+                wallType.thicknessM,
+                level.elevationM,
+                segment.startHeightM,
+                segment.endHeightM,
+                vec3(segment.start.x, level.elevationM, -segment.start.y),
+                vec3(segment.end.x, level.elevationM, -segment.end.y),
+                wallColor,
+              );
+              return;
+            }
+
+            renderFollowRoofSegmentWithOpenings(segment);
+          });
         continue;
       }
     }
@@ -961,8 +1412,7 @@ export function buildPreview3DScene(
       continue;
     }
 
-    const layer = roof.layerId ? roofLayerById.get(roof.layerId) : null;
-    if (layer && !layer.visible3D) {
+    if (roof.layerId && hiddenRoofLayerIdSet.has(roof.layerId)) {
       continue;
     }
 
@@ -973,7 +1423,6 @@ export function buildPreview3DScene(
         : { r: 186, g: 124, b: 82 },
     );
   }
-
   for (const shape of project.shapes) {
     const level = levelById.get(shape.levelId);
     if (!level) {
