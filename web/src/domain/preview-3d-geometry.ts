@@ -1566,32 +1566,7 @@ export function buildPreview3DScene(
 
         const maxWallTopHeightM = level.elevationM + wallType.heightM;
         const slopedWallCells: Parameters<typeof addMergedSlopedWallShell>[0] = [];
-        const renderFollowRoofSpan = (
-          segmentStartOffsetM: number,
-          segmentEndOffsetM: number,
-          bottomHeightM: number,
-          topStartHeightM: number,
-          topEndHeightM: number,
-        ) => {
-          if (segmentEndOffsetM <= segmentStartOffsetM + 0.0001) {
-            return;
-          }
-
-          if (Math.max(topStartHeightM, topEndHeightM) <= bottomHeightM + 0.0001) {
-            return;
-          }
-
-          slopedWallCells.push({
-            startOffsetM: segmentStartOffsetM,
-            endOffsetM: segmentEndOffsetM,
-            bottomStartHeightM: bottomHeightM,
-            bottomEndHeightM: bottomHeightM,
-            topStartHeightM: Math.max(topStartHeightM, bottomHeightM),
-            topEndHeightM: Math.max(topEndHeightM, bottomHeightM),
-          });
-        };
-
-        const renderFollowRoofSegmentWithOpenings = (segment: RoofWallSegment) => {
+        const addFollowRoofGridCells = (segment: RoofWallSegment) => {
           const rawStartOffsetM = getWallOffsetForPlanPoint(segment.start);
           const rawEndOffsetM = getWallOffsetForPlanPoint(segment.end);
           if (Math.abs(rawEndOffsetM - rawStartOffsetM) < 0.0001) {
@@ -1608,68 +1583,96 @@ export function buildPreview3DScene(
             );
             return segment.startHeightM + (segment.endHeightM - segment.startHeightM) * t;
           };
-          let cursorOffsetM = startOffsetM;
-
-          for (const opening of wallOpenings) {
-            const openingStartOffsetM = opening.offsetM - opening.widthM / 2;
-            const openingEndOffsetM = opening.offsetM + opening.widthM / 2;
-            const clippedOpeningStartM = Math.max(openingStartOffsetM, startOffsetM);
-            const clippedOpeningEndM = Math.min(openingEndOffsetM, endOffsetM);
-            if (clippedOpeningEndM <= clippedOpeningStartM + 0.0001) {
-              continue;
-            }
-
-            if (clippedOpeningStartM > cursorOffsetM + 0.0001) {
-              renderFollowRoofSpan(
-                cursorOffsetM,
-                clippedOpeningStartM,
-                level.elevationM,
-                heightAtOffset(cursorOffsetM),
-                heightAtOffset(clippedOpeningStartM),
-              );
-            }
-
-            if (opening.kind === "door") {
-              const lintelBottomM = level.elevationM + opening.heightM;
-              renderFollowRoofSpan(
-                clippedOpeningStartM,
-                clippedOpeningEndM,
-                lintelBottomM,
-                heightAtOffset(clippedOpeningStartM),
-                heightAtOffset(clippedOpeningEndM),
-              );
-            } else {
-              const sillTopM = level.elevationM + opening.sillHeightM;
-              const openingTopM = sillTopM + opening.heightM;
-              if (opening.sillHeightM > 0.0001) {
-                renderFollowRoofSpan(
-                  clippedOpeningStartM,
-                  clippedOpeningEndM,
-                  level.elevationM,
-                  Math.min(sillTopM, heightAtOffset(clippedOpeningStartM)),
-                  Math.min(sillTopM, heightAtOffset(clippedOpeningEndM)),
-                );
-              }
-              renderFollowRoofSpan(
-                clippedOpeningStartM,
-                clippedOpeningEndM,
-                openingTopM,
-                heightAtOffset(clippedOpeningStartM),
-                heightAtOffset(clippedOpeningEndM),
-              );
-            }
-
-            cursorOffsetM = Math.max(cursorOffsetM, clippedOpeningEndM);
-          }
-
-          if (cursorOffsetM < endOffsetM - 0.0001) {
-            renderFollowRoofSpan(
-              cursorOffsetM,
-              endOffsetM,
-              level.elevationM,
-              heightAtOffset(cursorOffsetM),
-              heightAtOffset(endOffsetM),
+          const openingRects = wallOpenings
+            .map((opening) => {
+              const minU = opening.offsetM - opening.widthM / 2;
+              const maxU = opening.offsetM + opening.widthM / 2;
+              const minV = opening.kind === "door" ? level.elevationM : level.elevationM + opening.sillHeightM;
+              const maxV =
+                opening.kind === "door"
+                  ? level.elevationM + opening.heightM
+                  : level.elevationM + opening.sillHeightM + opening.heightM;
+              return {
+                minU: clamp(minU, startOffsetM, endOffsetM),
+                maxU: clamp(maxU, startOffsetM, endOffsetM),
+                minV: clamp(minV, level.elevationM, maxWallTopHeightM),
+                maxV: clamp(maxV, level.elevationM, maxWallTopHeightM),
+              };
+            })
+            .filter(
+              (rect) =>
+                rect.maxU > rect.minU + 0.001 &&
+                rect.maxV > rect.minV + 0.001,
             );
+          const vCuts = uniqueSortedCuts([
+            level.elevationM,
+            maxWallTopHeightM,
+            ...openingRects.flatMap((rect) => [rect.minV, rect.maxV]),
+          ]);
+          const uCuts = uniqueSortedCuts([
+            startOffsetM,
+            endOffsetM,
+            ...openingRects.flatMap((rect) => [rect.minU, rect.maxU]),
+            ...vCuts.flatMap((heightM) => {
+              const startHeightM = heightAtOffset(startOffsetM);
+              const endHeightM = heightAtOffset(endOffsetM);
+              if (
+                Math.abs(endHeightM - startHeightM) < 0.0001 ||
+                heightM <= Math.min(startHeightM, endHeightM) + 0.0001 ||
+                heightM >= Math.max(startHeightM, endHeightM) - 0.0001
+              ) {
+                return [];
+              }
+
+              const t = (heightM - startHeightM) / (endHeightM - startHeightM);
+              return [startOffsetM + (endOffsetM - startOffsetM) * t];
+            }),
+          ]);
+
+          for (let uIndex = 0; uIndex < uCuts.length - 1; uIndex += 1) {
+            for (let vIndex = 0; vIndex < vCuts.length - 1; vIndex += 1) {
+              const cell = {
+                minU: uCuts[uIndex],
+                maxU: uCuts[uIndex + 1],
+                minV: vCuts[vIndex],
+                maxV: vCuts[vIndex + 1],
+              };
+              if (cell.maxU - cell.minU < 0.001 || cell.maxV - cell.minV < 0.001) {
+                continue;
+              }
+
+              const intersectsOpening = openingRects.some(
+                (rect) =>
+                  cell.maxU > rect.minU + 0.001 &&
+                  cell.minU < rect.maxU - 0.001 &&
+                  cell.maxV > rect.minV + 0.001 &&
+                  cell.minV < rect.maxV - 0.001,
+              );
+              if (intersectsOpening) {
+                continue;
+              }
+
+              const topStartHeightM = Math.max(
+                cell.minV,
+                Math.min(cell.maxV, heightAtOffset(cell.minU)),
+              );
+              const topEndHeightM = Math.max(
+                cell.minV,
+                Math.min(cell.maxV, heightAtOffset(cell.maxU)),
+              );
+              if (Math.max(topStartHeightM, topEndHeightM) <= cell.minV + 0.0001) {
+                continue;
+              }
+
+              slopedWallCells.push({
+                startOffsetM: cell.minU,
+                endOffsetM: cell.maxU,
+                bottomStartHeightM: cell.minV,
+                bottomEndHeightM: cell.minV,
+                topStartHeightM,
+                topEndHeightM,
+              });
+            }
           }
         };
 
@@ -1689,21 +1692,7 @@ export function buildPreview3DScene(
               return;
             }
 
-            if (wallOpenings.length === 0) {
-              const startOffsetM = getWallOffsetForPlanPoint(segment.start);
-              const endOffsetM = getWallOffsetForPlanPoint(segment.end);
-              slopedWallCells.push({
-                startOffsetM: Math.min(startOffsetM, endOffsetM),
-                endOffsetM: Math.max(startOffsetM, endOffsetM),
-                bottomStartHeightM: level.elevationM,
-                bottomEndHeightM: level.elevationM,
-                topStartHeightM: startOffsetM <= endOffsetM ? segment.startHeightM : segment.endHeightM,
-                topEndHeightM: startOffsetM <= endOffsetM ? segment.endHeightM : segment.startHeightM,
-              });
-              return;
-            }
-
-            renderFollowRoofSegmentWithOpenings(segment);
+            addFollowRoofGridCells(segment);
           });
 
         addMergedSlopedWallShell(
