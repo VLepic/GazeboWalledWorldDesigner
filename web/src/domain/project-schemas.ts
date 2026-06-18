@@ -200,6 +200,7 @@ export const doorOpeningSchema = z.object({
       doorColorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
       wallDepthOffsetM: z.number().finite(),
       openState: door3DOpenStateSchema,
+      openPercent: z.number().finite().min(0).max(100),
       hingeSide: door3DHingeSideSchema,
       swingDirection: door3DSwingDirectionSchema,
     })

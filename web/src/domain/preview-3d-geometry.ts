@@ -86,6 +86,19 @@ interface WallOpeningRender {
   sillHeightM: number;
 }
 
+interface RenderWallRun {
+  id: string;
+  sourceWallIds: string[];
+  levelId: string;
+  wallTypeId: string;
+  topMode: Project["walls"][number]["topMode"];
+  startNodeId: string;
+  endNodeId: string;
+  start: Vec2;
+  end: Vec2;
+  openings: WallOpeningRender[];
+}
+
 function vec3(x = 0, y = 0, z = 0): Vec3 {
   return { x, y, z };
 }
@@ -264,10 +277,6 @@ function getBaseSurfaceColor(index: number, surfaceMode: Preview3DSurfaceMode) {
   return levelColor(index);
 }
 
-function pointAlongWall(start: Vec3, direction: Vec3, offsetM: number) {
-  return add3(start, scale3(direction, offsetM));
-}
-
 function interpolateVec2(start: Vec2, end: Vec2, t: number) {
   return createVec2(
     start.x + (end.x - start.x) * t,
@@ -376,6 +385,21 @@ function pointAlong2DSegment(start: Vec2, end: Vec2, offsetM: number) {
     x: start.x + deltaX * t,
     y: start.y + deltaY * t,
   };
+}
+
+function getSegmentDirection2D(start: Vec2, end: Vec2) {
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  const lengthM = Math.hypot(deltaX, deltaY);
+  if (lengthM < 0.0001) {
+    return null;
+  }
+
+  return createVec2(deltaX / lengthM, deltaY / lengthM);
+}
+
+function areDirectionsCollinear(left: Vec2, right: Vec2) {
+  return Math.abs(left.x * right.x + left.y * right.y) > 0.9995;
 }
 
 function createYawBoxVertices(center: Vec3, sizeX: number, sizeY: number, sizeZ: number, yawRad: number) {
@@ -565,6 +589,81 @@ export function buildPreview3DScene(
     addMeshPrimitive(vertices, indices, color);
   };
 
+  const addMergedRoofFaceShell = (topPolygons: Vec3[][], thicknessM: number, color: RgbColor) => {
+    const safeThicknessM = Math.max(thicknessM, 0.01);
+    const vertices: Vec3[] = [];
+    const indices: number[] = [];
+    const edgeCounts = new Map<string, number>();
+    const shellEdges: Array<{
+      key: string;
+      topStartIndex: number;
+      topEndIndex: number;
+      bottomStartIndex: number;
+      bottomEndIndex: number;
+    }> = [];
+    const quantize = (value: number) => Math.round(value * 10000) / 10000;
+    const pointKey = (point: Vec3) =>
+      `${quantize(point.x)},${quantize(point.y)},${quantize(point.z)}`;
+    const edgeKey = (start: Vec3, end: Vec3) => {
+      const startKey = pointKey(start);
+      const endKey = pointKey(end);
+      return startKey < endKey ? `${startKey}|${endKey}` : `${endKey}|${startKey}`;
+    };
+
+    for (const topVertices of topPolygons) {
+      if (topVertices.length < 3) {
+        continue;
+      }
+
+      const vertexOffset = vertices.length;
+      const bottomOffset = vertexOffset + topVertices.length;
+      const bottomVertices = topVertices.map((vertex) =>
+        vec3(vertex.x, vertex.y - safeThicknessM, vertex.z),
+      );
+      vertices.push(...topVertices, ...bottomVertices);
+
+      for (let index = 1; index < topVertices.length - 1; index += 1) {
+        indices.push(vertexOffset, vertexOffset + index, vertexOffset + index + 1);
+      }
+
+      for (let index = 1; index < topVertices.length - 1; index += 1) {
+        indices.push(bottomOffset, bottomOffset + index + 1, bottomOffset + index);
+      }
+
+      for (let index = 0; index < topVertices.length; index += 1) {
+        const nextIndex = (index + 1) % topVertices.length;
+        const key = edgeKey(topVertices[index], topVertices[nextIndex]);
+        edgeCounts.set(key, (edgeCounts.get(key) ?? 0) + 1);
+        shellEdges.push({
+          key,
+          topStartIndex: vertexOffset + index,
+          topEndIndex: vertexOffset + nextIndex,
+          bottomStartIndex: bottomOffset + index,
+          bottomEndIndex: bottomOffset + nextIndex,
+        });
+      }
+    }
+
+    for (const edge of shellEdges) {
+      if ((edgeCounts.get(edge.key) ?? 0) !== 1) {
+        continue;
+      }
+
+      indices.push(
+        edge.topStartIndex,
+        edge.topEndIndex,
+        edge.bottomEndIndex,
+        edge.topStartIndex,
+        edge.bottomEndIndex,
+        edge.bottomStartIndex,
+      );
+    }
+
+    if (vertices.length > 0 && indices.length > 0) {
+      addMeshPrimitive(vertices, indices, color);
+    }
+  };
+
   const addSectionBox = (
     thicknessM: number,
     heightM: number,
@@ -586,61 +685,218 @@ export function buildPreview3DScene(
     addBoxPrimitive(center, thicknessM, heightM, Math.max(length, 0.01), yawRad, color);
   };
 
-  const addSlopedWallSection = (
+  const addMergedWallShell = (
+    cells: Array<{ minU: number; maxU: number; minV: number; maxV: number }>,
     thicknessM: number,
-    bottomHeightM: number,
-    startTopHeightM: number,
-    endTopHeightM: number,
     start: Vec3,
-    end: Vec3,
+    direction: Vec3,
     color: RgbColor,
   ) => {
-    const deltaX = end.x - start.x;
-    const deltaZ = end.z - start.z;
-    const lengthM = Math.hypot(deltaX, deltaZ);
-    if (lengthM < 0.0001) {
-      return;
+    const safeThicknessM = Math.max(thicknessM, 0.01);
+    const halfThicknessM = safeThicknessM / 2;
+    const normal = normalize3(vec3(-direction.z, 0, direction.x));
+    const vertices: Vec3[] = [];
+    const indices: number[] = [];
+    const edgeCounts = new Map<string, number>();
+    const shellEdges: Array<{
+      key: string;
+      frontStartIndex: number;
+      frontEndIndex: number;
+      backStartIndex: number;
+      backEndIndex: number;
+    }> = [];
+    const quantize = (value: number) => Math.round(value * 10000) / 10000;
+    const localKey = (u: number, v: number) => `${quantize(u)},${quantize(v)}`;
+    const edgeKey = (startU: number, startV: number, endU: number, endV: number) => {
+      const startKey = localKey(startU, startV);
+      const endKey = localKey(endU, endV);
+      return startKey < endKey ? `${startKey}|${endKey}` : `${endKey}|${startKey}`;
+    };
+    const toWorld = (u: number, v: number, side: -1 | 1) =>
+      add3(
+        add3(start, scale3(direction, u)),
+        add3(vec3(0, v, 0), scale3(normal, side * halfThicknessM)),
+      );
+
+    for (const cell of cells) {
+      if (cell.maxU - cell.minU < 0.001 || cell.maxV - cell.minV < 0.001) {
+        continue;
+      }
+
+      const frontOffset = vertices.length;
+      const backOffset = frontOffset + 4;
+      const localCorners = [
+        { u: cell.minU, v: cell.minV },
+        { u: cell.maxU, v: cell.minV },
+        { u: cell.maxU, v: cell.maxV },
+        { u: cell.minU, v: cell.maxV },
+      ];
+
+      vertices.push(
+        ...localCorners.map((corner) => toWorld(corner.u, corner.v, 1)),
+        ...localCorners.map((corner) => toWorld(corner.u, corner.v, -1)),
+      );
+      indices.push(
+        frontOffset,
+        frontOffset + 1,
+        frontOffset + 2,
+        frontOffset,
+        frontOffset + 2,
+        frontOffset + 3,
+        backOffset,
+        backOffset + 2,
+        backOffset + 1,
+        backOffset,
+        backOffset + 3,
+        backOffset + 2,
+      );
+
+      for (let index = 0; index < localCorners.length; index += 1) {
+        const nextIndex = (index + 1) % localCorners.length;
+        const current = localCorners[index];
+        const next = localCorners[nextIndex];
+        const key = edgeKey(current.u, current.v, next.u, next.v);
+        edgeCounts.set(key, (edgeCounts.get(key) ?? 0) + 1);
+        shellEdges.push({
+          key,
+          frontStartIndex: frontOffset + index,
+          frontEndIndex: frontOffset + nextIndex,
+          backStartIndex: backOffset + index,
+          backEndIndex: backOffset + nextIndex,
+        });
+      }
     }
 
-    const halfThicknessM = thicknessM / 2;
-    const normalX = -deltaZ / lengthM;
-    const normalZ = deltaX / lengthM;
-    const startLeft = vec3(start.x + normalX * halfThicknessM, bottomHeightM, start.z + normalZ * halfThicknessM);
-    const startRight = vec3(start.x - normalX * halfThicknessM, bottomHeightM, start.z - normalZ * halfThicknessM);
-    const endRight = vec3(end.x - normalX * halfThicknessM, bottomHeightM, end.z - normalZ * halfThicknessM);
-    const endLeft = vec3(end.x + normalX * halfThicknessM, bottomHeightM, end.z + normalZ * halfThicknessM);
-    const topStartLeft = vec3(startLeft.x, startTopHeightM, startLeft.z);
-    const topStartRight = vec3(startRight.x, startTopHeightM, startRight.z);
-    const topEndRight = vec3(endRight.x, endTopHeightM, endRight.z);
-    const topEndLeft = vec3(endLeft.x, endTopHeightM, endLeft.z);
+    for (const edge of shellEdges) {
+      if ((edgeCounts.get(edge.key) ?? 0) !== 1) {
+        continue;
+      }
 
-    addMeshPrimitive(
-      [
-        startLeft,
-        startRight,
-        endRight,
-        endLeft,
-        topStartLeft,
-        topStartRight,
-        topEndRight,
-        topEndLeft,
-      ],
-      [
-        0, 2, 1,
-        0, 3, 2,
-        0, 1, 5,
-        0, 5, 4,
-        1, 2, 6,
-        1, 6, 5,
-        2, 3, 7,
-        2, 7, 6,
-        3, 0, 4,
-        3, 4, 7,
-        4, 5, 6,
-        4, 6, 7,
-      ],
-      color,
-    );
+      indices.push(
+        edge.frontStartIndex,
+        edge.frontEndIndex,
+        edge.backEndIndex,
+        edge.frontStartIndex,
+        edge.backEndIndex,
+        edge.backStartIndex,
+      );
+    }
+
+    if (vertices.length > 0 && indices.length > 0) {
+      addMeshPrimitive(vertices, indices, color);
+    }
+  };
+
+  const addMergedSlopedWallShell = (
+    cells: Array<{
+      startOffsetM: number;
+      endOffsetM: number;
+      bottomStartHeightM: number;
+      bottomEndHeightM: number;
+      topStartHeightM: number;
+      topEndHeightM: number;
+    }>,
+    thicknessM: number,
+    start: Vec3,
+    direction: Vec3,
+    color: RgbColor,
+  ) => {
+    const safeThicknessM = Math.max(thicknessM, 0.01);
+    const halfThicknessM = safeThicknessM / 2;
+    const normal = normalize3(vec3(-direction.z, 0, direction.x));
+    const vertices: Vec3[] = [];
+    const indices: number[] = [];
+    const faceEdges = new Map<string, number>();
+    const sideEdges: Array<{
+      key: string;
+      frontStartIndex: number;
+      frontEndIndex: number;
+      backStartIndex: number;
+      backEndIndex: number;
+    }> = [];
+    const quantize = (value: number) => Math.round(value * 10000) / 10000;
+    const localKey = (u: number, h: number) => `${quantize(u)},${quantize(h)}`;
+    const edgeKey = (startU: number, startH: number, endU: number, endH: number) => {
+      const startKey = localKey(startU, startH);
+      const endKey = localKey(endU, endH);
+      return startKey < endKey ? `${startKey}|${endKey}` : `${endKey}|${startKey}`;
+    };
+    const toWorld = (offsetM: number, heightM: number, side: -1 | 1) => {
+      const base = add3(start, scale3(direction, offsetM));
+      return add3(vec3(base.x, heightM, base.z), scale3(normal, side * halfThicknessM));
+    };
+
+    for (const cell of cells) {
+      if (
+        cell.endOffsetM <= cell.startOffsetM + 0.0001 ||
+        Math.max(cell.topStartHeightM, cell.topEndHeightM) <=
+          Math.min(cell.bottomStartHeightM, cell.bottomEndHeightM) + 0.0001
+      ) {
+        continue;
+      }
+
+      const frontOffset = vertices.length;
+      const backOffset = frontOffset + 4;
+      const corners = [
+        { u: cell.startOffsetM, h: cell.bottomStartHeightM },
+        { u: cell.endOffsetM, h: cell.bottomEndHeightM },
+        { u: cell.endOffsetM, h: cell.topEndHeightM },
+        { u: cell.startOffsetM, h: cell.topStartHeightM },
+      ];
+
+      vertices.push(
+        ...corners.map((corner) => toWorld(corner.u, corner.h, 1)),
+        ...corners.map((corner) => toWorld(corner.u, corner.h, -1)),
+      );
+      indices.push(
+        frontOffset,
+        frontOffset + 1,
+        frontOffset + 2,
+        frontOffset,
+        frontOffset + 2,
+        frontOffset + 3,
+        backOffset,
+        backOffset + 2,
+        backOffset + 1,
+        backOffset,
+        backOffset + 3,
+        backOffset + 2,
+      );
+
+      for (let index = 0; index < corners.length; index += 1) {
+        const nextIndex = (index + 1) % corners.length;
+        const current = corners[index];
+        const next = corners[nextIndex];
+        const key = edgeKey(current.u, current.h, next.u, next.h);
+        faceEdges.set(key, (faceEdges.get(key) ?? 0) + 1);
+        sideEdges.push({
+          key,
+          frontStartIndex: frontOffset + index,
+          frontEndIndex: frontOffset + nextIndex,
+          backStartIndex: backOffset + index,
+          backEndIndex: backOffset + nextIndex,
+        });
+      }
+    }
+
+    for (const edge of sideEdges) {
+      if ((faceEdges.get(edge.key) ?? 0) !== 1) {
+        continue;
+      }
+
+      indices.push(
+        edge.frontStartIndex,
+        edge.frontEndIndex,
+        edge.backEndIndex,
+        edge.frontStartIndex,
+        edge.backEndIndex,
+        edge.backStartIndex,
+      );
+    }
+
+    if (vertices.length > 0 && indices.length > 0) {
+      addMeshPrimitive(vertices, indices, color);
+    }
   };
 
   const addShapePrimitive = (shape: Shape, levelElevationM: number, color: RgbColor) => {
@@ -712,6 +968,7 @@ export function buildPreview3DScene(
           clamp(rect.maxV, minV, maxV),
         ]),
       ]);
+      const roofCellPolygons: Vec3[][] = [];
 
       for (let uIndex = 0; uIndex < uCuts.length - 1; uIndex += 1) {
         for (let vIndex = 0; vIndex < vCuts.length - 1; vIndex += 1) {
@@ -747,13 +1004,11 @@ export function buildPreview3DScene(
             continue;
           }
 
-          addRoofFaceShell(
-            clippedCell.map((point) => basis.fromUv(point)),
-            thicknessM,
-            color,
-          );
+          roofCellPolygons.push(clippedCell.map((point) => basis.fromUv(point)));
         }
       }
+
+      addMergedRoofFaceShell(roofCellPolygons, thicknessM, color);
     });
   };
 
@@ -980,34 +1235,215 @@ export function buildPreview3DScene(
     }
   }
 
+  const wallRenderInfoById = new Map<
+    string,
+    {
+      wall: Project["walls"][number];
+      start: Vec2;
+      end: Vec2;
+      lengthM: number;
+      direction: Vec2;
+      mergeKey: string;
+    }
+  >();
+  const wallIdsByNodeId = new Map<string, string[]>();
+
   for (const wall of project.walls) {
-    const level = levelById.get(wall.levelId);
     const wallType = wallTypeById.get(wall.wallTypeId);
     const startNode = nodeById.get(wall.startNodeId);
     const endNode = nodeById.get(wall.endNodeId);
-    if (!level || !wallType || !startNode || !endNode) {
+    const direction = startNode && endNode ? getSegmentDirection2D(startNode.position, endNode.position) : null;
+    if (!wallType || !startNode || !endNode || !direction) {
       continue;
     }
 
+    wallRenderInfoById.set(wall.id, {
+      wall,
+      start: startNode.position,
+      end: endNode.position,
+      lengthM: Math.hypot(
+        endNode.position.x - startNode.position.x,
+        endNode.position.y - startNode.position.y,
+      ),
+      direction,
+      mergeKey: `${wall.levelId}|${wall.wallTypeId}|${wall.topMode}`,
+    });
+
+    for (const nodeId of [wall.startNodeId, wall.endNodeId]) {
+      const wallIds = wallIdsByNodeId.get(nodeId) ?? [];
+      wallIds.push(wall.id);
+      wallIdsByNodeId.set(nodeId, wallIds);
+    }
+  }
+
+  const getOtherWallNodeId = (wall: Project["walls"][number], nodeId: string) =>
+    wall.startNodeId === nodeId ? wall.endNodeId : wall.startNodeId;
+
+  const getMergeNeighbor = (
+    current: {
+      wall: Project["walls"][number];
+      direction: Vec2;
+      mergeKey: string;
+    },
+    nodeId: string,
+    blockedWallIds: ReadonlySet<string>,
+  ) => {
+    const candidateWallIds = wallIdsByNodeId.get(nodeId) ?? [];
+    if (candidateWallIds.length !== 2) {
+      return null;
+    }
+
+    const candidateWallId = candidateWallIds.find(
+      (wallId) => wallId !== current.wall.id && !blockedWallIds.has(wallId),
+    );
+    if (!candidateWallId) {
+      return null;
+    }
+
+    const candidate = wallRenderInfoById.get(candidateWallId);
+    if (!candidate || candidate.mergeKey !== current.mergeKey) {
+      return null;
+    }
+
+    return areDirectionsCollinear(current.direction, candidate.direction) ? candidate : null;
+  };
+
+  const isTStemEndpoint = (
+    nodeId: string,
+    currentDirection: Vec2,
+    sourceWallIdSet: ReadonlySet<string>,
+  ) => {
+    const neighborInfos = (wallIdsByNodeId.get(nodeId) ?? [])
+      .filter((wallId) => !sourceWallIdSet.has(wallId))
+      .map((wallId) => wallRenderInfoById.get(wallId))
+      .filter((info): info is NonNullable<typeof info> => info !== undefined);
+
+    for (let leftIndex = 0; leftIndex < neighborInfos.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < neighborInfos.length; rightIndex += 1) {
+        const left = neighborInfos[leftIndex];
+        const right = neighborInfos[rightIndex];
+        if (
+          areDirectionsCollinear(left.direction, right.direction) &&
+          !areDirectionsCollinear(currentDirection, left.direction)
+        ) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  };
+
+  const renderWalls: RenderWallRun[] = [];
+  const visitedWallIds = new Set<string>();
+
+  for (const initialInfo of wallRenderInfoById.values()) {
+    if (visitedWallIds.has(initialInfo.wall.id)) {
+      continue;
+    }
+
+    let startInfo = initialInfo;
+    let startNodeId = initialInfo.wall.startNodeId;
+    const reverseWalkWallIds = new Set<string>([initialInfo.wall.id]);
+    while (true) {
+      const neighbor = getMergeNeighbor(startInfo, startNodeId, reverseWalkWallIds);
+      if (!neighbor) {
+        break;
+      }
+
+      reverseWalkWallIds.add(neighbor.wall.id);
+      startNodeId = getOtherWallNodeId(neighbor.wall, startNodeId);
+      startInfo = neighbor;
+    }
+
+    const runInfos: typeof initialInfo[] = [];
+    const runWallIds = new Set<string>();
+    let currentInfo = startInfo;
+    let currentStartNodeId = startNodeId;
+    let finalEndNodeId = startNodeId;
+
+    while (true) {
+      runInfos.push(currentInfo);
+      runWallIds.add(currentInfo.wall.id);
+      visitedWallIds.add(currentInfo.wall.id);
+      const currentEndNodeId = getOtherWallNodeId(currentInfo.wall, currentStartNodeId);
+      finalEndNodeId = currentEndNodeId;
+      const neighbor = getMergeNeighbor(currentInfo, currentEndNodeId, runWallIds);
+      if (!neighbor) {
+        break;
+      }
+
+      currentStartNodeId = currentEndNodeId;
+      currentInfo = neighbor;
+    }
+
+    const startNode = nodeById.get(startNodeId);
+    const endNode = nodeById.get(finalEndNodeId);
+    if (!startNode || !endNode || runInfos.length === 0) {
+      continue;
+    }
+
+    const openings: WallOpeningRender[] = [];
+    let runOffsetM = 0;
+    let segmentStartNodeId = startNodeId;
+    for (const info of runInfos) {
+      const segmentEndNodeId = getOtherWallNodeId(info.wall, segmentStartNodeId);
+      const isForward = info.wall.startNodeId === segmentStartNodeId;
+      for (const opening of wallOpeningsByWallId.get(info.wall.id) ?? []) {
+        openings.push({
+          ...opening,
+          offsetM: runOffsetM + (isForward ? opening.offsetM : info.lengthM - opening.offsetM),
+        });
+      }
+
+      runOffsetM += info.lengthM;
+      segmentStartNodeId = segmentEndNodeId;
+    }
+
+    renderWalls.push({
+      id: runInfos.map((info) => info.wall.id).join("__"),
+      sourceWallIds: runInfos.map((info) => info.wall.id),
+      levelId: initialInfo.wall.levelId,
+      wallTypeId: initialInfo.wall.wallTypeId,
+      topMode: initialInfo.wall.topMode,
+      startNodeId,
+      endNodeId: finalEndNodeId,
+      start: startNode.position,
+      end: endNode.position,
+      openings,
+    });
+  }
+
+  for (const wall of renderWalls) {
+    const level = levelById.get(wall.levelId);
+    const wallType = wallTypeById.get(wall.wallTypeId);
+    if (!level || !wallType) {
+      continue;
+    }
+
+    const sourceWallIdSet = new Set(wall.sourceWallIds);
     const startAggregate = nodeWallAggregates.get(wall.startNodeId);
     const endAggregate = nodeWallAggregates.get(wall.endNodeId);
-    const startWorld = toWorldPoint2D(startNode.position, level.elevationM);
-    const endWorld = toWorldPoint2D(endNode.position, level.elevationM);
+    const startWorld = toWorldPoint2D(wall.start, level.elevationM);
+    const endWorld = toWorldPoint2D(wall.end, level.elevationM);
     const startDirection = normalize3(subtract3(endWorld, startWorld));
     const endDirection = normalize3(subtract3(startWorld, endWorld));
+    const renderWallDirection = getSegmentDirection2D(wall.start, wall.end) ?? createVec2(1, 0);
+    const startIsTStem = isTStemEndpoint(wall.startNodeId, renderWallDirection, sourceWallIdSet);
+    const endIsTStem = isTStemEndpoint(wall.endNodeId, renderWallDirection, sourceWallIdSet);
     const startFallbackExtensionM =
-      renderMode === "ArchitecturalJoin" && (startAggregate?.count ?? 0) > 1
+      renderMode === "ArchitecturalJoin" && (startAggregate?.count ?? 0) > 1 && !startIsTStem
         ? (startAggregate?.maxThicknessM ?? wallType.thicknessM) / 2
         : 0;
     const endFallbackExtensionM =
-      renderMode === "ArchitecturalJoin" && (endAggregate?.count ?? 0) > 1
+      renderMode === "ArchitecturalJoin" && (endAggregate?.count ?? 0) > 1 && !endIsTStem
         ? (endAggregate?.maxThicknessM ?? wallType.thicknessM) / 2
         : 0;
     const startNeighborWall =
       renderMode === "ArchitecturalJoin" && (startAggregate?.count ?? 0) === 2
         ? project.walls.find(
             (candidate) =>
-              candidate.id !== wall.id &&
+              !sourceWallIdSet.has(candidate.id) &&
               (candidate.startNodeId === wall.startNodeId ||
                 candidate.endNodeId === wall.startNodeId),
           ) ?? null
@@ -1016,7 +1452,7 @@ export function buildPreview3DScene(
       renderMode === "ArchitecturalJoin" && (endAggregate?.count ?? 0) === 2
         ? project.walls.find(
             (candidate) =>
-              candidate.id !== wall.id &&
+              !sourceWallIdSet.has(candidate.id) &&
               (candidate.startNodeId === wall.endNodeId ||
                 candidate.endNodeId === wall.endNodeId),
           ) ?? null
@@ -1077,7 +1513,7 @@ export function buildPreview3DScene(
     const wallEnd = extendWallEndpoint(startWorld, endWorld, endExtensionM, "end");
     const wallDirection = normalize3(subtract3(endWorld, startWorld));
     const wallLengthM = length3(subtract3(endWorld, startWorld));
-    const wallOpenings = (wallOpeningsByWallId.get(wall.id) ?? [])
+    const wallOpenings = wall.openings
       .slice()
       .sort((left, right) => left.offsetM - right.offsetM);
     const getWallOffsetForPlanPoint = (point: Vec2) => {
@@ -1129,6 +1565,7 @@ export function buildPreview3DScene(
         });
 
         const maxWallTopHeightM = level.elevationM + wallType.heightM;
+        const slopedWallCells: Parameters<typeof addMergedSlopedWallShell>[0] = [];
         const renderFollowRoofSpan = (
           segmentStartOffsetM: number,
           segmentEndOffsetM: number,
@@ -1144,15 +1581,14 @@ export function buildPreview3DScene(
             return;
           }
 
-          addSlopedWallSection(
-            wallType.thicknessM,
-            bottomHeightM,
-            Math.max(topStartHeightM, bottomHeightM),
-            Math.max(topEndHeightM, bottomHeightM),
-            pointAlongWall(startWorld, wallDirection, segmentStartOffsetM),
-            pointAlongWall(startWorld, wallDirection, segmentEndOffsetM),
-            wallColor,
-          );
+          slopedWallCells.push({
+            startOffsetM: segmentStartOffsetM,
+            endOffsetM: segmentEndOffsetM,
+            bottomStartHeightM: bottomHeightM,
+            bottomEndHeightM: bottomHeightM,
+            topStartHeightM: Math.max(topStartHeightM, bottomHeightM),
+            topEndHeightM: Math.max(topEndHeightM, bottomHeightM),
+          });
         };
 
         const renderFollowRoofSegmentWithOpenings = (segment: RoofWallSegment) => {
@@ -1254,20 +1690,29 @@ export function buildPreview3DScene(
             }
 
             if (wallOpenings.length === 0) {
-              addSlopedWallSection(
-                wallType.thicknessM,
-                level.elevationM,
-                segment.startHeightM,
-                segment.endHeightM,
-                vec3(segment.start.x, level.elevationM, -segment.start.y),
-                vec3(segment.end.x, level.elevationM, -segment.end.y),
-                wallColor,
-              );
+              const startOffsetM = getWallOffsetForPlanPoint(segment.start);
+              const endOffsetM = getWallOffsetForPlanPoint(segment.end);
+              slopedWallCells.push({
+                startOffsetM: Math.min(startOffsetM, endOffsetM),
+                endOffsetM: Math.max(startOffsetM, endOffsetM),
+                bottomStartHeightM: level.elevationM,
+                bottomEndHeightM: level.elevationM,
+                topStartHeightM: startOffsetM <= endOffsetM ? segment.startHeightM : segment.endHeightM,
+                topEndHeightM: startOffsetM <= endOffsetM ? segment.endHeightM : segment.startHeightM,
+              });
               return;
             }
 
             renderFollowRoofSegmentWithOpenings(segment);
           });
+
+        addMergedSlopedWallShell(
+          slopedWallCells,
+          wallType.thicknessM,
+          startWorld,
+          wallDirection,
+          wallColor,
+        );
         continue;
       }
     }
@@ -1284,75 +1729,69 @@ export function buildPreview3DScene(
       continue;
     }
 
-    let segmentStartOffsetM = -startExtensionM;
-    for (const opening of wallOpenings) {
-      const openingStartOffsetM = opening.offsetM - opening.widthM / 2;
-      const openingEndOffsetM = opening.offsetM + opening.widthM / 2;
-
-      if (openingStartOffsetM > segmentStartOffsetM + 0.0001) {
-        addSectionBox(
-          wallType.thicknessM,
-          wallType.heightM,
-          0,
-          pointAlongWall(startWorld, wallDirection, segmentStartOffsetM),
-          pointAlongWall(startWorld, wallDirection, openingStartOffsetM),
-          wallColor,
-        );
-      }
-
-      if (opening.kind === "door") {
-        const lintelHeightM = Math.max(wallType.heightM - opening.heightM, 0);
-        if (lintelHeightM > 0.0001) {
-          addSectionBox(
-            wallType.thicknessM,
-            lintelHeightM,
-            opening.heightM,
-            pointAlongWall(startWorld, wallDirection, openingStartOffsetM),
-            pointAlongWall(startWorld, wallDirection, openingEndOffsetM),
-            wallColor,
-          );
-        }
-      } else {
-        if (opening.sillHeightM > 0.0001) {
-          addSectionBox(
-            wallType.thicknessM,
-            opening.sillHeightM,
-            0,
-            pointAlongWall(startWorld, wallDirection, openingStartOffsetM),
-            pointAlongWall(startWorld, wallDirection, openingEndOffsetM),
-            wallColor,
-          );
-        }
-
-        const upperWindowWallHeightM = Math.max(
-          wallType.heightM - opening.sillHeightM - opening.heightM,
-          0,
-        );
-        if (upperWindowWallHeightM > 0.0001) {
-          addSectionBox(
-            wallType.thicknessM,
-            upperWindowWallHeightM,
-            opening.sillHeightM + opening.heightM,
-            pointAlongWall(startWorld, wallDirection, openingStartOffsetM),
-            pointAlongWall(startWorld, wallDirection, openingEndOffsetM),
-            wallColor,
-          );
-        }
-      }
-
-      segmentStartOffsetM = openingEndOffsetM;
-    }
-
-    if (segmentStartOffsetM < wallLengthM + endExtensionM - 0.0001) {
-      addSectionBox(
-        wallType.thicknessM,
-        wallType.heightM,
-        0,
-        pointAlongWall(startWorld, wallDirection, segmentStartOffsetM),
-        pointAlongWall(startWorld, wallDirection, wallLengthM + endExtensionM),
-        wallColor,
+    const wallMinU = -startExtensionM;
+    const wallMaxU = wallLengthM + endExtensionM;
+    const openingRects = wallOpenings
+      .map((opening) => {
+        const minU = opening.offsetM - opening.widthM / 2;
+        const maxU = opening.offsetM + opening.widthM / 2;
+        const minV = opening.kind === "door" ? 0 : opening.sillHeightM;
+        const maxV =
+          opening.kind === "door"
+            ? opening.heightM
+            : opening.sillHeightM + opening.heightM;
+        return {
+          minU: clamp(minU, wallMinU, wallMaxU),
+          maxU: clamp(maxU, wallMinU, wallMaxU),
+          minV: clamp(minV, 0, wallType.heightM),
+          maxV: clamp(maxV, 0, wallType.heightM),
+        };
+      })
+      .filter(
+        (rect) =>
+          rect.maxU > rect.minU + 0.001 &&
+          rect.maxV > rect.minV + 0.001,
       );
+    const uCuts = uniqueSortedCuts([
+      wallMinU,
+      wallMaxU,
+      ...openingRects.flatMap((rect) => [rect.minU, rect.maxU]),
+    ]);
+    const vCuts = uniqueSortedCuts([
+      0,
+      wallType.heightM,
+      ...openingRects.flatMap((rect) => [rect.minV, rect.maxV]),
+    ]);
+    const wallCells: Array<{ minU: number; maxU: number; minV: number; maxV: number }> = [];
+
+    for (let uIndex = 0; uIndex < uCuts.length - 1; uIndex += 1) {
+      for (let vIndex = 0; vIndex < vCuts.length - 1; vIndex += 1) {
+        const cell = {
+          minU: uCuts[uIndex],
+          maxU: uCuts[uIndex + 1],
+          minV: vCuts[vIndex],
+          maxV: vCuts[vIndex + 1],
+        };
+        const intersectsOpening = openingRects.some(
+          (rect) =>
+            cell.maxU > rect.minU + 0.001 &&
+            cell.minU < rect.maxU - 0.001 &&
+            cell.maxV > rect.minV + 0.001 &&
+            cell.minV < rect.maxV - 0.001,
+        );
+        if (!intersectsOpening) {
+          wallCells.push(cell);
+        }
+      }
     }
+
+    addMergedWallShell(
+      wallCells,
+      wallType.thicknessM,
+      startWorld,
+      wallDirection,
+      wallColor,
+    );
   }
 
   if (renderMode === "NodePost") {

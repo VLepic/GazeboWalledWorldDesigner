@@ -534,7 +534,11 @@ function DoorInsertMesh({
   const doorColor = selected ? "#e2b472" : design3D.doorColorHex;
   const frameOpacity = preview ? 0.36 : 1;
   const doorOpacity = preview ? 0.32 : 1;
-  const isOpen = design3D.openState === "Open";
+  const openProgress = clamp(
+    (design3D.openPercent ?? (design3D.openState === "Open" ? 100 : 0)) / 100,
+    0,
+    1,
+  );
   const topCenterY = opening.door.heightM / 2 - frameThicknessM / 2;
   const sideCenterY = frameThicknessM / 2;
   const sideHeightM = Math.max(opening.door.heightM - frameThicknessM, 0.08);
@@ -543,9 +547,9 @@ function DoorInsertMesh({
   const leafWidthM = innerWidthM;
   const swingBaseSign = design3D.swingDirection === "Outward" ? 1 : -1;
   const hingeSign = design3D.hingeSide === "Left" ? 1 : -1;
-  const swingAngleRad = isOpen ? swingBaseSign * hingeSign * Math.PI * 0.48 : 0;
+  const swingAngleRad = swingBaseSign * hingeSign * Math.PI * 0.48 * openProgress;
   const hingeZ = design3D.hingeSide === "Left" ? -leafWidthM / 2 : leafWidthM / 2;
-  const garageAngleRad = isOpen ? -Math.PI * 0.48 : 0;
+  const garageAngleRad = -Math.PI * 0.48 * openProgress;
   const glassThicknessM = Math.min(Math.max(0.008, frameThicknessM * 0.25), doorThicknessM * 0.7);
   const glassColor = selected ? SELECTED_WINDOW_GLASS_COLOR : WINDOW_GLASS_COLOR;
   const glassOpacity = preview ? 0.18 : 0.42;
@@ -555,7 +559,8 @@ function DoorInsertMesh({
   const fixedPortalZ = design3D.hingeSide === "Left" ? portalPanelWidthM / 2 : -portalPanelWidthM / 2;
   const slidingPortalClosedZ = -fixedPortalZ;
   const slidingPortalOpenZ = fixedPortalZ - Math.sign(fixedPortalZ || 1) * portalPanelWidthM * 0.08;
-  const slidingPortalZ = isOpen ? slidingPortalOpenZ : slidingPortalClosedZ;
+  const slidingPortalZ =
+    slidingPortalClosedZ + (slidingPortalOpenZ - slidingPortalClosedZ) * openProgress;
   const portalLayerOffsetM = Math.min(0.02, Math.max(0.004, doorThicknessM * 0.22));
 
   return (
@@ -1560,6 +1565,7 @@ export function ViewportScene3D({
                         doorColorHex: "#8a5b3d",
                         wallDepthOffsetM: 0,
                         openState: "Closed",
+                        openPercent: 0,
                         hingeSide: "Left",
                         swingDirection: "Inward",
                       }

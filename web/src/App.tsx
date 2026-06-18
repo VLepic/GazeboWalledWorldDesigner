@@ -586,6 +586,7 @@ export default function App() {
   const [door3DDoorColorHex, setDoor3DDoorColorHex] = useState("#8a5b3d");
   const [door3DWallDepthOffsetM, setDoor3DWallDepthOffsetM] = useState(0);
   const [door3DOpenState, setDoor3DOpenState] = useState<Door3DOpenState>("Closed");
+  const [door3DOpenPercent, setDoor3DOpenPercent] = useState(0);
   const [door3DHingeSide, setDoor3DHingeSide] = useState<Door3DHingeSide>("Left");
   const [door3DSwingDirection, setDoor3DSwingDirection] = useState<Door3DSwingDirection>("Inward");
   const [windowToolWidthM, setWindowToolWidthM] = useState(1.2);
@@ -2007,6 +2008,7 @@ export default function App() {
       doorColorHex: door3DDoorColorHex,
       wallDepthOffsetM: door3DWallDepthOffsetM,
       openState: door3DOpenState,
+      openPercent: door3DOpenPercent,
       hingeSide: door3DHingeSide,
       swingDirection: door3DSwingDirection,
     };
@@ -2227,6 +2229,33 @@ export default function App() {
       setErrorMessage(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Slab move failed.";
+      reportError(message);
+    }
+  }
+
+  function handleResizeSlab(
+    slabId: string,
+    patch: { position: Vec2; widthM: number; depthM: number },
+  ) {
+    try {
+      applyCommand((current) => {
+        const slab = current.slabs.find((item) => item.id === slabId);
+        if (!slab) {
+          throw new Error(`Slab "${slabId}" does not exist.`);
+        }
+
+        return updateSlab(current, slabId, {
+          pose: {
+            ...slab.pose,
+            position: createVec2(patch.position.x, patch.position.y),
+          },
+          widthM: patch.widthM,
+          depthM: patch.depthM,
+        });
+      });
+      setErrorMessage(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Slab resize failed.";
       reportError(message);
     }
   }
@@ -2575,10 +2604,20 @@ export default function App() {
     patch: Partial<DoorDesign3D>,
     message = "Updated 3D door design.",
   ) {
+    const normalizedPatch: Partial<DoorDesign3D> = {
+      ...patch,
+      ...(patch.openState !== undefined && patch.openPercent === undefined
+        ? { openPercent: patch.openState === "Open" ? 100 : 0 }
+        : {}),
+      ...(patch.openPercent !== undefined && patch.openState === undefined
+        ? { openState: patch.openPercent > 0 ? "Open" : "Closed" }
+        : {}),
+    };
+
     if (!selectedDoor) {
       const nextDesign: DoorDesign3D = {
         ...createCurrentDoor3DDesign(),
-        ...patch,
+        ...normalizedPatch,
       };
 
       setDoor3DKind(nextDesign.kind);
@@ -2587,6 +2626,7 @@ export default function App() {
       setDoor3DDoorColorHex(nextDesign.doorColorHex);
       setDoor3DWallDepthOffsetM(nextDesign.wallDepthOffsetM);
       setDoor3DOpenState(nextDesign.openState);
+      setDoor3DOpenPercent(nextDesign.openPercent);
       setDoor3DHingeSide(nextDesign.hingeSide);
       setDoor3DSwingDirection(nextDesign.swingDirection);
       return;
@@ -2594,7 +2634,7 @@ export default function App() {
 
     const nextDesign: DoorDesign3D = {
       ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
-      ...patch,
+      ...normalizedPatch,
     };
 
     handleUpdateSelectedDoor({ design3D: nextDesign }, message);
@@ -3379,6 +3419,23 @@ export default function App() {
                 <option value="Closed">Closed</option>
                 <option value="Open">Open</option>
               </select>
+            </label>
+            <label className="field-label">
+              <span>Open Percent ({Math.round(effectiveDoor3DDesign.openPercent)}%)</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value={effectiveDoor3DDesign.openPercent}
+                onChange={(event) => {
+                  const openPercent = clampValue(Number(event.target.value), 0, 100);
+                  handleCommitDoor3DToolDesign(
+                    { openPercent },
+                    "Updated 3D door open percent.",
+                  );
+                }}
+              />
             </label>
             <label className="field-label">
               <span>Frame Thickness (m)</span>
@@ -5162,6 +5219,7 @@ export default function App() {
                   onMoveWindow={handleMoveWindow}
                   onMoveShape={handleMoveShape}
                   onMoveSlab={handleMoveSlab}
+                  onResizeSlab={handleResizeSlab}
                   onMoveRoofEdge={handleMoveRoofEdge}
                   onMoveRoofVertex={handleMoveRoofVertex}
                   onMoveRoofOpening={handleMoveRoofOpening}
@@ -6494,6 +6552,10 @@ export default function App() {
                                   design3D: {
                                     ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
                                     openState: event.target.value as Door3DOpenState,
+                                    openPercent:
+                                      (event.target.value as Door3DOpenState) === "Open"
+                                        ? 100
+                                        : 0,
                                   },
                                 },
                                 "Updated 3D door state.",
@@ -6503,6 +6565,35 @@ export default function App() {
                             <option value="Closed">Closed</option>
                             <option value="Open">Open</option>
                           </select>
+                        </label>
+                        <label className="field-label">
+                          <span>
+                            Open Percent (
+                            {Math.round(
+                              selectedDoor.design3D?.openPercent ?? door3DOpenPercent,
+                            )}
+                            %)
+                          </span>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value={selectedDoor.design3D?.openPercent ?? door3DOpenPercent}
+                            onChange={(event) => {
+                              const openPercent = clampValue(Number(event.target.value), 0, 100);
+                              handleUpdateSelectedDoor(
+                                {
+                                  design3D: {
+                                    ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
+                                    openPercent,
+                                    openState: openPercent > 0 ? "Open" : "Closed",
+                                  },
+                                },
+                                "Updated 3D door open percent.",
+                              );
+                            }}
+                          />
                         </label>
                         <label className="field-label">
                           <span>Frame Thickness (m)</span>

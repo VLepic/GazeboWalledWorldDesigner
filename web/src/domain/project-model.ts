@@ -156,6 +156,7 @@ export interface DoorDesign3D {
   doorColorHex: string;
   wallDepthOffsetM: number;
   openState: Door3DOpenState;
+  openPercent: number;
   hingeSide: Door3DHingeSide;
   swingDirection: Door3DSwingDirection;
 }
