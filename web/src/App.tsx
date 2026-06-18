@@ -3361,6 +3361,8 @@ export default function App() {
               >
                 <option value="Normal">Normal</option>
                 <option value="Garage">Garage</option>
+                <option value="Glass">Glass Door</option>
+                <option value="HSPortal">HS Portal</option>
               </select>
             </label>
             <label className="field-label">
@@ -3443,7 +3445,7 @@ export default function App() {
                 }
               />
             </label>
-            {effectiveDoor3DDesign.kind === "Normal" ? (
+            {effectiveDoor3DDesign.kind === "Normal" || effectiveDoor3DDesign.kind === "Glass" ? (
               <>
                 <label className="field-label">
                   <span>Hinge Side</span>
@@ -3476,6 +3478,22 @@ export default function App() {
                   </select>
                 </label>
               </>
+            ) : effectiveDoor3DDesign.kind === "HSPortal" ? (
+              <label className="field-label">
+                <span>Sliding Panel</span>
+                <select
+                  value={effectiveDoor3DDesign.hingeSide}
+                  onChange={(event) =>
+                    handleCommitDoor3DToolDesign(
+                      { hingeSide: event.target.value as Door3DHingeSide },
+                      "Updated HS portal sliding panel.",
+                    )
+                  }
+                >
+                  <option value="Left">Left Panel</option>
+                  <option value="Right">Right Panel</option>
+                </select>
+              </label>
             ) : null}
             {selectedDoor ? (
               <div className="window-tool-action-row">
@@ -6462,6 +6480,8 @@ export default function App() {
                           >
                             <option value="Normal">Normal</option>
                             <option value="Garage">Garage</option>
+                            <option value="Glass">Glass Door</option>
+                            <option value="HSPortal">HS Portal</option>
                           </select>
                         </label>
                         <label className="field-label">
@@ -6582,7 +6602,8 @@ export default function App() {
                             }
                           />
                         </label>
-                        {(selectedDoor.design3D?.kind ?? door3DKind) === "Normal" ? (
+                        {(selectedDoor.design3D?.kind ?? door3DKind) === "Normal" ||
+                        (selectedDoor.design3D?.kind ?? door3DKind) === "Glass" ? (
                           <>
                             <label className="field-label">
                               <span>Hinge Side</span>
@@ -6625,6 +6646,27 @@ export default function App() {
                               </select>
                             </label>
                           </>
+                        ) : (selectedDoor.design3D?.kind ?? door3DKind) === "HSPortal" ? (
+                          <label className="field-label">
+                            <span>Sliding Panel</span>
+                            <select
+                              value={selectedDoor.design3D?.hingeSide ?? door3DHingeSide}
+                              onChange={(event) =>
+                                handleUpdateSelectedDoor(
+                                  {
+                                    design3D: {
+                                      ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
+                                      hingeSide: event.target.value as Door3DHingeSide,
+                                    },
+                                  },
+                                  "Updated HS portal sliding panel.",
+                                )
+                              }
+                            >
+                              <option value="Left">Left Panel</option>
+                              <option value="Right">Right Panel</option>
+                            </select>
+                          </label>
                         ) : null}
                       </>
                     ) : null}

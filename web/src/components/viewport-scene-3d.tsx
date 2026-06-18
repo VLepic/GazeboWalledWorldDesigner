@@ -431,6 +431,67 @@ function buildRoofOpening3DDescriptors(
   });
 }
 
+function GlassDoorPanel({
+  widthM,
+  heightM,
+  depthM,
+  frameThicknessM,
+  glassThicknessM,
+  frameColor,
+  glassColor,
+  frameOpacity,
+  glassOpacity,
+  preview,
+}: {
+  widthM: number;
+  heightM: number;
+  depthM: number;
+  frameThicknessM: number;
+  glassThicknessM: number;
+  frameColor: string;
+  glassColor: string;
+  frameOpacity: number;
+  glassOpacity: number;
+  preview: boolean;
+}) {
+  const safeFrameThicknessM = Math.min(frameThicknessM, Math.min(widthM, heightM) / 2 - 0.005);
+  const innerWidthM = Math.max(0.04, widthM - safeFrameThicknessM * 2);
+  const innerHeightM = Math.max(0.04, heightM - safeFrameThicknessM * 2);
+
+  return (
+    <group>
+      <mesh position={[0, heightM / 2 - safeFrameThicknessM / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[depthM, safeFrameThicknessM, widthM]} />
+        <meshStandardMaterial color={frameColor} roughness={0.7} metalness={0.08} transparent={preview} opacity={frameOpacity} />
+      </mesh>
+      <mesh position={[0, -heightM / 2 + safeFrameThicknessM / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[depthM, safeFrameThicknessM, widthM]} />
+        <meshStandardMaterial color={frameColor} roughness={0.7} metalness={0.08} transparent={preview} opacity={frameOpacity} />
+      </mesh>
+      <mesh position={[0, 0, -widthM / 2 + safeFrameThicknessM / 2]} castShadow receiveShadow>
+        <boxGeometry args={[depthM, innerHeightM, safeFrameThicknessM]} />
+        <meshStandardMaterial color={frameColor} roughness={0.7} metalness={0.08} transparent={preview} opacity={frameOpacity} />
+      </mesh>
+      <mesh position={[0, 0, widthM / 2 - safeFrameThicknessM / 2]} castShadow receiveShadow>
+        <boxGeometry args={[depthM, innerHeightM, safeFrameThicknessM]} />
+        <meshStandardMaterial color={frameColor} roughness={0.7} metalness={0.08} transparent={preview} opacity={frameOpacity} />
+      </mesh>
+      <mesh position={[0, 0, 0]} castShadow receiveShadow>
+        <boxGeometry args={[glassThicknessM, innerHeightM, innerWidthM]} />
+        <meshStandardMaterial
+          color={glassColor}
+          roughness={0.18}
+          metalness={0.02}
+          transparent
+          opacity={glassOpacity}
+          depthWrite={false}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+    </group>
+  );
+}
+
 function DoorInsertMesh({
   opening,
   design3D,
@@ -485,6 +546,17 @@ function DoorInsertMesh({
   const swingAngleRad = isOpen ? swingBaseSign * hingeSign * Math.PI * 0.48 : 0;
   const hingeZ = design3D.hingeSide === "Left" ? -leafWidthM / 2 : leafWidthM / 2;
   const garageAngleRad = isOpen ? -Math.PI * 0.48 : 0;
+  const glassThicknessM = Math.min(Math.max(0.008, frameThicknessM * 0.25), doorThicknessM * 0.7);
+  const glassColor = selected ? SELECTED_WINDOW_GLASS_COLOR : WINDOW_GLASS_COLOR;
+  const glassOpacity = preview ? 0.18 : 0.42;
+  const portalPanelWidthM = Math.max(0.08, innerWidthM / 2);
+  const portalPanelHeightM = leafHeightM;
+  const portalPanelCenterY = -opening.door.heightM / 2 + frameThicknessM + portalPanelHeightM / 2;
+  const fixedPortalZ = design3D.hingeSide === "Left" ? portalPanelWidthM / 2 : -portalPanelWidthM / 2;
+  const slidingPortalClosedZ = -fixedPortalZ;
+  const slidingPortalOpenZ = fixedPortalZ - Math.sign(fixedPortalZ || 1) * portalPanelWidthM * 0.08;
+  const slidingPortalZ = isOpen ? slidingPortalOpenZ : slidingPortalClosedZ;
+  const portalLayerOffsetM = Math.min(0.02, Math.max(0.004, doorThicknessM * 0.22));
 
   return (
     <group position={opening.center} rotation={[0, opening.rotationY, 0]}>
@@ -511,6 +583,60 @@ function DoorInsertMesh({
             <boxGeometry args={[doorThicknessM, leafHeightM, leafWidthM]} />
             <meshStandardMaterial color={doorColor} roughness={0.82} metalness={0.04} transparent={preview} opacity={doorOpacity} />
           </mesh>
+        </group>
+      ) : design3D.kind === "Glass" ? (
+        <group position={[doorDepthCenter, 0, hingeZ]} rotation={[0, swingAngleRad, 0]}>
+          <group
+            position={[
+              0,
+              -opening.door.heightM / 2 + frameThicknessM + leafHeightM / 2,
+              design3D.hingeSide === "Left" ? leafWidthM / 2 : -leafWidthM / 2,
+            ]}
+          >
+            <GlassDoorPanel
+              widthM={leafWidthM}
+              heightM={leafHeightM}
+              depthM={doorThicknessM}
+              frameThicknessM={frameThicknessM}
+              glassThicknessM={glassThicknessM}
+              frameColor={frameColor}
+              glassColor={glassColor}
+              frameOpacity={frameOpacity}
+              glassOpacity={glassOpacity}
+              preview={preview}
+            />
+          </group>
+        </group>
+      ) : design3D.kind === "HSPortal" ? (
+        <group>
+          <group position={[doorDepthCenter + portalLayerOffsetM, portalPanelCenterY, fixedPortalZ]}>
+            <GlassDoorPanel
+              widthM={portalPanelWidthM}
+              heightM={portalPanelHeightM}
+              depthM={doorThicknessM}
+              frameThicknessM={frameThicknessM}
+              glassThicknessM={glassThicknessM}
+              frameColor={frameColor}
+              glassColor={glassColor}
+              frameOpacity={frameOpacity}
+              glassOpacity={glassOpacity}
+              preview={preview}
+            />
+          </group>
+          <group position={[doorDepthCenter - portalLayerOffsetM, portalPanelCenterY, slidingPortalZ]}>
+            <GlassDoorPanel
+              widthM={portalPanelWidthM}
+              heightM={portalPanelHeightM}
+              depthM={doorThicknessM}
+              frameThicknessM={frameThicknessM}
+              glassThicknessM={glassThicknessM}
+              frameColor={frameColor}
+              glassColor={glassColor}
+              frameOpacity={frameOpacity}
+              glassOpacity={glassOpacity}
+              preview={preview}
+            />
+          </group>
         </group>
       ) : (
         <group position={[doorDepthCenter, opening.door.heightM / 2 - frameThicknessM, 0]} rotation={[0, 0, garageAngleRad]}>

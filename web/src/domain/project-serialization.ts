@@ -1150,7 +1150,7 @@ function parseDoors(data: unknown, wallIds: string[], warnings: string[]) {
     const design3DSource = asObject(source.design3D ?? source.design_3d ?? source.door3D ?? source.door_3d);
     const kind =
       (design3DSource && pickParsedValue(design3DSource, (value) => {
-        const parsed = z.enum(["Normal", "Garage"]).safeParse(value);
+        const parsed = z.enum(["Normal", "Garage", "Glass", "HSPortal"]).safeParse(value);
         return parsed.success ? parsed.data : undefined;
       }, "kind")) ?? "Normal";
     const frameThicknessM =
