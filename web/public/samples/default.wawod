@@ -62,6 +62,12 @@
       "name": "Sadrokarton",
       "thicknessM": 0.05,
       "heightM": 1.5
+    },
+    {
+      "id": "wall_type_0f32a121cee3",
+      "name": "Wall Type 7",
+      "thicknessM": 0.3,
+      "heightM": 2
     }
   ],
   "roofLayers": [
@@ -83,7 +89,7 @@
         {
           "id": "roof_vertex_d3c119371970",
           "position": {
-            "x": 1,
+            "x": 0.75,
             "y": 10.5
           },
           "elevationMode": "Explicit",
@@ -92,7 +98,7 @@
         {
           "id": "roof_vertex_0eb2c72c2780",
           "position": {
-            "x": 1,
+            "x": 0.75,
             "y": 0
           },
           "elevationMode": "Explicit",
@@ -105,7 +111,7 @@
             "y": 10.5
           },
           "elevationMode": "Explicit",
-          "elevationM": 8.5
+          "elevationM": 8
         },
         {
           "id": "roof_vertex_9864f6c0ab36",
@@ -114,7 +120,7 @@
             "y": 0
           },
           "elevationMode": "Explicit",
-          "elevationM": 8.5
+          "elevationM": 8
         },
         {
           "id": "roof_vertex_8ef621a1d846",
@@ -137,8 +143,8 @@
         {
           "id": "roof_vertex_4e3ecd3f7edb",
           "position": {
-            "x": 1,
-            "y": -13.5
+            "x": 0.75,
+            "y": -13.25
           },
           "elevationMode": "Explicit",
           "elevationM": 3.5
@@ -146,7 +152,7 @@
         {
           "id": "roof_vertex_1bd3fc06b3a1",
           "position": {
-            "x": 1,
+            "x": 0.75,
             "y": 0
           },
           "elevationMode": "Explicit",
@@ -159,7 +165,7 @@
             "y": -7.5
           },
           "elevationMode": "Explicit",
-          "elevationM": 8.5
+          "elevationM": 8
         },
         {
           "id": "roof_vertex_93c18dccd076",
@@ -168,13 +174,13 @@
             "y": 0
           },
           "elevationMode": "Explicit",
-          "elevationM": 8.5
+          "elevationM": 8
         },
         {
           "id": "roof_vertex_502b4ca67da0",
           "position": {
-            "x": -11,
-            "y": -13.5
+            "x": -10.75,
+            "y": -13.25
           },
           "elevationMode": "Explicit",
           "elevationM": 3.5
@@ -182,7 +188,7 @@
         {
           "id": "roof_vertex_fde42f2b28b5",
           "position": {
-            "x": -11,
+            "x": -10.75,
             "y": 0
           },
           "elevationMode": "Explicit",
@@ -191,8 +197,8 @@
         {
           "id": "roof_vertex_079224be9bcf",
           "position": {
-            "x": -11,
-            "y": -13.5
+            "x": -10.75,
+            "y": -13.25
           },
           "elevationMode": "Explicit",
           "elevationM": 3.5
@@ -200,8 +206,8 @@
         {
           "id": "roof_vertex_f5f6165fa113",
           "position": {
-            "x": 1,
-            "y": -13.5
+            "x": 0.75,
+            "y": -13.25
           },
           "elevationMode": "Explicit",
           "elevationM": 3.5
@@ -209,8 +215,8 @@
         {
           "id": "roof_vertex_01482385b503",
           "position": {
-            "x": 2.0500000000000003,
-            "y": -3
+            "x": 2.15,
+            "y": -2.95
           },
           "elevationMode": "Explicit",
           "elevationM": 2
@@ -219,7 +225,7 @@
           "id": "roof_vertex_7e069043f877",
           "position": {
             "x": 0,
-            "y": -3
+            "y": -2.95
           },
           "elevationMode": "Explicit",
           "elevationM": 2
@@ -227,8 +233,8 @@
         {
           "id": "roof_vertex_444c4f139b4c",
           "position": {
-            "x": 2.0500000000000003,
-            "y": -5.4
+            "x": 2.15,
+            "y": -5.45
           },
           "elevationMode": "Explicit",
           "elevationM": 2
@@ -236,8 +242,8 @@
         {
           "id": "roof_vertex_09f0d5a25258",
           "position": {
-            "x": 0.025000000000000022,
-            "y": -5.4
+            "x": 0,
+            "y": -5.45
           },
           "elevationMode": "Explicit",
           "elevationM": 2
@@ -245,7 +251,7 @@
         {
           "id": "roof_vertex_736a054ebb92",
           "position": {
-            "x": 2.0500000000000003,
+            "x": 2.15,
             "y": -4.2
           },
           "elevationMode": "Explicit",
@@ -263,8 +269,8 @@
         {
           "id": "roof_vertex_36068090469a",
           "position": {
-            "x": -10.950000000000001,
-            "y": -3.0000000000000013
+            "x": -10.100000000000001,
+            "y": -3.4000000000000012
           },
           "elevationMode": "Explicit",
           "elevationM": 3.5
@@ -272,8 +278,8 @@
         {
           "id": "roof_vertex_dfd28bc7b1a3",
           "position": {
-            "x": -10.950000000000001,
-            "y": -8.9
+            "x": -10.100000000000001,
+            "y": -8.899999999999999
           },
           "elevationMode": "Explicit",
           "elevationM": 3.5
@@ -281,8 +287,8 @@
         {
           "id": "roof_vertex_3e69a4d62fb3",
           "position": {
-            "x": -14,
-            "y": -3.0000000000000013
+            "x": -13.850000000000001,
+            "y": -3.4000000000000012
           },
           "elevationMode": "Explicit",
           "elevationM": 2.4
@@ -290,7 +296,7 @@
         {
           "id": "roof_vertex_5b25d2d3c0ad",
           "position": {
-            "x": -14,
+            "x": -13.850000000000001,
             "y": -8.899999999999999
           },
           "elevationMode": "Explicit",
@@ -1506,17 +1512,25 @@
         "x": -6.550000000000001,
         "y": -8.700000000000001
       }
+    },
+    {
+      "id": "node_164ae3076c66",
+      "levelId": "level_61c02b847a52",
+      "position": {
+        "x": 0,
+        "y": 3.4499999999999997
+      }
+    },
+    {
+      "id": "node_f78c5b4c9052",
+      "levelId": "level_61c02b847a52",
+      "position": {
+        "x": -6.300000000000001,
+        "y": 3.45
+      }
     }
   ],
   "walls": [
-    {
-      "id": "wall_ba5d7be61153",
-      "levelId": "level_61c02b847a52",
-      "wallTypeId": "wall_type_d3df4ca911a2",
-      "topMode": "FixedHeight",
-      "startNodeId": "node_55e6ad64d2c1",
-      "endNodeId": "node_3239bc736fe5"
-    },
     {
       "id": "wall_30a3348f2aca",
       "levelId": "level_61c02b847a52",
@@ -1564,14 +1578,6 @@
       "topMode": "FixedHeight",
       "startNodeId": "node_30a0796226c2",
       "endNodeId": "node_181df8b7bb85"
-    },
-    {
-      "id": "wall_30eb4ac3eb4f",
-      "levelId": "level_61c02b847a52",
-      "wallTypeId": "wall_type_7459e8ca1a18",
-      "topMode": "FixedHeight",
-      "startNodeId": "node_2b5bbbd11cf1",
-      "endNodeId": "node_bbe0766cbc54"
     },
     {
       "id": "wall_6e81059c5760",
@@ -2212,26 +2218,49 @@
       "topMode": "FollowRoof",
       "startNodeId": "node_12a2c6d4331b",
       "endNodeId": "node_a3eaa53c2f7a"
+    },
+    {
+      "id": "wall_d7f5a17f3ad5",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_d3df4ca911a2",
+      "topMode": "FixedHeight",
+      "startNodeId": "node_55e6ad64d2c1",
+      "endNodeId": "node_164ae3076c66"
+    },
+    {
+      "id": "wall_37988bee6871",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_d3df4ca911a2",
+      "topMode": "FixedHeight",
+      "startNodeId": "node_164ae3076c66",
+      "endNodeId": "node_3239bc736fe5"
+    },
+    {
+      "id": "wall_09e81a95c81a",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FixedHeight",
+      "startNodeId": "node_2b5bbbd11cf1",
+      "endNodeId": "node_f78c5b4c9052"
+    },
+    {
+      "id": "wall_cbe90301b095",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FixedHeight",
+      "startNodeId": "node_f78c5b4c9052",
+      "endNodeId": "node_bbe0766cbc54"
+    },
+    {
+      "id": "wall_289c18fb14ab",
+      "levelId": "level_61c02b847a52",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_164ae3076c66",
+      "endNodeId": "node_f78c5b4c9052"
     }
   ],
   "doors": [
-    {
-      "id": "door_ab2563557da5",
-      "wallId": "wall_ba5d7be61153",
-      "widthM": 3,
-      "heightM": 2,
-      "offsetM": 8,
-      "design3D": {
-        "kind": "Garage",
-        "frameThicknessM": 0.08,
-        "frameColorHex": "#000000",
-        "doorColorHex": "#8a8a8a",
-        "wallDepthOffsetM": 0.08,
-        "openState": "Closed",
-        "hingeSide": "Left",
-        "swingDirection": "Inward"
-      }
-    },
     {
       "id": "door_0cfb53c3c83d",
       "wallId": "wall_a24c12299cb2",
@@ -2346,11 +2375,11 @@
       "id": "door_703747825197",
       "wallId": "wall_b388151d8a7e",
       "widthM": 0.8,
-      "heightM": 2,
-      "offsetM": 0.8100000000000005,
+      "heightM": 2.25,
+      "offsetM": 0.7999999999999989,
       "design3D": {
-        "kind": "Normal",
-        "frameThicknessM": 0.08,
+        "kind": "Glass",
+        "frameThicknessM": 0.04,
         "frameColorHex": "#c4cbd6",
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
@@ -2408,8 +2437,8 @@
       "heightM": 2,
       "offsetM": 7.100000000000001,
       "design3D": {
-        "kind": "Normal",
-        "frameThicknessM": 0.08,
+        "kind": "Glass",
+        "frameThicknessM": 0.04,
         "frameColorHex": "#000000",
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
@@ -2421,8 +2450,8 @@
     {
       "id": "door_0e7dd8adf3b1",
       "wallId": "wall_510aa759b50f",
-      "widthM": 0.8,
-      "heightM": 2,
+      "widthM": 0.9,
+      "heightM": 2.2,
       "offsetM": 0.5499999999999998,
       "design3D": null
     },
@@ -2573,61 +2602,107 @@
     {
       "id": "door_c54041019f62",
       "wallId": "wall_5aa05edefa02",
-      "widthM": 0.8,
-      "heightM": 2,
-      "offsetM": 1.1500000000000004,
-      "design3D": null
-    }
-  ],
-  "windows": [
-    {
-      "id": "window_8566df6959b6",
-      "wallId": "wall_58088348d423",
-      "widthM": 3,
-      "heightM": 2,
-      "sillHeightM": 0.1,
-      "offsetM": 2,
+      "widthM": 1,
+      "heightM": 2.3,
+      "offsetM": 1.2000000000000002,
       "design3D": {
-        "glassThicknessM": 0.02,
+        "kind": "Normal",
         "frameThicknessM": 0.08,
-        "verticalDivisions": 1,
-        "horizontalDivisions": 0,
+        "frameColorHex": "#c4cbd6",
+        "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "openState": "Open",
+        "hingeSide": "Left",
+        "swingDirection": "Inward"
       }
     },
     {
-      "id": "window_8f0d674471ee",
+      "id": "door_6ceffa5c9681",
       "wallId": "wall_58088348d423",
       "widthM": 3,
       "heightM": 2,
-      "sillHeightM": 0.1,
-      "offsetM": 5.5,
+      "offsetM": 1.8999999999999995,
       "design3D": {
-        "glassThicknessM": 0.02,
+        "kind": "HSPortal",
         "frameThicknessM": 0.08,
-        "verticalDivisions": 1,
-        "horizontalDivisions": 0,
+        "frameColorHex": "#000000",
+        "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "openState": "Closed",
+        "hingeSide": "Right",
+        "swingDirection": "Inward"
       }
     },
     {
-      "id": "window_52bb180ec1a6",
+      "id": "door_7bde70edc2d7",
+      "wallId": "wall_58088348d423",
+      "widthM": 3,
+      "heightM": 2,
+      "offsetM": 5.55,
+      "design3D": {
+        "kind": "HSPortal",
+        "frameThicknessM": 0.08,
+        "frameColorHex": "#000000",
+        "doorColorHex": "#8a5b3d",
+        "wallDepthOffsetM": 0,
+        "openState": "Closed",
+        "hingeSide": "Left",
+        "swingDirection": "Inward"
+      }
+    },
+    {
+      "id": "door_3a9c96d891b9",
       "wallId": "wall_71896b0c8f17",
       "widthM": 2,
       "heightM": 2,
-      "sillHeightM": 0.1,
-      "offsetM": 3.75,
+      "offsetM": 3.65,
       "design3D": {
-        "glassThicknessM": 0.02,
+        "kind": "HSPortal",
         "frameThicknessM": 0.08,
-        "verticalDivisions": 1,
-        "horizontalDivisions": 0,
+        "frameColorHex": "#000000",
+        "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "openState": "Closed",
+        "hingeSide": "Left",
+        "swingDirection": "Inward"
       }
     },
+    {
+      "id": "door_f66e831b185b",
+      "wallId": "wall_37988bee6871",
+      "widthM": 3,
+      "heightM": 2.1,
+      "offsetM": 4.700000000000001,
+      "design3D": {
+        "kind": "Garage",
+        "frameThicknessM": 0.08,
+        "frameColorHex": "#c4cbd6",
+        "doorColorHex": "#808080",
+        "wallDepthOffsetM": 0,
+        "openState": "Closed",
+        "hingeSide": "Right",
+        "swingDirection": "Outward"
+      }
+    },
+    {
+      "id": "door_7b8773e610fa",
+      "wallId": "wall_289c18fb14ab",
+      "widthM": 1.2,
+      "heightM": 2,
+      "offsetM": 5.5,
+      "design3D": {
+        "kind": "Normal",
+        "frameThicknessM": 0.08,
+        "frameColorHex": "#c4cbd6",
+        "doorColorHex": "#8a5b3d",
+        "wallDepthOffsetM": 0,
+        "openState": "Open",
+        "hingeSide": "Right",
+        "swingDirection": "Outward"
+      }
+    }
+  ],
+  "windows": [
     {
       "id": "window_094381291b5c",
       "wallId": "wall_ac469a4ca072",
@@ -2776,9 +2851,9 @@
       "id": "window_8c8b4dac83fa",
       "wallId": "wall_73db0e8d3711",
       "widthM": 1,
-      "heightM": 0.6,
-      "sillHeightM": 1.7,
-      "offsetM": 0.7999999999999998,
+      "heightM": 0.8,
+      "sillHeightM": 1.5,
+      "offsetM": 0.8499999999999996,
       "design3D": {
         "glassThicknessM": 0.02,
         "frameThicknessM": 0.08,
@@ -2792,9 +2867,9 @@
       "id": "window_86f5df3e6e39",
       "wallId": "wall_6b67d6548883",
       "widthM": 0.6,
-      "heightM": 0.6,
-      "sillHeightM": 1.7,
-      "offsetM": 0.75,
+      "heightM": 0.8,
+      "sillHeightM": 1.5,
+      "offsetM": 0.7999999999999998,
       "design3D": {
         "glassThicknessM": 0.02,
         "frameThicknessM": 0.08,
@@ -2807,10 +2882,58 @@
     {
       "id": "window_a744a2ee5eeb",
       "wallId": "wall_0ac406dda1be",
-      "widthM": 1,
-      "heightM": 1,
+      "widthM": 1.2,
+      "heightM": 1.2,
       "sillHeightM": 0.9,
       "offsetM": 1.4500000000000002,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
+    },
+    {
+      "id": "window_2030d6bd89ae",
+      "wallId": "wall_e0eba3522f4c",
+      "widthM": 0.9,
+      "heightM": 0.6,
+      "sillHeightM": 1.8,
+      "offsetM": 5.45,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
+    },
+    {
+      "id": "window_850c0f61ceac",
+      "wallId": "wall_4faadfe58921",
+      "widthM": 1.2,
+      "heightM": 1.2,
+      "sillHeightM": 0.9,
+      "offsetM": 1.950000000000001,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
+    },
+    {
+      "id": "window_1a3385a79e34",
+      "wallId": "wall_d7f5a17f3ad5",
+      "widthM": 1.2,
+      "heightM": 1.2,
+      "sillHeightM": 0.9,
+      "offsetM": 1.8000000000000003,
       "design3D": {
         "glassThicknessM": 0.02,
         "frameThicknessM": 0.08,
@@ -2822,30 +2945,6 @@
     }
   ],
   "stairs": [
-    {
-      "id": "stair_ed8db42dab98",
-      "levelId": "level_61c02b847a52",
-      "name": "stairs_1",
-      "pathNodes": [
-        {
-          "x": -8.4,
-          "y": -8.1
-        },
-        {
-          "x": -6.6000000000000005,
-          "y": -8.1
-        },
-        {
-          "x": -6.6000000000000005,
-          "y": -5.4
-        }
-      ],
-      "widthM": 1.1,
-      "endElevationM": 2.7,
-      "riserHeightM": 0.17,
-      "treadDepthM": 0.28,
-      "landingLengthM": 1.2
-    },
     {
       "id": "stair_35a7b59c4efd",
       "levelId": "level_6bd5ee912d75",
@@ -2862,6 +2961,30 @@
       ],
       "widthM": 1.1,
       "endElevationM": 5.2,
+      "riserHeightM": 0.17,
+      "treadDepthM": 0.28,
+      "landingLengthM": 1.2
+    },
+    {
+      "id": "stair_d32394e306a9",
+      "levelId": "level_61c02b847a52",
+      "name": "stairs_2",
+      "pathNodes": [
+        {
+          "x": -8.15,
+          "y": -8
+        },
+        {
+          "x": -6.65,
+          "y": -8
+        },
+        {
+          "x": -6.65,
+          "y": -5.4
+        }
+      ],
+      "widthM": 1.2,
+      "endElevationM": 2.6,
       "riserHeightM": 0.17,
       "treadDepthM": 0.28,
       "landingLengthM": 1.2
@@ -2946,7 +3069,7 @@
       },
       "sizeM": 0.5,
       "zStartM": 0,
-      "heightM": 4
+      "heightM": 3.5
     },
     {
       "id": "shape_4b80c015a84b",
@@ -2962,7 +3085,7 @@
       },
       "sizeM": 0.5,
       "zStartM": 0,
-      "heightM": 4
+      "heightM": 3.5
     },
     {
       "id": "shape_86f547c0b188",
@@ -2971,7 +3094,7 @@
       "kind": "Square",
       "pose": {
         "position": {
-          "x": 1.9500000000000002,
+          "x": 2.0500000000000003,
           "y": -3.1
         },
         "yawDeg": 0
@@ -2987,7 +3110,7 @@
       "kind": "Square",
       "pose": {
         "position": {
-          "x": 1.9500000000000002,
+          "x": 2.0500000000000003,
           "y": -5.300000000000001
         },
         "yawDeg": 0
@@ -3027,6 +3150,70 @@
       "sizeM": 0.20000000000000107,
       "zStartM": 0,
       "heightM": 2.1
+    },
+    {
+      "id": "shape_dad7b355e4a5",
+      "levelId": "level_61c02b847a52",
+      "name": "shape_11",
+      "kind": "Square",
+      "pose": {
+        "position": {
+          "x": -13.75,
+          "y": -3.5
+        },
+        "yawDeg": 0
+      },
+      "sizeM": 0.15000000000000036,
+      "zStartM": 0,
+      "heightM": 2.4
+    },
+    {
+      "id": "shape_2525216859fb",
+      "levelId": "level_61c02b847a52",
+      "name": "shape_11",
+      "kind": "Square",
+      "pose": {
+        "position": {
+          "x": -13.75,
+          "y": -5.1000000000000005
+        },
+        "yawDeg": 0
+      },
+      "sizeM": 0.15000000000000036,
+      "zStartM": 0,
+      "heightM": 2.4
+    },
+    {
+      "id": "shape_629f164c5f5b",
+      "levelId": "level_61c02b847a52",
+      "name": "shape_11",
+      "kind": "Square",
+      "pose": {
+        "position": {
+          "x": -13.75,
+          "y": -7.15
+        },
+        "yawDeg": 0
+      },
+      "sizeM": 0.15000000000000036,
+      "zStartM": 0,
+      "heightM": 2.4
+    },
+    {
+      "id": "shape_5975badf3257",
+      "levelId": "level_61c02b847a52",
+      "name": "shape_11",
+      "kind": "Square",
+      "pose": {
+        "position": {
+          "x": -13.75,
+          "y": -8.8
+        },
+        "yawDeg": 0
+      },
+      "sizeM": 0.15000000000000036,
+      "zStartM": 0,
+      "heightM": 2.4
     }
   ],
   "slabs": [
@@ -3133,13 +3320,13 @@
       "roofType": "Flat",
       "pose": {
         "position": {
-          "x": -2.5,
-          "y": -5.6000000000000005
+          "x": -2.5500000000000003,
+          "y": -5.525
         },
         "yawDeg": 0
       },
-      "widthM": 2.3000000000000003,
-      "depthM": 11.1,
+      "widthM": 2.2,
+      "depthM": 11.05,
       "thicknessM": 0.2,
       "roofRiseM": 1.2,
       "zOffsetM": 0
@@ -3152,13 +3339,13 @@
       "roofType": "Flat",
       "pose": {
         "position": {
-          "x": -6.15,
-          "y": -7.425000000000001
+          "x": -6.084375000000001,
+          "y": -7.3609375
         },
         "yawDeg": 0
       },
-      "widthM": 5,
-      "depthM": 7.45,
+      "widthM": 4.9312499999999995,
+      "depthM": 7.378125000000001,
       "thicknessM": 0.2,
       "roofRiseM": 1.2,
       "zOffsetM": 0
@@ -3171,12 +3358,12 @@
       "roofType": "Flat",
       "pose": {
         "position": {
-          "x": -6.7,
+          "x": -6.675,
           "y": -1.85
         },
         "yawDeg": 0
       },
-      "widthM": 3.9000000000000004,
+      "widthM": 3.8499999999999996,
       "depthM": 3.7,
       "thicknessM": 0.2,
       "roofRiseM": 1.2,
@@ -3185,32 +3372,6 @@
   ],
   "externalModels": [],
   "measurements": [
-    {
-      "id": "measure_13a7f97aa2ae",
-      "levelId": "level_ade6d3294ff7",
-      "start": {
-        "x": -1.35,
-        "y": -11.15
-      },
-      "end": {
-        "x": -0.8500000000000001,
-        "y": -11.15
-      },
-      "unit": "m"
-    },
-    {
-      "id": "measure_552bbcc5452a",
-      "levelId": "level_ade6d3294ff7",
-      "start": {
-        "x": -8.65,
-        "y": -11.15
-      },
-      "end": {
-        "x": -8.9,
-        "y": -11.15
-      },
-      "unit": "m"
-    },
     {
       "id": "measure_77f09c48d1e6",
       "levelId": "level_ade6d3294ff7",
@@ -3221,6 +3382,19 @@
       "end": {
         "x": -8.85,
         "y": -0.2
+      },
+      "unit": "m"
+    },
+    {
+      "id": "measure_af073e0c34a7",
+      "levelId": "level_61c02b847a52",
+      "start": {
+        "x": -2.15,
+        "y": 0.15000000000000002
+      },
+      "end": {
+        "x": -2.15,
+        "y": 3.1500000000000004
       },
       "unit": "m"
     }
