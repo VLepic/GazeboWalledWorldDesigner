@@ -14,6 +14,12 @@ import {
   solveRoofFromSlab,
   solveWallSegmentsAgainstRoof,
 } from "./roof-solver";
+import {
+  areDirectionsCollinear,
+  buildPreviewWallTopology,
+  getSegmentDirection2D,
+} from "./preview-3d-wall-geometry";
+import type { RenderWallRun } from "./preview-3d-wall-geometry";
 import type { RoofWallSegment } from "./roof-solver";
 import type {
   Preview3DRenderMode,
@@ -70,33 +76,6 @@ interface RgbColor {
   r: number;
   g: number;
   b: number;
-}
-
-interface NodeWallAggregate {
-  count: number;
-  maxThicknessM: number;
-  maxHeightM: number;
-}
-
-interface WallOpeningRender {
-  kind: "door" | "window";
-  offsetM: number;
-  widthM: number;
-  heightM: number;
-  sillHeightM: number;
-}
-
-interface RenderWallRun {
-  id: string;
-  sourceWallIds: string[];
-  levelId: string;
-  wallTypeId: string;
-  topMode: Project["walls"][number]["topMode"];
-  startNodeId: string;
-  endNodeId: string;
-  start: Vec2;
-  end: Vec2;
-  openings: WallOpeningRender[];
 }
 
 interface WallMiterProfile {
@@ -396,21 +375,6 @@ function pointAlong2DSegment(start: Vec2, end: Vec2, offsetM: number) {
   };
 }
 
-function getSegmentDirection2D(start: Vec2, end: Vec2) {
-  const deltaX = end.x - start.x;
-  const deltaY = end.y - start.y;
-  const lengthM = Math.hypot(deltaX, deltaY);
-  if (lengthM < 0.0001) {
-    return null;
-  }
-
-  return createVec2(deltaX / lengthM, deltaY / lengthM);
-}
-
-function areDirectionsCollinear(left: Vec2, right: Vec2) {
-  return Math.abs(left.x * right.x + left.y * right.y) > 0.9995;
-}
-
 function cross2(left: Vec2, right: Vec2) {
   return left.x * right.y - left.y * right.x;
 }
@@ -459,8 +423,13 @@ export function buildPreview3DScene(
   const hiddenRoofLayerIdSet = new Set(hiddenRoofLayerIds);
   const wallTypeById = new Map(project.wallTypes.map((wallType) => [wallType.id, wallType] as const));
   const nodeById = new Map(project.nodes.map((node) => [node.id, node] as const));
-  const wallOpeningsByWallId = new Map<string, WallOpeningRender[]>();
-  const nodeWallAggregates = new Map<string, NodeWallAggregate>();
+  const wallTopology = buildPreviewWallTopology(project, nodeById, wallTypeById);
+  const {
+    nodeWallAggregates,
+    wallRenderInfoById,
+    wallIdsByNodeId,
+    renderWalls,
+  } = wallTopology;
   const solvedRoofs = solveProjectRoofs(project);
 
   const boxes: Preview3DBoxPrimitive[] = [];
@@ -1240,123 +1209,6 @@ export function buildPreview3DScene(
     }
   };
 
-  for (const door of project.doors) {
-    const currentOpenings = wallOpeningsByWallId.get(door.wallId) ?? [];
-    currentOpenings.push({
-      kind: "door",
-      offsetM: door.offsetM,
-      widthM: door.widthM,
-      heightM: door.heightM,
-      sillHeightM: 0,
-    });
-    wallOpeningsByWallId.set(door.wallId, currentOpenings);
-  }
-
-  for (const windowOpening of project.windows) {
-    const currentOpenings = wallOpeningsByWallId.get(windowOpening.wallId) ?? [];
-    currentOpenings.push({
-      kind: "window",
-      offsetM: windowOpening.offsetM,
-      widthM: windowOpening.widthM,
-      heightM: windowOpening.heightM,
-      sillHeightM: windowOpening.sillHeightM,
-    });
-    wallOpeningsByWallId.set(windowOpening.wallId, currentOpenings);
-  }
-
-  for (const wall of project.walls) {
-    const wallType = wallTypeById.get(wall.wallTypeId);
-    if (!wallType) {
-      continue;
-    }
-
-    for (const nodeId of [wall.startNodeId, wall.endNodeId]) {
-      const current = nodeWallAggregates.get(nodeId) ?? {
-        count: 0,
-        maxThicknessM: 0,
-        maxHeightM: 0,
-      };
-      nodeWallAggregates.set(nodeId, {
-        count: current.count + 1,
-        maxThicknessM: Math.max(current.maxThicknessM, wallType.thicknessM),
-        maxHeightM: Math.max(current.maxHeightM, wallType.heightM),
-      });
-    }
-  }
-
-  const wallRenderInfoById = new Map<
-    string,
-    {
-      wall: Project["walls"][number];
-      start: Vec2;
-      end: Vec2;
-      lengthM: number;
-      direction: Vec2;
-      mergeKey: string;
-    }
-  >();
-  const wallIdsByNodeId = new Map<string, string[]>();
-
-  for (const wall of project.walls) {
-    const wallType = wallTypeById.get(wall.wallTypeId);
-    const startNode = nodeById.get(wall.startNodeId);
-    const endNode = nodeById.get(wall.endNodeId);
-    const direction = startNode && endNode ? getSegmentDirection2D(startNode.position, endNode.position) : null;
-    if (!wallType || !startNode || !endNode || !direction) {
-      continue;
-    }
-
-    wallRenderInfoById.set(wall.id, {
-      wall,
-      start: startNode.position,
-      end: endNode.position,
-      lengthM: Math.hypot(
-        endNode.position.x - startNode.position.x,
-        endNode.position.y - startNode.position.y,
-      ),
-      direction,
-      mergeKey: `${wall.levelId}|${wall.wallTypeId}|${wall.topMode}`,
-    });
-
-    for (const nodeId of [wall.startNodeId, wall.endNodeId]) {
-      const wallIds = wallIdsByNodeId.get(nodeId) ?? [];
-      wallIds.push(wall.id);
-      wallIdsByNodeId.set(nodeId, wallIds);
-    }
-  }
-
-  const getOtherWallNodeId = (wall: Project["walls"][number], nodeId: string) =>
-    wall.startNodeId === nodeId ? wall.endNodeId : wall.startNodeId;
-
-  const getMergeNeighbor = (
-    current: {
-      wall: Project["walls"][number];
-      direction: Vec2;
-      mergeKey: string;
-    },
-    nodeId: string,
-    blockedWallIds: ReadonlySet<string>,
-  ) => {
-    const candidateWallIds = wallIdsByNodeId.get(nodeId) ?? [];
-    if (candidateWallIds.length !== 2) {
-      return null;
-    }
-
-    const candidateWallId = candidateWallIds.find(
-      (wallId) => wallId !== current.wall.id && !blockedWallIds.has(wallId),
-    );
-    if (!candidateWallId) {
-      return null;
-    }
-
-    const candidate = wallRenderInfoById.get(candidateWallId);
-    if (!candidate || candidate.mergeKey !== current.mergeKey) {
-      return null;
-    }
-
-    return areDirectionsCollinear(current.direction, candidate.direction) ? candidate : null;
-  };
-
   const getTStemTrimM = (
     nodeId: string,
     currentDirection: Vec2,
@@ -1455,86 +1307,6 @@ export function buildPreview3DScene(
     };
   };
 
-  const renderWalls: RenderWallRun[] = [];
-  const visitedWallIds = new Set<string>();
-
-  for (const initialInfo of wallRenderInfoById.values()) {
-    if (visitedWallIds.has(initialInfo.wall.id)) {
-      continue;
-    }
-
-    let startInfo = initialInfo;
-    let startNodeId = initialInfo.wall.startNodeId;
-    const reverseWalkWallIds = new Set<string>([initialInfo.wall.id]);
-    while (true) {
-      const neighbor = getMergeNeighbor(startInfo, startNodeId, reverseWalkWallIds);
-      if (!neighbor) {
-        break;
-      }
-
-      reverseWalkWallIds.add(neighbor.wall.id);
-      startNodeId = getOtherWallNodeId(neighbor.wall, startNodeId);
-      startInfo = neighbor;
-    }
-
-    const runInfos: typeof initialInfo[] = [];
-    const runWallIds = new Set<string>();
-    let currentInfo = startInfo;
-    let currentStartNodeId = startNodeId;
-    let finalEndNodeId = startNodeId;
-
-    while (true) {
-      runInfos.push(currentInfo);
-      runWallIds.add(currentInfo.wall.id);
-      visitedWallIds.add(currentInfo.wall.id);
-      const currentEndNodeId = getOtherWallNodeId(currentInfo.wall, currentStartNodeId);
-      finalEndNodeId = currentEndNodeId;
-      const neighbor = getMergeNeighbor(currentInfo, currentEndNodeId, runWallIds);
-      if (!neighbor) {
-        break;
-      }
-
-      currentStartNodeId = currentEndNodeId;
-      currentInfo = neighbor;
-    }
-
-    const startNode = nodeById.get(startNodeId);
-    const endNode = nodeById.get(finalEndNodeId);
-    if (!startNode || !endNode || runInfos.length === 0) {
-      continue;
-    }
-
-    const openings: WallOpeningRender[] = [];
-    let runOffsetM = 0;
-    let segmentStartNodeId = startNodeId;
-    for (const info of runInfos) {
-      const segmentEndNodeId = getOtherWallNodeId(info.wall, segmentStartNodeId);
-      const isForward = info.wall.startNodeId === segmentStartNodeId;
-      for (const opening of wallOpeningsByWallId.get(info.wall.id) ?? []) {
-        openings.push({
-          ...opening,
-          offsetM: runOffsetM + (isForward ? opening.offsetM : info.lengthM - opening.offsetM),
-        });
-      }
-
-      runOffsetM += info.lengthM;
-      segmentStartNodeId = segmentEndNodeId;
-    }
-
-    renderWalls.push({
-      id: runInfos.map((info) => info.wall.id).join("__"),
-      sourceWallIds: runInfos.map((info) => info.wall.id),
-      levelId: initialInfo.wall.levelId,
-      wallTypeId: initialInfo.wall.wallTypeId,
-      topMode: initialInfo.wall.topMode,
-      startNodeId,
-      endNodeId: finalEndNodeId,
-      start: startNode.position,
-      end: endNode.position,
-      openings,
-    });
-  }
-
   const wallIdsRenderedByUnion = new Set<string>();
 
   type FlatWallUnionOpening = {
@@ -1553,7 +1325,6 @@ export function buildPreview3DScene(
     normal: Vec2;
     minU: number;
     maxU: number;
-    topHeightAt: (point: Vec2) => number | null;
     openings: FlatWallUnionOpening[];
   };
 
@@ -1603,11 +1374,6 @@ export function buildPreview3DScene(
         Math.abs(normalOffsetM) <= prism.halfThicknessM + 0.0001
       );
     };
-    const getWallOffsetForPlanPoint2D = (
-      start: Vec2,
-      direction: Vec2,
-      point: Vec2,
-    ) => dot2(createVec2(point.x - start.x, point.y - start.y), direction);
     const isOpeningVoidAt = (prism: FlatWallUnionPrism, point: Vec2, zM: number) => {
       const delta = createVec2(point.x - prism.start.x, point.y - prism.start.y);
       const u = dot2(delta, prism.direction);
@@ -1635,7 +1401,7 @@ export function buildPreview3DScene(
           continue;
         }
 
-        const prismTopHeightM = prism.topHeightAt(point);
+        const prismTopHeightM = prism.wallHeightM;
         if (prismTopHeightM === null || prismTopHeightM < zM - 0.0001) {
           continue;
         }
@@ -1683,73 +1449,6 @@ export function buildPreview3DScene(
           (endAggregate?.count ?? 0) > 1 ? (endAggregate?.maxThicknessM ?? wallType.thicknessM) / 2 : 0;
         const minU = -startExtensionM;
         const maxU = wallLengthM + endExtensionM;
-        const extendedStart = createVec2(
-          wall.start.x + wallDirection.x * minU,
-          wall.start.y + wallDirection.y * minU,
-        );
-        const extendedEnd = createVec2(
-          wall.start.x + wallDirection.x * maxU,
-          wall.start.y + wallDirection.y * maxU,
-        );
-        const roofWallSegments =
-          wall.topMode === "FollowRoof"
-            ? (() => {
-                const matchingRoof = solvedRoofs.find(
-                  (roof) => solveWallSegmentsAgainstRoof(roof, extendedStart, extendedEnd).length > 0,
-                );
-                return matchingRoof
-                  ? solveWallSegmentsAgainstRoof(matchingRoof, extendedStart, extendedEnd).map(
-                      (segment) => ({
-                        ...segment,
-                        roof: matchingRoof,
-                        startOffsetM: getWallOffsetForPlanPoint2D(wall.start, wallDirection, segment.start),
-                        endOffsetM: getWallOffsetForPlanPoint2D(wall.start, wallDirection, segment.end),
-                      }),
-                    )
-                  : [];
-              })()
-            : [];
-        if (wall.topMode === "FollowRoof" && roofWallSegments.length === 0) {
-          continue;
-        }
-
-        const topHeightAt = (point: Vec2) => {
-          if (wall.topMode !== "FollowRoof") {
-            return wallType.heightM;
-          }
-
-          const offsetM = getWallOffsetForPlanPoint2D(wall.start, wallDirection, point);
-          for (const segment of roofWallSegments) {
-            const segmentStartOffsetM = segment.startOffsetM;
-            const segmentEndOffsetM = segment.endOffsetM;
-            const segmentMinOffsetM = Math.min(segmentStartOffsetM, segmentEndOffsetM);
-            const segmentMaxOffsetM = Math.max(segmentStartOffsetM, segmentEndOffsetM);
-            if (
-              offsetM < segmentMinOffsetM - 0.0001 ||
-              offsetM > segmentMaxOffsetM + 0.0001 ||
-              Math.abs(segmentEndOffsetM - segmentStartOffsetM) < 0.0001
-            ) {
-              continue;
-            }
-
-            const t = clamp(
-              (offsetM - segmentStartOffsetM) / (segmentEndOffsetM - segmentStartOffsetM),
-              0,
-              1,
-            );
-            const absoluteHeightM =
-              segment.startHeightM + (segment.endHeightM - segment.startHeightM) * t;
-            return clamp(absoluteHeightM - level.elevationM, 0, wallType.heightM);
-          }
-
-          const fallbackRoof = roofWallSegments[0]?.roof;
-          const fallbackHeightM = fallbackRoof
-            ? getRoofHeightAtPoint(fallbackRoof, point, "inner")
-            : null;
-          return fallbackHeightM === null
-            ? null
-            : clamp(fallbackHeightM - level.elevationM, 0, wallType.heightM);
-        };
         const prism: FlatWallUnionPrism = {
           wallId: wall.id,
           wallHeightM: wallType.heightM,
@@ -1759,7 +1458,6 @@ export function buildPreview3DScene(
           normal: rightNormal2(wallDirection),
           minU,
           maxU,
-          topHeightAt,
           openings: wall.openings
             .map((opening) => {
               const minOpeningU = clamp(opening.offsetM - opening.widthM / 2, minU, maxU);
@@ -1787,20 +1485,6 @@ export function buildPreview3DScene(
         zCuts.push(0, prism.wallHeightM);
         addPlanCutsForLocalBoundary(prism, prism.minU, xCuts, yCuts);
         addPlanCutsForLocalBoundary(prism, prism.maxU, xCuts, yCuts);
-        for (const segment of roofWallSegments) {
-          addPlanCutsForLocalBoundary(
-            prism,
-            clamp(segment.startOffsetM, prism.minU, prism.maxU),
-            xCuts,
-            yCuts,
-          );
-          addPlanCutsForLocalBoundary(
-            prism,
-            clamp(segment.endOffsetM, prism.minU, prism.maxU),
-            xCuts,
-            yCuts,
-          );
-        }
         for (const opening of prism.openings) {
           addPlanCutsForLocalBoundary(prism, opening.minU, xCuts, yCuts);
           addPlanCutsForLocalBoundary(prism, opening.maxU, xCuts, yCuts);
