@@ -1150,7 +1150,7 @@ function parseDoors(data: unknown, wallIds: string[], warnings: string[]) {
     const design3DSource = asObject(source.design3D ?? source.design_3d ?? source.door3D ?? source.door_3d);
     const kind =
       (design3DSource && pickParsedValue(design3DSource, (value) => {
-        const parsed = z.enum(["Normal", "Garage"]).safeParse(value);
+        const parsed = z.enum(["Normal", "Garage", "Glass", "HSPortal"]).safeParse(value);
         return parsed.success ? parsed.data : undefined;
       }, "kind")) ?? "Normal";
     const frameThicknessM =
@@ -1172,6 +1172,10 @@ function parseDoors(data: unknown, wallIds: string[], warnings: string[]) {
         const parsed = z.enum(["Closed", "Open"]).safeParse(value);
         return parsed.success ? parsed.data : undefined;
       }, "openState", "open_state")) ?? "Closed";
+    const openPercentRaw =
+      (design3DSource && pickNumber(design3DSource, "openPercent", "open_percent")) ??
+      (openState === "Open" ? 100 : 0);
+    const openPercent = Math.max(0, Math.min(100, openPercentRaw));
     const hingeSide =
       (design3DSource && pickParsedValue(design3DSource, (value) => {
         const parsed = z.enum(["Left", "Right"]).safeParse(value);
@@ -1197,6 +1201,7 @@ function parseDoors(data: unknown, wallIds: string[], warnings: string[]) {
             doorColorHex,
             wallDepthOffsetM,
             openState,
+            openPercent,
             hingeSide,
             swingDirection,
           }

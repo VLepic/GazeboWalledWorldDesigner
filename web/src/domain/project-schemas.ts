@@ -47,7 +47,7 @@ export const roofVertexElevationModeSchema = z.enum(["Explicit", "Computed"]) sa
 export const roofEdgeRoleSchema = z.enum(["Generic", "LowerEave", "UpperEave", "Ridge", "Hip", "Valley"]) satisfies z.ZodType<RoofEdgeRole>;
 export const roofOpeningCutModeSchema = z.enum(["NormalToRoof", "Vertical"]) satisfies z.ZodType<RoofOpeningCutMode>;
 export const roofOpeningRotationDegSchema = z.union([z.literal(0), z.literal(90)]) satisfies z.ZodType<RoofOpeningRotationDeg>;
-export const doorDesign3DKindSchema = z.enum(["Normal", "Garage"]);
+export const doorDesign3DKindSchema = z.enum(["Normal", "Garage", "Glass", "HSPortal"]);
 export const door3DOpenStateSchema = z.enum(["Closed", "Open"]);
 export const door3DHingeSideSchema = z.enum(["Left", "Right"]);
 export const door3DSwingDirectionSchema = z.enum(["Inward", "Outward"]);
@@ -200,6 +200,7 @@ export const doorOpeningSchema = z.object({
       doorColorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
       wallDepthOffsetM: z.number().finite(),
       openState: door3DOpenStateSchema,
+      openPercent: z.number().finite().min(0).max(100),
       hingeSide: door3DHingeSideSchema,
       swingDirection: door3DSwingDirectionSchema,
     })

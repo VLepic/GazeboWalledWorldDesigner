@@ -85,6 +85,7 @@ interface ViewportSceneProps {
   onMoveWindow: (windowId: string, position: Vec2) => void;
   onMoveShape: (shapeId: string, position: Vec2) => void;
   onMoveSlab: (slabId: string, position: Vec2) => void;
+  onResizeSlab: (slabId: string, patch: { position: Vec2; widthM: number; depthM: number }) => void;
   onMoveRoofEdge: (roofEdgeId: string, position: Vec2) => void;
   onMoveRoofVertex: (roofSketchId: string, roofVertexId: string, position: Vec2) => void;
   onMoveRoofOpening: (roofOpeningId: string, position: Vec2) => void;
@@ -140,6 +141,17 @@ interface RoofVertexDragState {
   startPointerWorld: Vec2;
 }
 
+interface SlabResizeDragState {
+  kind: "slabResize";
+  pointerId: number;
+  slabId: string;
+  fixedCorner: Vec2;
+  movingCornerSignX: -1 | 1;
+  movingCornerSignY: -1 | 1;
+  startWidthM: number;
+  startDepthM: number;
+}
+
 type MoveDragItem = MoveDragState["items"][number];
 
 type PlacementDraftState =
@@ -186,7 +198,12 @@ interface BoxSelectDragState {
   currentWorld: Vec2;
 }
 
-type DragState = PanDragState | MoveDragState | RoofVertexDragState | BoxSelectDragState;
+type DragState =
+  | PanDragState
+  | MoveDragState
+  | RoofVertexDragState
+  | SlabResizeDragState
+  | BoxSelectDragState;
 
 interface VisibleEntityStyle {
   stroke: string;
@@ -693,6 +710,7 @@ export function ViewportScene({
   onMoveWindow,
   onMoveShape,
   onMoveSlab,
+  onResizeSlab,
   onMoveRoofEdge,
   onMoveRoofVertex,
   onMoveRoofOpening,
@@ -1543,6 +1561,44 @@ export function ViewportScene({
     });
   }
 
+  function startSlabResizeDrag(
+    event: React.PointerEvent<SVGElement>,
+    slab: Slab,
+    movingCornerSignX: -1 | 1,
+    movingCornerSignY: -1 | 1,
+    interactive: boolean,
+  ) {
+    if (activeTool !== "Move" || event.button !== 0 || !interactive || slab.kind !== "Rectangle") {
+      return;
+    }
+
+    const pointerWorld = updateCursor(event.clientX, event.clientY);
+    if (!pointerWorld) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    rootRef.current?.setPointerCapture(event.pointerId);
+    if (!isIncludedInSelectionSet(selectionSet, "slab", slab.id)) {
+      onSelectionSetChange([{ kind: "slab", id: slab.id }], { kind: "slab", id: slab.id });
+    }
+    onMoveInteractionStart();
+    setDragState({
+      kind: "slabResize",
+      pointerId: event.pointerId,
+      slabId: slab.id,
+      fixedCorner: createVec2(
+        slab.pose.position.x - movingCornerSignX * slab.widthM / 2,
+        slab.pose.position.y - movingCornerSignY * slab.depthM / 2,
+      ),
+      movingCornerSignX,
+      movingCornerSignY,
+      startWidthM: slab.widthM,
+      startDepthM: slab.depthM,
+    });
+  }
+
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (activeTool === "Move" && event.button === 2) {
       const pointerWorld = updateCursor(event.clientX, event.clientY);
@@ -1657,6 +1713,42 @@ export function ViewportScene({
       if (!hasSamePosition(dragState.startPosition, nextPosition)) {
         suppressClickRef.current = true;
         onMoveRoofVertex(dragState.roofSketchId, dragState.roofVertexId, nextPosition);
+      }
+      return;
+    }
+
+    if (dragState.kind === "slabResize") {
+      const target = project.settings.snapToGrid
+        ? snapPointToGrid(pointerWorld, project.settings.gridSpacingM)
+        : pointerWorld;
+      const rawDeltaX = target.x - dragState.fixedCorner.x;
+      const rawDeltaY = target.y - dragState.fixedCorner.y;
+      const signX =
+        rawDeltaX === 0 ? dragState.movingCornerSignX : rawDeltaX > 0 ? 1 : -1;
+      const signY =
+        rawDeltaY === 0 ? dragState.movingCornerSignY : rawDeltaY > 0 ? 1 : -1;
+      const minimumSizeM = project.settings.snapToGrid
+        ? Math.max(project.settings.gridSpacingM, 0.01)
+        : 0.05;
+      const nextWidthM = Math.max(Math.abs(rawDeltaX), minimumSizeM);
+      const nextDepthM = Math.max(Math.abs(rawDeltaY), minimumSizeM);
+      const nextPosition = createVec2(
+        dragState.fixedCorner.x + signX * nextWidthM / 2,
+        dragState.fixedCorner.y + signY * nextDepthM / 2,
+      );
+      const currentSlab = project.slabs.find((slab) => slab.id === dragState.slabId);
+      if (
+        currentSlab &&
+        (!hasSamePosition(currentSlab.pose.position, nextPosition) ||
+          Math.abs(currentSlab.widthM - nextWidthM) > 0.0001 ||
+          Math.abs(currentSlab.depthM - nextDepthM) > 0.0001)
+      ) {
+        suppressClickRef.current = true;
+        onResizeSlab(dragState.slabId, {
+          position: nextPosition,
+          widthM: nextWidthM,
+          depthM: nextDepthM,
+        });
       }
       return;
     }
@@ -1912,7 +2004,11 @@ export function ViewportScene({
         return;
       }
 
-      if (dragState.kind === "move" || dragState.kind === "roofVertex") {
+      if (
+        dragState.kind === "move" ||
+        dragState.kind === "roofVertex" ||
+        dragState.kind === "slabResize"
+      ) {
         onMoveInteractionCommit();
       }
 
@@ -2683,43 +2779,94 @@ export function ViewportScene({
       );
     }
 
+    const handleSizePx = 10;
+    const resizeHandles =
+      selected && activeTool === "Move" && levelStyle.interactive
+        ? ([
+            { xSign: -1, ySign: 1, cursor: "nwse-resize" },
+            { xSign: 1, ySign: 1, cursor: "nesw-resize" },
+            { xSign: 1, ySign: -1, cursor: "nwse-resize" },
+            { xSign: -1, ySign: -1, cursor: "nesw-resize" },
+          ] as const)
+        : [];
+
     return (
-      <rect
-        key={slab.id}
-        data-viewport-entity="slab"
-        data-slab-id={slab.id}
-        x={outline.x}
-        y={outline.y}
-        width={outline.width}
-        height={outline.height}
-        fill={selected ? "rgba(255, 209, 102, 0.18)" : baseFill}
-        stroke={selected ? "#ffd166" : baseStroke}
-        strokeWidth={selected ? 3 : 2}
-        opacity={levelStyle.opacity}
-        pointerEvents={levelStyle.interactive && isToolInteractive ? "auto" : "none"}
-        onPointerDown={(event) =>
-          startMoveDrag(event, "slab", slab.id, slab.pose.position, levelStyle.interactive)
-        }
-        onClick={(event) => {
-          if (consumeSuppressedClick()) {
-            event.stopPropagation();
-            return;
+      <g key={slab.id}>
+        <rect
+          data-viewport-entity="slab"
+          data-slab-id={slab.id}
+          x={outline.x}
+          y={outline.y}
+          width={outline.width}
+          height={outline.height}
+          fill={selected ? "rgba(255, 209, 102, 0.18)" : baseFill}
+          stroke={selected ? "#ffd166" : baseStroke}
+          strokeWidth={selected ? 3 : 2}
+          opacity={levelStyle.opacity}
+          pointerEvents={levelStyle.interactive && isToolInteractive ? "auto" : "none"}
+          onPointerDown={(event) =>
+            startMoveDrag(event, "slab", slab.id, slab.pose.position, levelStyle.interactive)
           }
+          onClick={(event) => {
+            if (consumeSuppressedClick()) {
+              event.stopPropagation();
+              return;
+            }
 
-          event.stopPropagation();
-          if (matchesSlabTool || matchesRoofTool) {
-            return;
-          }
-
-          onSelectionChange({ kind: "slab", id: slab.id });
-        }}
-        onContextMenu={(event) => {
-          if ((matchesSlabTool || matchesRoofTool) && levelStyle.interactive) {
-            event.preventDefault();
             event.stopPropagation();
-          }
-        }}
-      />
+            if (matchesSlabTool || matchesRoofTool) {
+              return;
+            }
+
+            onSelectionChange({ kind: "slab", id: slab.id });
+          }}
+          onContextMenu={(event) => {
+            if ((matchesSlabTool || matchesRoofTool) && levelStyle.interactive) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          }}
+        />
+        {resizeHandles.map((handle) => {
+          const position = worldToScreen(
+            createVec2(
+              slab.pose.position.x + handle.xSign * slab.widthM / 2,
+              slab.pose.position.y + handle.ySign * slab.depthM / 2,
+            ),
+            metrics,
+          );
+
+          return (
+            <rect
+              key={`${slab.id}-resize-${handle.xSign}-${handle.ySign}`}
+              x={position.x - handleSizePx / 2}
+              y={position.y - handleSizePx / 2}
+              width={handleSizePx}
+              height={handleSizePx}
+              rx={3}
+              fill="#111827"
+              stroke="#ffd166"
+              strokeWidth={2}
+              opacity={levelStyle.opacity}
+              pointerEvents="auto"
+              style={{ cursor: handle.cursor }}
+              onPointerDown={(event) =>
+                startSlabResizeDrag(
+                  event,
+                  slab,
+                  handle.xSign,
+                  handle.ySign,
+                  levelStyle.interactive,
+                )
+              }
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+            />
+          );
+        })}
+      </g>
     );
   }
 

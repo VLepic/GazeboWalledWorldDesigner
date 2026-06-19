@@ -144,7 +144,7 @@ export interface DoorOpening {
   design3D?: DoorDesign3D | null;
 }
 
-export type DoorDesign3DKind = "Normal" | "Garage";
+export type DoorDesign3DKind = "Normal" | "Garage" | "Glass" | "HSPortal";
 export type Door3DOpenState = "Closed" | "Open";
 export type Door3DHingeSide = "Left" | "Right";
 export type Door3DSwingDirection = "Inward" | "Outward";
@@ -156,6 +156,7 @@ export interface DoorDesign3D {
   doorColorHex: string;
   wallDepthOffsetM: number;
   openState: Door3DOpenState;
+  openPercent: number;
   hingeSide: Door3DHingeSide;
   swingDirection: Door3DSwingDirection;
 }
