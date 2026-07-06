@@ -2940,7 +2940,12 @@ export function ViewportScene({
         const selected =
           isSelected(currentSelection, "roofEdge", edge.id) ||
           isIncludedInSelectionSet(selectionSet, "roofEdge", edge.id);
-        const label = `${(((start.elevationM ?? sketch.baseElevationM) + (end.elevationM ?? sketch.baseElevationM)) / 2).toFixed(2)} m`;
+        const startElevationM = start.elevationM ?? sketch.baseElevationM;
+        const endElevationM = end.elevationM ?? sketch.baseElevationM;
+        const label =
+          Math.abs(startElevationM - endElevationM) < 0.001
+            ? `${startElevationM.toFixed(2)} m`
+            : `${startElevationM.toFixed(2)} -> ${endElevationM.toFixed(2)} m`;
         const midpoint = {
           x: (startScreen.x + endScreen.x) / 2,
           y: (startScreen.y + endScreen.y) / 2,

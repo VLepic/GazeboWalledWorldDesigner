@@ -603,7 +603,9 @@ export default function App() {
   const [shapeToolKind, setShapeToolKind] = useState<Shape["kind"]>("Square");
   const [shapeToolBottomM, setShapeToolBottomM] = useState(0);
   const [shapeToolTopM, setShapeToolTopM] = useState(2.5);
-  const [roofToolLineElevationM, setRoofToolLineElevationM] = useState(3);
+  const [roofToolStartElevationM, setRoofToolStartElevationM] = useState(3);
+  const [roofToolEndElevationM, setRoofToolEndElevationM] = useState(3);
+  const [roofToolEndElevationLocked, setRoofToolEndElevationLocked] = useState(true);
   const [roofWindowToolWidthM, setRoofWindowToolWidthM] = useState(0.8);
   const [roofWindowToolHeightM, setRoofWindowToolHeightM] = useState(1.0);
   const [roofWindowToolCutMode, setRoofWindowToolCutMode] =
@@ -1688,6 +1690,33 @@ export default function App() {
     }));
   }
 
+  function handleSetRoofToolStartElevation(nextValue: number) {
+    if (!Number.isFinite(nextValue)) {
+      return;
+    }
+
+    setRoofToolStartElevationM(nextValue);
+    if (roofToolEndElevationLocked) {
+      setRoofToolEndElevationM(nextValue);
+    }
+  }
+
+  function handleSetRoofToolEndElevation(nextValue: number) {
+    if (Number.isFinite(nextValue)) {
+      setRoofToolEndElevationM(nextValue);
+    }
+  }
+
+  function handleToggleRoofToolEndElevationLock() {
+    setRoofToolEndElevationLocked((current) => {
+      const nextLocked = !current;
+      if (nextLocked) {
+        setRoofToolEndElevationM(roofToolStartElevationM);
+      }
+      return nextLocked;
+    });
+  }
+
   function handleCreateNode() {
     if (!activeLevelId) {
       reportError("Select an active level before creating a node.");
@@ -2353,7 +2382,11 @@ export default function App() {
     }
   }
 
-  function handleUpdateSelectedRoofEdgeElevation(elevationM: number) {
+  function handleUpdateSelectedRoofEdgeEndpointElevations(
+    startElevationM: number,
+    endElevationM: number,
+    message = "Updated roof line endpoint elevations.",
+  ) {
     if (
       !selectedRoofSketch ||
       !selectedRoofEdge ||
@@ -2365,28 +2398,38 @@ export default function App() {
     }
 
     try {
-      const vertexIds = new Set([
-        selectedRoofEdge.startVertexId,
-        selectedRoofEdge.endVertexId,
-      ]);
       applyCommand((current) =>
         updateRoofSketch(current, selectedRoofSketch.id, {
           vertices: selectedRoofSketch.vertices.map((vertex) =>
-            vertexIds.has(vertex.id)
+            vertex.id === selectedRoofEdge.startVertexId
               ? {
                   ...vertex,
                   elevationMode: "Explicit",
-                  elevationM,
+                  elevationM: startElevationM,
                 }
+              : vertex.id === selectedRoofEdge.endVertexId
+                ? {
+                    ...vertex,
+                    elevationMode: "Explicit",
+                    elevationM: endElevationM,
+                  }
               : vertex,
           ),
         }),
       );
-      reportSuccess(`Updated roof line elevation to ${formatNumber(elevationM)} m.`);
+      reportSuccess(message);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Roof line elevation update failed.";
       reportError(message);
     }
+  }
+
+  function handleUpdateSelectedRoofEdgeElevation(elevationM: number) {
+    handleUpdateSelectedRoofEdgeEndpointElevations(
+      elevationM,
+      elevationM,
+      `Updated roof line elevation to ${formatNumber(elevationM)} m.`,
+    );
   }
 
   function handleUpdateSelectedRoofFaceThickness(thicknessM: number) {
@@ -2951,13 +2994,13 @@ export default function App() {
           id: startVertexId,
           position: createVec2(start.x, start.y),
           elevationMode: "Explicit" as const,
-          elevationM: roofToolLineElevationM,
+          elevationM: roofToolStartElevationM,
         },
         {
           id: endVertexId,
           position: createVec2(end.x, end.y),
           elevationMode: "Explicit" as const,
-          elevationM: roofToolLineElevationM,
+          elevationM: roofToolEndElevationM,
         },
       ];
       const edge = {
@@ -2972,7 +3015,7 @@ export default function App() {
         return createRoofSketch(current, {
           name: "Manual Roof Sketch",
           layerId: roofLayer.id,
-          baseElevationM: roofToolLineElevationM,
+          baseElevationM: Math.min(roofToolStartElevationM, roofToolEndElevationM),
           thicknessM: 0.2,
           vertices,
           edges: [edge],
@@ -2991,7 +3034,7 @@ export default function App() {
       setSelectionSet([{ kind: "roofEdge", id: createdEdgeId }], { kind: "roofEdge", id: createdEdgeId });
     }
     reportSuccess(
-      `Created roof line at ${formatNumber(roofToolLineElevationM)} m, length ${formatNumber(lengthM)} m.`,
+      `Created roof line from ${formatNumber(roofToolStartElevationM)} m to ${formatNumber(roofToolEndElevationM)} m, length ${formatNumber(lengthM)} m.`,
     );
   }
 
@@ -4094,19 +4137,37 @@ export default function App() {
           <p className="muted">
             Drag in the roof layer to draw a roof line. Click two roof lines and link them into one roof face.
           </p>
-          <label className="field-label">
-            <span>Line Elevation (m)</span>
-            <DraftNumberInput
-              value={roofToolLineElevationM}
-              step="0.1"
-              min="0"
-              onCommit={(nextValue) => {
-                if (Number.isFinite(nextValue)) {
-                  setRoofToolLineElevationM(nextValue);
-                }
-              }}
-            />
-          </label>
+          <div className="field-grid">
+            <label className="field-label">
+              <span>Line Elevation (m)</span>
+              <DraftNumberInput
+                value={roofToolStartElevationM}
+                step="0.1"
+                min="0"
+                onCommit={handleSetRoofToolStartElevation}
+              />
+            </label>
+            {!roofToolEndElevationLocked ? (
+              <label className="field-label">
+                <span>Line End Elevation (m)</span>
+                <DraftNumberInput
+                  value={roofToolEndElevationM}
+                  step="0.1"
+                  min="0"
+                  onCommit={handleSetRoofToolEndElevation}
+                />
+              </label>
+            ) : null}
+          </div>
+          <div className="button-row">
+            <button
+              type="button"
+              className={roofToolEndElevationLocked ? "toggle-button is-active" : "toggle-button"}
+              onClick={handleToggleRoofToolEndElevationLock}
+            >
+              End Follows Start
+            </button>
+          </div>
           <div className="button-row">
             <button
               type="button"
@@ -4838,7 +4899,35 @@ export default function App() {
       return (
         <div className="field-grid">
           <label className="field-label">
-            <span>Line Elevation (m)</span>
+            <span>Start Elevation (m)</span>
+            <DraftNumberInput
+              step="0.1"
+              value={startElevationM}
+              onCommit={(nextValue) =>
+                handleUpdateSelectedRoofEdgeEndpointElevations(
+                  nextValue,
+                  endElevationM,
+                  `Updated roof line start elevation to ${formatNumber(nextValue)} m.`,
+                )
+              }
+            />
+          </label>
+          <label className="field-label">
+            <span>End Elevation (m)</span>
+            <DraftNumberInput
+              step="0.1"
+              value={endElevationM}
+              onCommit={(nextValue) =>
+                handleUpdateSelectedRoofEdgeEndpointElevations(
+                  startElevationM,
+                  nextValue,
+                  `Updated roof line end elevation to ${formatNumber(nextValue)} m.`,
+                )
+              }
+            />
+          </label>
+          <label className="field-label">
+            <span>Set Both (m)</span>
             <DraftNumberInput
               step="0.1"
               value={commonElevationM}
@@ -4862,7 +4951,8 @@ export default function App() {
             </strong>
           </div>
           <p className="muted">
-            Editing the line elevation sets both roof-line endpoints to the same height and updates connected faces.
+            Start and end elevations can differ, so one roof line can slope along its length.
+            Set Both keeps the line level when you need a classic eave or ridge.
           </p>
         </div>
       );
@@ -5256,7 +5346,7 @@ export default function App() {
             </div>
 
             {panelVisibility.helpCardOpen ? (
-            <div className="viewport-card">
+            <div className="viewport-card viewport-card-overlay">
               <div className="viewport-card-header">
                 <div>
                   <p className="section-kicker">Hint</p>

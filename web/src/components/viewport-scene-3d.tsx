@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, events as createPointerEvents, useFrame, useThree } from "@react-three/fiber";
 import { Edges, OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import { buildPreview3DScene } from "../domain/preview-3d-geometry";
@@ -1088,12 +1088,17 @@ function PreviewCameraController({
   onOrbitingChange: (isOrbiting: boolean) => void;
 }) {
   const controlsRef = useRef<any>(null);
+  const isControlActiveRef = useRef(false);
   const lastSignatureRef = useRef("");
   const { camera } = useThree();
   const activeTarget = getPreview3DTarget(preview3D, target);
   const cameraMode = getPreview3DCameraMode(preview3D);
 
   useEffect(() => {
+    if (isControlActiveRef.current) {
+      return;
+    }
+
     const [x, y, z] = getCameraPosition(preview3D, activeTarget, radius);
     camera.position.set(x, y, z);
     camera.up.set(0, 1, 0);
@@ -1105,10 +1110,16 @@ function PreviewCameraController({
     }
   }, [activeTarget, camera, preview3D, radius]);
 
+  function handleOrbitStart() {
+    isControlActiveRef.current = true;
+    onOrbitingChange(true);
+  }
+
   function handleOrbitEnd() {
-    onOrbitingChange(false);
     const controls = controlsRef.current;
     if (!controls) {
+      isControlActiveRef.current = false;
+      onOrbitingChange(false);
       return;
     }
 
@@ -1119,6 +1130,8 @@ function PreviewCameraController({
     const deltaZ = position.z - controlTarget.z;
     const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ);
     if (distance < 0.0001) {
+      isControlActiveRef.current = false;
+      onOrbitingChange(false);
       return;
     }
 
@@ -1134,18 +1147,19 @@ function PreviewCameraController({
           ]
         : [0, 0, 0];
     const signature = `${cameraMode}|${yawDeg.toFixed(2)}|${pitchDeg.toFixed(2)}|${distanceMultiplier.toFixed(3)}|${targetOffset.join("|")}`;
-    if (signature === lastSignatureRef.current) {
-      return;
+    if (signature !== lastSignatureRef.current) {
+      lastSignatureRef.current = signature;
+      onPreview3DChange({
+        yawDeg: Number(yawDeg.toFixed(2)),
+        pitchDeg: Number(pitchDeg.toFixed(2)),
+        distanceMultiplier: Number(distanceMultiplier.toFixed(3)),
+        targetOffset,
+        cameraPositionOffset: null,
+      });
     }
 
-    lastSignatureRef.current = signature;
-    onPreview3DChange({
-      yawDeg: Number(yawDeg.toFixed(2)),
-      pitchDeg: Number(pitchDeg.toFixed(2)),
-      distanceMultiplier: Number(distanceMultiplier.toFixed(3)),
-      targetOffset,
-      cameraPositionOffset: null,
-    });
+    isControlActiveRef.current = false;
+    onOrbitingChange(false);
   }
 
   return (
@@ -1156,7 +1170,7 @@ function PreviewCameraController({
       makeDefault
       enablePan={cameraMode === "FreeOrbit"}
       screenSpacePanning
-      onStart={() => onOrbitingChange(true)}
+      onStart={handleOrbitStart}
       onEnd={handleOrbitEnd}
     />
   );
@@ -1422,6 +1436,13 @@ export function ViewportScene3D({
   const [hoveredWindowId, setHoveredWindowId] = useState<string | null>(null);
   const [hoveredRoofOpeningId, setHoveredRoofOpeningId] = useState<string | null>(null);
   const suppressNextContextClearRef = useRef(false);
+  const canvasEvents = useMemo(
+    () => (store: Parameters<typeof createPointerEvents>[0]) => ({
+      ...createPointerEvents(store),
+      enabled: !isOrbiting,
+    }),
+    [isOrbiting],
+  );
   const scene = useMemo(
     () =>
       buildPreview3DScene(
@@ -1441,6 +1462,16 @@ export function ViewportScene3D({
   const grayMode = preview3D.surfaceMode === "GrayOpaque";
   const cameraMode = getPreview3DCameraMode(preview3D);
 
+  useEffect(() => {
+    if (!isOrbiting) {
+      return;
+    }
+
+    setHoveredDoorId(null);
+    setHoveredWindowId(null);
+    setHoveredRoofOpeningId(null);
+  }, [isOrbiting]);
+
   return (
     <div
       className={isOrbiting ? "viewport-scene-3d is-orbiting" : "viewport-scene-3d"}
@@ -1459,6 +1490,7 @@ export function ViewportScene3D({
         dpr={[1, 2]}
         gl={{ antialias: true, alpha: true }}
         camera={{ fov: 42, near: 0.1, far: 2000 }}
+        events={canvasEvents}
       >
         <color attach="background" args={["#0a1122"]} />
         <fog attach="fog" args={["#0a1122", scene.radius * 4, scene.radius * 12]} />
