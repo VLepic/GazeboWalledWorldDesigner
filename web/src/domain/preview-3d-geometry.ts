@@ -2,6 +2,7 @@ import {
   createVec2,
 } from "./project-model";
 import type {
+  GroundSurface,
   Project,
   Shape,
   Slab,
@@ -930,6 +931,31 @@ export function buildPreview3DScene(
     }
 
     addBoxPrimitive(center, shape.sizeM, shape.heightM, shape.sizeM, 0, color);
+  };
+
+  const addGroundSurfacePrimitive = (groundSurface: GroundSurface) => {
+    const halfWidth = groundSurface.widthM / 2;
+    const halfDepth = groundSurface.depthM / 2;
+    const yawRad = (groundSurface.pose.yawDeg * Math.PI) / 180;
+    const cos = Math.cos(yawRad);
+    const sin = Math.sin(yawRad);
+    const localCorners = [
+      createVec2(-halfWidth, -halfDepth),
+      createVec2(halfWidth, -halfDepth),
+      createVec2(halfWidth, halfDepth),
+      createVec2(-halfWidth, halfDepth),
+    ];
+    const vertices = localCorners.map((corner) => {
+      const worldX = groundSurface.pose.position.x + corner.x * cos - corner.y * sin;
+      const worldY = groundSurface.pose.position.y + corner.x * sin + corner.y * cos;
+      return vec3(worldX, 0, -worldY);
+    });
+    const color =
+      groundSurface.kind === "Grass"
+        ? { r: 74, g: 143, b: 78 }
+        : { r: 150, g: 154, b: 160 };
+
+    addMeshPrimitive(vertices, [0, 1, 2, 0, 2, 3], color, 1);
   };
 
   const addSolvedRoofMesh = (solvedRoof: SolvedRoof, color: RgbColor) => {
@@ -2617,6 +2643,10 @@ export function buildPreview3DScene(
         shadeColor(getBaseSurfaceColor(levelIndexById.get(level.id) ?? 0, surfaceMode), 0.72),
       );
     }
+  }
+
+  for (const groundSurface of project.groundSurfaces) {
+    addGroundSurfacePrimitive(groundSurface);
   }
 
   for (const stair of project.stairs) {

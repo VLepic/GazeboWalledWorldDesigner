@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { createVec2 } from "../domain/project-model";
+import { calculatePolygonAreaM2, createVec2 } from "../domain/project-model";
 import type {
   DoorOpening,
   ExternalModel,
+  GroundSurface,
   Measurement,
   MeasurementUnit,
   NodeData,
   Project,
+  Room,
   Shape,
   Slab,
   Stair,
@@ -36,6 +38,8 @@ interface ViewportSceneProps {
   wallAuthoringMode: WallAuthoringMode;
   activeLevelId: string | null;
   slabMode: SlabMode;
+  groundToolKind: GroundSurface["kind"];
+  roomToolMode: "Manual" | "Auto";
   pendingWallStartNodeId: string | null;
   currentSelection: EditorSelection | null;
   selectionSet: EditorSelection[];
@@ -58,6 +62,8 @@ interface ViewportSceneProps {
   onCreateStair: (pathNodes: Vec2[]) => void;
   onCreateShapeAt: (input: Vec2 & { sizeM?: number }) => void;
   onCreateSlabAt: (input: Vec2 & { widthM?: number; depthM?: number }) => void;
+  onCreateGroundSurfaceAt: (input: Vec2 & { widthM?: number; depthM?: number }) => void;
+  onCreateRoomFromPolygon: (polygon: Vec2[]) => void;
   onCreateRoofLine: (start: Vec2, end: Vec2) => void;
   onCreateRoofOpening: (input: { roofSketchId: string; roofFaceId: string; center: Vec2 }) => void;
   onCreateExternalModelAt: (position: Vec2) => void;
@@ -76,6 +82,8 @@ interface ViewportSceneProps {
   onDeleteWallsConnectedToNode: (nodeId: string) => void;
   onDeleteShape: (shapeId: string) => void;
   onDeleteSlab: (slabId: string) => void;
+  onDeleteGroundSurface: (groundSurfaceId: string) => void;
+  onDeleteRoom: (roomId: string) => void;
   onDeleteExternalModel: (modelId: string) => void;
   onMoveInteractionStart: () => void;
   onMoveInteractionCommit: () => void;
@@ -85,6 +93,8 @@ interface ViewportSceneProps {
   onMoveWindow: (windowId: string, position: Vec2) => void;
   onMoveShape: (shapeId: string, position: Vec2) => void;
   onMoveSlab: (slabId: string, position: Vec2) => void;
+  onMoveGroundSurface: (groundSurfaceId: string, position: Vec2) => void;
+  onMoveRoom: (roomId: string, position: Vec2) => void;
   onResizeSlab: (slabId: string, patch: { position: Vec2; widthM: number; depthM: number }) => void;
   onMoveRoofEdge: (roofEdgeId: string, position: Vec2) => void;
   onMoveRoofVertex: (roofSketchId: string, roofVertexId: string, position: Vec2) => void;
@@ -110,6 +120,8 @@ interface MoveDragState {
     | "window"
     | "shape"
     | "slab"
+    | "groundSurface"
+    | "room"
     | "roofEdge"
     | "roofOpening"
     | "externalModel";
@@ -123,6 +135,8 @@ interface MoveDragState {
       | "window"
       | "shape"
       | "slab"
+      | "groundSurface"
+      | "room"
       | "roofEdge"
       | "roofOpening"
       | "externalModel";
@@ -164,7 +178,7 @@ type PlacementDraftState =
       splitWallId: string | null;
     }
   | {
-      kind: "shape" | "slab";
+      kind: "shape" | "slab" | "groundSurface" | "room";
       pointerId: number;
       startWorld: Vec2;
       currentWorld: Vec2;
@@ -277,6 +291,8 @@ function isEntityInteractiveForTool(
     | "stair"
     | "shape"
     | "slab"
+    | "groundSurface"
+    | "room"
     | "roofEdge"
     | "roofFace"
     | "roofOpening"
@@ -301,6 +317,10 @@ function isEntityInteractiveForTool(
       return entityKind === "shape";
     case "Slab":
       return entityKind === "slab";
+    case "Ground":
+      return entityKind === "groundSurface";
+    case "Rooms":
+      return entityKind === "room";
     case "Roof":
       return entityKind === "roofEdge" || entityKind === "roofFace";
     case "RoofOpening":
@@ -378,6 +398,18 @@ function hasSamePosition(left: Vec2, right: Vec2) {
   return Math.abs(left.x - right.x) < 0.0001 && Math.abs(left.y - right.y) < 0.0001;
 }
 
+function getPolygonCenter(points: readonly Vec2[]) {
+  if (points.length === 0) {
+    return createVec2();
+  }
+
+  const total = points.reduce(
+    (sum, point) => createVec2(sum.x + point.x, sum.y + point.y),
+    createVec2(),
+  );
+  return createVec2(total.x / points.length, total.y / points.length);
+}
+
 function projectPointOntoSegment(point: Vec2, start: Vec2, end: Vec2) {
   const deltaX = end.x - start.x;
   const deltaY = end.y - start.y;
@@ -445,6 +477,12 @@ function getCurrentEntityPosition(
       return project.shapes.find((item) => item.id === entityId)?.pose.position ?? null;
     case "slab":
       return project.slabs.find((item) => item.id === entityId)?.pose.position ?? null;
+    case "groundSurface":
+      return project.groundSurfaces.find((item) => item.id === entityId)?.pose.position ?? null;
+    case "room": {
+      const room = project.rooms.find((item) => item.id === entityId);
+      return room ? getPolygonCenter(room.polygon) : null;
+    }
     case "roofEdge": {
       const sketch = project.roofSketches.find((candidate) =>
         candidate.edges.some((edge) => edge.id === entityId),
@@ -667,6 +705,8 @@ export function ViewportScene({
   wallAuthoringMode,
   activeLevelId,
   slabMode,
+  groundToolKind,
+  roomToolMode,
   pendingWallStartNodeId,
   currentSelection,
   selectionSet,
@@ -686,6 +726,8 @@ export function ViewportScene({
   onCreateStair,
   onCreateShapeAt,
   onCreateSlabAt,
+  onCreateGroundSurfaceAt,
+  onCreateRoomFromPolygon,
   onCreateRoofLine,
   onCreateRoofOpening,
   onCreateExternalModelAt,
@@ -701,6 +743,8 @@ export function ViewportScene({
   onDeleteWallsConnectedToNode,
   onDeleteShape,
   onDeleteSlab,
+  onDeleteGroundSurface,
+  onDeleteRoom,
   onDeleteExternalModel,
   onMoveInteractionStart,
   onMoveInteractionCommit,
@@ -710,6 +754,8 @@ export function ViewportScene({
   onMoveWindow,
   onMoveShape,
   onMoveSlab,
+  onMoveGroundSurface,
+  onMoveRoom,
   onResizeSlab,
   onMoveRoofEdge,
   onMoveRoofVertex,
@@ -781,6 +827,8 @@ export function ViewportScene({
           activeTool !== "Stair" &&
           activeTool !== "Shape" &&
           activeTool !== "Slab" &&
+          activeTool !== "Ground" &&
+          activeTool !== "Rooms" &&
           activeTool !== "Roof" &&
           activeTool !== "RoofOpening" &&
           activeTool !== "RoofWindow" &&
@@ -806,6 +854,10 @@ export function ViewportScene({
         target instanceof Element ? target.closest<SVGElement>("[data-shape-id]") : null;
       const slabElement =
         target instanceof Element ? target.closest<SVGElement>("[data-slab-id]") : null;
+      const groundSurfaceElement =
+        target instanceof Element ? target.closest<SVGElement>("[data-ground-surface-id]") : null;
+      const roomElement =
+        target instanceof Element ? target.closest<SVGElement>("[data-room-id]") : null;
       const roofEdgeElement =
         target instanceof Element ? target.closest<SVGElement>("[data-roof-edge-id]") : null;
       const roofFaceElement =
@@ -852,6 +904,32 @@ export function ViewportScene({
           event.stopPropagation();
           suppressClickRef.current = true;
           onDeleteDoor(doorId);
+          return;
+        }
+
+        if (activeTool === "Ground" && groundSurfaceElement) {
+          const groundSurfaceId = groundSurfaceElement.getAttribute("data-ground-surface-id");
+          if (!groundSurfaceId) {
+            return;
+          }
+
+          event.preventDefault();
+          event.stopPropagation();
+          suppressClickRef.current = true;
+          onDeleteGroundSurface(groundSurfaceId);
+          return;
+        }
+
+        if (activeTool === "Rooms" && roomElement) {
+          const roomId = roomElement.getAttribute("data-room-id");
+          if (!roomId) {
+            return;
+          }
+
+          event.preventDefault();
+          event.stopPropagation();
+          suppressClickRef.current = true;
+          onDeleteRoom(roomId);
           return;
         }
 
@@ -1159,6 +1237,10 @@ export function ViewportScene({
         return;
       }
 
+      if (activeTool === "Rooms" && roomToolMode === "Auto") {
+        return;
+      }
+
       if (event.button !== 0 || (isViewportEntityTarget(target) && !roofEdgeElement && !roofFaceElement)) {
         return;
       }
@@ -1187,6 +1269,28 @@ export function ViewportScene({
         return;
       }
 
+      if (activeTool === "Ground") {
+        rootElement.setPointerCapture(event.pointerId);
+        setPlacementDraft({
+          kind: "groundSurface",
+          pointerId: event.pointerId,
+          startWorld: nextPosition,
+          currentWorld: nextPosition,
+        });
+        return;
+      }
+
+      if (activeTool === "Rooms" && roomToolMode === "Manual") {
+        rootElement.setPointerCapture(event.pointerId);
+        setPlacementDraft({
+          kind: "room",
+          pointerId: event.pointerId,
+          startWorld: nextPosition,
+          currentWorld: nextPosition,
+        });
+        return;
+      }
+
       if (activeTool === "Model") {
         onCreateExternalModelAt(nextPosition);
       }
@@ -1208,6 +1312,8 @@ export function ViewportScene({
     onCreateNodeAt,
     onCreateShapeAt,
     onCreateSlabAt,
+    onCreateGroundSurfaceAt,
+    onCreateRoomFromPolygon,
     onCreateRoofLine,
     onCreateRoofOpening,
     onDeleteDoor,
@@ -1219,7 +1325,10 @@ export function ViewportScene({
     onDeleteNode,
     onDeleteShape,
     onDeleteSlab,
+    onDeleteGroundSurface,
+    onDeleteRoom,
     project,
+    roomToolMode,
     wallAuthoringMode,
     project.settings.gridSpacingM,
     project.settings.pixelsPerMeter,
@@ -1299,7 +1408,9 @@ export function ViewportScene({
         ? getSquarePlacementBounds(placementDraft.startWorld, placementDraft.currentWorld)
         : placementDraft.kind === "slab" && slabMode === "Circle"
           ? null
-        : placementDraft.kind === "slab"
+        : placementDraft.kind === "slab" ||
+            placementDraft.kind === "groundSurface" ||
+            placementDraft.kind === "room"
             ? getPlacementBounds(placementDraft.startWorld, placementDraft.currentWorld)
             : null
       : null;
@@ -1470,6 +1581,30 @@ export function ViewportScene({
                   entityKind: "slab" as const,
                   entityId: slab.id,
                   startPosition: slab.pose.position,
+                },
+              ]
+            : [];
+        }
+        case "groundSurface": {
+          const groundSurface = project.groundSurfaces.find((item) => item.id === selection.id);
+          return groundSurface
+            ? [
+                {
+                  entityKind: "groundSurface" as const,
+                  entityId: groundSurface.id,
+                  startPosition: groundSurface.pose.position,
+                },
+              ]
+            : [];
+        }
+        case "room": {
+          const room = project.rooms.find((item) => item.id === selection.id);
+          return room
+            ? [
+                {
+                  entityKind: "room" as const,
+                  entityId: room.id,
+                  startPosition: getPolygonCenter(room.polygon),
                 },
               ]
             : [];
@@ -1802,6 +1937,14 @@ export function ViewportScene({
           onMoveSlab(item.entityId, nextPosition);
           movedAny = true;
           break;
+        case "groundSurface":
+          onMoveGroundSurface(item.entityId, nextPosition);
+          movedAny = true;
+          break;
+        case "room":
+          onMoveRoom(item.entityId, nextPosition);
+          movedAny = true;
+          break;
         case "roofEdge":
           onMoveRoofEdge(item.entityId, nextPosition);
           movedAny = true;
@@ -1929,6 +2072,34 @@ export function ViewportScene({
           y: bounds.centerWorld.y,
           sizeM: Math.max(bounds.widthM, bounds.depthM, minimumSizeM),
         });
+      } else if (placementDraft.kind === "groundSurface") {
+        const bounds = getPlacementBounds(
+          placementDraft.startWorld,
+          placementDraft.currentWorld,
+        );
+        onCreateGroundSurfaceAt({
+          x: bounds.centerWorld.x,
+          y: bounds.centerWorld.y,
+          widthM: Math.max(bounds.widthM, minimumSizeM),
+          depthM: Math.max(bounds.depthM, minimumSizeM),
+        });
+      } else if (placementDraft.kind === "room") {
+        const bounds = getPlacementBounds(
+          placementDraft.startWorld,
+          placementDraft.currentWorld,
+        );
+        const widthM = Math.max(bounds.widthM, minimumSizeM);
+        const depthM = Math.max(bounds.depthM, minimumSizeM);
+        const minX = bounds.centerWorld.x - widthM / 2;
+        const maxX = bounds.centerWorld.x + widthM / 2;
+        const minY = bounds.centerWorld.y - depthM / 2;
+        const maxY = bounds.centerWorld.y + depthM / 2;
+        onCreateRoomFromPolygon([
+          createVec2(minX, minY),
+          createVec2(maxX, minY),
+          createVec2(maxX, maxY),
+          createVec2(minX, maxY),
+        ]);
       } else if (activeTool !== "Roof" && slabMode === "Circle") {
         const circle = getCirclePlacement(
           placementDraft.startWorld,
@@ -1987,6 +2158,21 @@ export function ViewportScene({
             isPointInsideBounds(slab.pose.position, selectionBounds)
           ) {
             nextSelectionSet.push({ kind: "slab", id: slab.id });
+          }
+        }
+
+        for (const groundSurface of project.groundSurfaces) {
+          if (isPointInsideBounds(groundSurface.pose.position, selectionBounds)) {
+            nextSelectionSet.push({ kind: "groundSurface", id: groundSurface.id });
+          }
+        }
+
+        for (const room of project.rooms) {
+          if (
+            room.levelId === activeLevelId &&
+            isPointInsideBounds(getPolygonCenter(room.polygon), selectionBounds)
+          ) {
+            nextSelectionSet.push({ kind: "room", id: room.id });
           }
         }
 
@@ -2716,6 +2902,140 @@ export function ViewportScene({
           }
         }}
       />
+    );
+  }
+
+  function renderGroundSurface(groundSurface: GroundSurface) {
+    const selected =
+      isSelected(currentSelection, "groundSurface", groundSurface.id) ||
+      isIncludedInSelectionSet(selectionSet, "groundSurface", groundSurface.id);
+    const isToolInteractive = isEntityInteractiveForTool(activeTool, "groundSurface");
+    const center = worldToScreen(groundSurface.pose.position, metrics);
+    const widthPx = groundSurface.widthM * projectScale(metrics);
+    const heightPx = groundSurface.depthM * projectScale(metrics);
+    const fill =
+      groundSurface.kind === "Grass"
+        ? "rgba(74, 163, 90, 0.26)"
+        : "rgba(156, 163, 175, 0.24)";
+    const stroke = groundSurface.kind === "Grass" ? "#4aa35a" : "#9ca3af";
+
+    return (
+      <rect
+        key={groundSurface.id}
+        data-viewport-entity="groundSurface"
+        data-ground-surface-id={groundSurface.id}
+        x={center.x - widthPx / 2}
+        y={center.y - heightPx / 2}
+        width={widthPx}
+        height={heightPx}
+        fill={selected ? "rgba(255, 209, 102, 0.18)" : fill}
+        stroke={selected ? "#ffd166" : stroke}
+        strokeWidth={selected ? 3 : 2}
+        strokeDasharray={groundSurface.kind === "Grass" ? "none" : "8 5"}
+        pointerEvents={isToolInteractive ? "auto" : "none"}
+        onPointerDown={(event) =>
+          startMoveDrag(event, "groundSurface", groundSurface.id, groundSurface.pose.position, true)
+        }
+        onClick={(event) => {
+          if (consumeSuppressedClick()) {
+            event.stopPropagation();
+            return;
+          }
+
+          event.stopPropagation();
+          onSelectionChange({ kind: "groundSurface", id: groundSurface.id });
+        }}
+        onContextMenu={(event) => {
+          if (activeTool === "Ground") {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}
+      />
+    );
+  }
+
+  function renderRoom(room: Room) {
+    if (room.levelId !== activeLevelId || room.polygon.length < 3) {
+      return null;
+    }
+
+    const selected =
+      isSelected(currentSelection, "room", room.id) ||
+      isIncludedInSelectionSet(selectionSet, "room", room.id);
+    const isToolInteractive = isEntityInteractiveForTool(activeTool, "room");
+    const center = worldToScreen(getPolygonCenter(room.polygon), metrics);
+    const areaLabel = `${calculatePolygonAreaM2(room.polygon).toFixed(2)} m2`;
+    const label = room.name.trim().length > 0 ? room.name : "Room";
+    const labelWidth = Math.max(label.length, areaLabel.length) * 6.8 + 20;
+
+    return (
+      <g
+        key={room.id}
+        data-viewport-entity="room"
+        data-room-id={room.id}
+        pointerEvents={isToolInteractive ? "auto" : "none"}
+        onPointerDown={(event) =>
+          startMoveDrag(event, "room", room.id, getPolygonCenter(room.polygon), true)
+        }
+        onClick={(event) => {
+          if (consumeSuppressedClick()) {
+            event.stopPropagation();
+            return;
+          }
+
+          event.stopPropagation();
+          onSelectionChange({ kind: "room", id: room.id });
+        }}
+        onContextMenu={(event) => {
+          if (activeTool === "Rooms") {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}
+      >
+        <path
+          d={`${createSvgPathFromPoints(room.polygon, metrics)} Z`}
+          fill={selected ? "rgba(255, 209, 102, 0.20)" : "rgba(255, 209, 102, 0.10)"}
+          stroke={selected ? "#ffd166" : "rgba(255, 209, 102, 0.72)"}
+          strokeWidth={selected ? 3 : 2}
+          strokeDasharray={selected ? "none" : "8 5"}
+          strokeLinejoin="round"
+        />
+        <g pointerEvents="none" transform={`translate(${center.x - labelWidth / 2} ${center.y - 18})`}>
+          <rect
+            x={0}
+            y={0}
+            width={labelWidth}
+            height={36}
+            rx={12}
+            fill="rgba(8, 12, 22, 0.74)"
+            stroke={selected ? "rgba(255, 209, 102, 0.72)" : "rgba(255, 209, 102, 0.34)"}
+            strokeWidth={1}
+          />
+          <text
+            x={labelWidth / 2}
+            y={14}
+            fill="#fff3c4"
+            fontSize={12}
+            fontWeight={700}
+            fontFamily="Aptos, Segoe UI Variable, sans-serif"
+            textAnchor="middle"
+          >
+            {label}
+          </text>
+          <text
+            x={labelWidth / 2}
+            y={28}
+            fill="#f8f6f2"
+            fontSize={11}
+            fontFamily="Aptos, Segoe UI Variable, sans-serif"
+            textAnchor="middle"
+          >
+            {areaLabel}
+          </text>
+        </g>
+      </g>
     );
   }
 
@@ -3514,6 +3834,49 @@ export function ViewportScene({
           />
         );
       }
+      case "groundSurface": {
+        const groundSurface = project.groundSurfaces.find(
+          (item) => item.id === currentSelection.id,
+        );
+        if (!groundSurface) {
+          return null;
+        }
+
+        const center = worldToScreen(groundSurface.pose.position, metrics);
+        const widthPx = groundSurface.widthM * projectScale(metrics);
+        const heightPx = groundSurface.depthM * projectScale(metrics);
+        return (
+          <rect
+            pointerEvents="none"
+            x={center.x - widthPx / 2 - 8}
+            y={center.y - heightPx / 2 - 8}
+            width={widthPx + 16}
+            height={heightPx + 16}
+            fill="none"
+            stroke="#ffd166"
+            strokeWidth={3}
+            strokeDasharray="10 6"
+          />
+        );
+      }
+      case "room": {
+        const room = project.rooms.find((item) => item.id === currentSelection.id);
+        if (!room || room.polygon.length < 3) {
+          return null;
+        }
+
+        return (
+          <path
+            pointerEvents="none"
+            d={`${createSvgPathFromPoints(room.polygon, metrics)} Z`}
+            fill="none"
+            stroke="#ffd166"
+            strokeWidth={4}
+            strokeDasharray="10 6"
+            strokeLinejoin="round"
+          />
+        );
+      }
       case "roofEdge": {
         const sketch = project.roofSketches.find((candidate) =>
           candidate.edges.some((edge) => edge.id === currentSelection.id),
@@ -3671,6 +4034,8 @@ export function ViewportScene({
               })
             : null}
 
+          {project.groundSurfaces.map(renderGroundSurface)}
+          {project.rooms.map(renderRoom)}
           {project.walls.map(renderWall)}
           {renderRoofSketchFaces()}
           {project.slabs.map(renderSlab)}
@@ -4162,6 +4527,90 @@ export function ViewportScene({
                 />
               )
             ) : null
+          ) : null}
+
+          {activeTool === "Ground" && activeLevelId && placementDraftBounds ? (
+            <rect
+              pointerEvents="none"
+              x={
+                worldToScreen(placementDraftBounds.centerWorld, metrics).x -
+                (Math.max(
+                  placementDraftBounds.widthM,
+                  project.settings.snapToGrid ? project.settings.gridSpacingM : 0.2,
+                ) *
+                  projectScale(metrics)) /
+                  2
+              }
+              y={
+                worldToScreen(placementDraftBounds.centerWorld, metrics).y -
+                (Math.max(
+                  placementDraftBounds.depthM,
+                  project.settings.snapToGrid ? project.settings.gridSpacingM : 0.2,
+                ) *
+                  projectScale(metrics)) /
+                  2
+              }
+              width={
+                Math.max(
+                  placementDraftBounds.widthM,
+                  project.settings.snapToGrid ? project.settings.gridSpacingM : 0.2,
+                ) * projectScale(metrics)
+              }
+              height={
+                Math.max(
+                  placementDraftBounds.depthM,
+                  project.settings.snapToGrid ? project.settings.gridSpacingM : 0.2,
+                ) * projectScale(metrics)
+              }
+              fill={
+                groundToolKind === "Grass"
+                  ? "rgba(74, 163, 90, 0.18)"
+                  : "rgba(156, 163, 175, 0.18)"
+              }
+              stroke={groundToolKind === "Grass" ? "#4aa35a" : "#9ca3af"}
+              strokeDasharray="8 6"
+              strokeWidth={2}
+            />
+          ) : null}
+
+          {activeTool === "Rooms" && activeLevelId && roomToolMode === "Manual" && placementDraftBounds ? (
+            <rect
+              pointerEvents="none"
+              x={
+                worldToScreen(placementDraftBounds.centerWorld, metrics).x -
+                (Math.max(
+                  placementDraftBounds.widthM,
+                  project.settings.snapToGrid ? project.settings.gridSpacingM : 0.2,
+                ) *
+                  projectScale(metrics)) /
+                  2
+              }
+              y={
+                worldToScreen(placementDraftBounds.centerWorld, metrics).y -
+                (Math.max(
+                  placementDraftBounds.depthM,
+                  project.settings.snapToGrid ? project.settings.gridSpacingM : 0.2,
+                ) *
+                  projectScale(metrics)) /
+                  2
+              }
+              width={
+                Math.max(
+                  placementDraftBounds.widthM,
+                  project.settings.snapToGrid ? project.settings.gridSpacingM : 0.2,
+                ) * projectScale(metrics)
+              }
+              height={
+                Math.max(
+                  placementDraftBounds.depthM,
+                  project.settings.snapToGrid ? project.settings.gridSpacingM : 0.2,
+                ) * projectScale(metrics)
+              }
+              fill="rgba(255, 209, 102, 0.12)"
+              stroke="#ffd166"
+              strokeDasharray="8 6"
+              strokeWidth={2}
+            />
           ) : null}
 
           {activeTool === "Model" && activeLevelId && snappedCursor ? (

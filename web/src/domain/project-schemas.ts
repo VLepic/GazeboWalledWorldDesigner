@@ -2,6 +2,8 @@ import { z } from "zod";
 import type {
   DoorOpening,
   ExternalModel,
+  GroundSurface,
+  GroundSurfaceKind,
   Level,
   Measurement,
   MeasurementUnit,
@@ -21,6 +23,7 @@ import type {
   RoofType,
   RoofVertex,
   RoofVertexElevationMode,
+  Room,
   Shape,
   ShapeKind,
   Slab,
@@ -40,6 +43,7 @@ const nonEmptyStringSchema = z.string().trim().min(1);
 
 export const shapeKindSchema = z.enum(["Square", "Cylinder"]) satisfies z.ZodType<ShapeKind>;
 export const slabKindSchema = z.enum(["Rectangle", "Circle"]) satisfies z.ZodType<SlabKind>;
+export const groundSurfaceKindSchema = z.enum(["Floor", "Grass"]) satisfies z.ZodType<GroundSurfaceKind>;
 export const roofTypeSchema = z.enum(["Flat", "Gable", "Shed", "Hip"]) satisfies z.ZodType<RoofType>;
 export const wallTopModeSchema = z.enum(["FixedHeight", "FollowRoof"]) satisfies z.ZodType<WallTopMode>;
 export const measurementUnitSchema = z.enum(["cm", "dm", "m"]) satisfies z.ZodType<MeasurementUnit>;
@@ -265,6 +269,22 @@ export const slabSchema = z.object({
   zOffsetM: finiteNumberSchema,
 }) satisfies z.ZodType<Slab>;
 
+export const groundSurfaceSchema = z.object({
+  id: nonEmptyStringSchema,
+  name: nonEmptyStringSchema,
+  kind: groundSurfaceKindSchema,
+  pose: pose2DSchema,
+  widthM: positiveNumberSchema,
+  depthM: positiveNumberSchema,
+}) satisfies z.ZodType<GroundSurface>;
+
+export const roomSchema = z.object({
+  id: nonEmptyStringSchema,
+  levelId: nonEmptyStringSchema,
+  name: nonEmptyStringSchema,
+  polygon: z.array(vec2Schema).min(3),
+}) satisfies z.ZodType<Room>;
+
 export const externalModelSchema = z.object({
   id: nonEmptyStringSchema,
   levelId: nonEmptyStringSchema,
@@ -300,6 +320,8 @@ export const projectSchema = z.object({
   stairs: z.array(stairSchema),
   shapes: z.array(shapeSchema),
   slabs: z.array(slabSchema),
+  groundSurfaces: z.array(groundSurfaceSchema),
+  rooms: z.array(roomSchema),
   externalModels: z.array(externalModelSchema),
   measurements: z.array(measurementSchema),
 }) satisfies z.ZodType<Project>;

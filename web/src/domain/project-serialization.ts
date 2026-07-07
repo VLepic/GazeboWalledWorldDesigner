@@ -5,6 +5,7 @@ import {
   DEFAULT_PROJECT_SETTINGS,
   createDoorOpening,
   createExternalModel,
+  createGroundSurface,
   createId,
   createLevel,
   createMeasurement,
@@ -13,6 +14,7 @@ import {
   createRoofLayer,
   createRoofOpening,
   createRoofSketch,
+  createRoom,
   createShape,
   createSlab,
   createStair,
@@ -25,6 +27,8 @@ import {
 import type {
   DoorOpening,
   ExternalModel,
+  GroundSurface,
+  GroundSurfaceKind,
   Level,
   Measurement,
   NodeData,
@@ -40,11 +44,13 @@ import type {
   RoofVertex,
   RoofVertexElevationMode,
   RoofType,
+  Room,
   Shape,
   ShapeKind,
   Slab,
   SlabKind,
   Stair,
+  Vec2,
   Wall,
   WallTopMode,
   WallType,
@@ -52,6 +58,7 @@ import type {
 } from "./project-model";
 import {
   projectSchema,
+  groundSurfaceKindSchema,
   roofEdgeRoleSchema,
   roofOpeningCutModeSchema,
   roofOpeningRotationDegSchema,
@@ -1063,6 +1070,128 @@ function parseSlabs(data: unknown, levelIds: string[], warnings: string[]) {
   return slabs;
 }
 
+function parseGroundSurfaces(data: unknown, warnings: string[]) {
+  const groundSurfaces: GroundSurface[] = [];
+
+  for (const [index, item] of asArray(data).entries()) {
+    const source = asObject(item);
+    if (!source) {
+      warnings.push(`groundSurfaces[${index}]: skipped invalid ground surface entry.`);
+      continue;
+    }
+
+    const pose = pickPose2D(source);
+    if (!pose) {
+      warnings.push(`groundSurfaces[${index}]: skipped ground surface without valid pose.`);
+      continue;
+    }
+
+    const kind =
+      pickParsedValue(
+        source,
+        (value) => {
+          const parsed = groundSurfaceKindSchema.safeParse(value);
+          return parsed.success ? parsed.data : undefined;
+        },
+        "kind",
+        "surfaceKind",
+        "surface_kind",
+      ) ?? ("Floor" satisfies GroundSurfaceKind);
+    const widthM = pickNumber(source, "widthM", "width_m", "width") ?? 1;
+    const depthM = pickNumber(source, "depthM", "depth_m", "depth") ?? 1;
+
+    if (widthM <= 0 || depthM <= 0) {
+      warnings.push(`groundSurfaces[${index}]: skipped ground surface with non-positive dimensions.`);
+      continue;
+    }
+
+    groundSurfaces.push(
+      createGroundSurface({
+        id: pickString(source, "id") ?? createId("ground"),
+        name: pickString(source, "name") ?? `ground_${index + 1}`,
+        kind,
+        pose,
+        widthM,
+        depthM,
+      }),
+    );
+  }
+
+  return groundSurfaces;
+}
+
+function parseRoomPolygon(data: unknown): Vec2[] | undefined {
+  const arrayParse = unknownArraySchema.safeParse(data);
+  if (!arrayParse.success) {
+    return undefined;
+  }
+
+  const polygon: Vec2[] = [];
+  for (const entry of arrayParse.data) {
+    const tuple = numericTuple2Schema.safeParse(entry);
+    if (tuple.success) {
+      polygon.push(createVec2(tuple.data[0], tuple.data[1]));
+      continue;
+    }
+
+    const object = asObject(entry);
+    if (!object) {
+      return undefined;
+    }
+
+    const point = pickVec2(object);
+    if (!point) {
+      return undefined;
+    }
+
+    polygon.push(point);
+  }
+
+  return polygon.length >= 3 ? polygon : undefined;
+}
+
+function parseRooms(data: unknown, levelIds: string[], warnings: string[]) {
+  const rooms: Room[] = [];
+  const arrayParse = unknownArraySchema.safeParse(data);
+  if (!arrayParse.success) {
+    return rooms;
+  }
+
+  const fallbackLevelId = levelIds[0] ?? "";
+  arrayParse.data.forEach((entry, index) => {
+    const source = asObject(entry);
+    if (!source) {
+      warnings.push(`rooms[${index}]: skipped invalid room entry.`);
+      return;
+    }
+
+    const levelId = resolveReference(
+      source.levelId ?? source.level_id,
+      levelIds,
+      fallbackLevelId,
+      "level",
+      warnings,
+      `rooms[${index}]`,
+    );
+    const polygon = parseRoomPolygon(source.polygon ?? source.points ?? source.vertices);
+    if (!polygon) {
+      warnings.push(`rooms[${index}]: skipped room without a valid polygon.`);
+      return;
+    }
+
+    rooms.push(
+      createRoom({
+        id: pickString(source, "id"),
+        levelId,
+        name: pickString(source, "name") ?? `Room ${index + 1}`,
+        polygon,
+      }),
+    );
+  });
+
+  return rooms;
+}
+
 function parseExternalModels(data: unknown, levelIds: string[], warnings: string[]) {
   const externalModels: ExternalModel[] = [];
   const fallbackLevelId = levelIds[0];
@@ -1694,6 +1823,33 @@ function repairProject(project: Project, warnings: string[]) {
     return isValid;
   });
 
+  project.groundSurfaces = (project.groundSurfaces ?? []).filter((groundSurface) => {
+    const isValid =
+      groundSurface.widthM > 0 &&
+      groundSurface.depthM > 0 &&
+      Number.isFinite(groundSurface.pose.position.x) &&
+      Number.isFinite(groundSurface.pose.position.y) &&
+      Number.isFinite(groundSurface.pose.yawDeg);
+    if (!isValid) {
+      warnings.push(`groundSurfaces: dropped ground surface "${groundSurface.id}" with invalid data.`);
+    }
+
+    return isValid;
+  });
+
+  project.rooms = (project.rooms ?? []).filter((room) => {
+    const isValid =
+      levelIds.has(room.levelId) &&
+      room.name.trim().length > 0 &&
+      room.polygon.length >= 3 &&
+      room.polygon.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+    if (!isValid) {
+      warnings.push(`rooms: dropped room "${room.id}" with invalid data.`);
+    }
+
+    return isValid;
+  });
+
   project.externalModels = project.externalModels.filter((model) => {
     const isValid = levelIds.has(model.levelId) && model.uri.trim().length > 0;
     if (!isValid) {
@@ -1749,6 +1905,8 @@ export function parseProjectData(data: unknown): ProjectParseResult {
     stairs: [],
     shapes: [],
     slabs: [],
+    groundSurfaces: [],
+    rooms: [],
     externalModels: [],
     measurements: [],
   });
@@ -1788,6 +1946,11 @@ export function parseProjectData(data: unknown): ProjectParseResult {
   projectBase.stairs = parseStairs(root.stairs, levelIds, warnings);
   projectBase.shapes = parseShapes(root.shapes, levelIds, settings.pixelsPerMeter, warnings);
   projectBase.slabs = parseSlabs(root.slabs, levelIds, warnings);
+  projectBase.groundSurfaces = parseGroundSurfaces(
+    root.groundSurfaces ?? root.ground_surfaces,
+    warnings,
+  );
+  projectBase.rooms = parseRooms(root.rooms ?? root.room_polygons, levelIds, warnings);
   projectBase.externalModels = parseExternalModels(
     root.externalModels ?? root.external_models,
     levelIds,
@@ -1805,6 +1968,8 @@ export function parseProjectData(data: unknown): ProjectParseResult {
   ensureUniqueIds(projectBase.stairs, "stair", "stairs", warnings);
   ensureUniqueIds(projectBase.shapes, "shape", "shapes", warnings);
   ensureUniqueIds(projectBase.slabs, "slab", "slabs", warnings);
+  ensureUniqueIds(projectBase.groundSurfaces, "ground", "groundSurfaces", warnings);
+  ensureUniqueIds(projectBase.rooms, "room", "rooms", warnings);
   ensureUniqueIds(projectBase.roofSketches, "roof", "roofSketches", warnings);
   ensureUniqueIds(projectBase.roofOpenings, "roof_opening", "roofOpenings", warnings);
   ensureUniqueIds(projectBase.externalModels, "model", "externalModels", warnings);

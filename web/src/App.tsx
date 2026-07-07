@@ -12,11 +12,13 @@ import {
   addLevel,
   addWallType,
   createExternalModel,
+  createGroundSurface,
   createNode,
   createShape,
   createSlab,
   createRoofOpening,
   createRoofSketch,
+  createRoom,
   createStair,
   createWall,
   deleteWallType,
@@ -25,7 +27,9 @@ import {
   deleteDoor,
   deleteWindow,
   deleteRoofOpening,
+  deleteRoom,
   deleteExternalModel,
+  deleteGroundSurface,
   deleteNode,
   deleteShape,
   deleteSlab,
@@ -37,10 +41,12 @@ import {
   updateDoor,
   updateWindow,
   updateExternalModel,
+  updateGroundSurface,
   updateLevel,
   updateProjectSettings,
   updateRoofSketch,
   updateRoofOpening,
+  updateRoom,
   updateStair,
   updateWall,
   updateWallType,
@@ -55,17 +61,21 @@ import {
   type DoorOpening,
   type WindowOpening,
   type WindowDesign3D,
+  calculatePolygonAreaM2,
   DEFAULT_ROOF_LAYER_ID,
   createExternalModel as buildExternalModel,
+  createGroundSurface as buildGroundSurface,
   createId,
   createNodeData,
   createPose2D,
+  createRoom as buildRoom,
   createShape as buildShape,
   createSlab as buildSlab,
   createVec2,
   createWall as buildWall,
   describeProject,
   type ExternalModel,
+  type GroundSurface,
   type MeasurementUnit,
   type NodeData,
   type Project,
@@ -74,6 +84,7 @@ import {
   type RoofOpeningRotationDeg,
   type WallTopMode,
   type RoofType,
+  type Room,
   type Shape,
   type Slab,
   type Stair,
@@ -119,7 +130,10 @@ const editorTools: EditorTool[] = [
   "Shape",
   "Slab",
   "Model",
+  "Ground",
+  "Rooms",
 ];
+const otherEditorTools: EditorTool[] = ["Model", "Ground", "Rooms"];
 
 const roofLayerEditorTools: EditorTool[] = ["Move", "Measure", "Roof", "RoofOpening", "RoofWindow"];
 const editorTools3D: EditorTool[] = ["Measure", "Door", "Window", "RoofWindow"];
@@ -149,11 +163,154 @@ function getWindowDepthOffsetLimitM(wallThicknessM: number, glassThicknessM: num
   return Math.max((wallThicknessM - Math.max(glassThicknessM, 0)) / 2, 0);
 }
 
+function getPolygonSignedArea(points: readonly Vec2[]) {
+  let doubleArea = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    doubleArea += current.x * next.y - next.x * current.y;
+  }
+
+  return doubleArea / 2;
+}
+
+function getPolygonCenter(points: readonly Vec2[]) {
+  if (points.length === 0) {
+    return createVec2();
+  }
+
+  const total = points.reduce(
+    (sum, point) => createVec2(sum.x + point.x, sum.y + point.y),
+    createVec2(),
+  );
+  return createVec2(total.x / points.length, total.y / points.length);
+}
+
+function getRoomPolygonKey(points: readonly Vec2[]) {
+  return points
+    .map((point) => `${point.x.toFixed(3)},${point.y.toFixed(3)}`)
+    .sort()
+    .join("|");
+}
+
+function discoverRoomPolygonsFromWalls(project: Project, levelId: string) {
+  const levelNodes = project.nodes.filter((node) => node.levelId === levelId);
+  const nodeById = new Map(levelNodes.map((node) => [node.id, node] as const));
+  const adjacency = new Map<string, string[]>();
+  const edgeKeys = new Set<string>();
+
+  for (const wall of project.walls.filter((item) => item.levelId === levelId)) {
+    const startNode = nodeById.get(wall.startNodeId);
+    const endNode = nodeById.get(wall.endNodeId);
+    if (!startNode || !endNode || startNode.id === endNode.id) {
+      continue;
+    }
+
+    const undirectedKey = [startNode.id, endNode.id].sort().join(":");
+    if (edgeKeys.has(undirectedKey)) {
+      continue;
+    }
+
+    edgeKeys.add(undirectedKey);
+    adjacency.set(startNode.id, [...(adjacency.get(startNode.id) ?? []), endNode.id]);
+    adjacency.set(endNode.id, [...(adjacency.get(endNode.id) ?? []), startNode.id]);
+  }
+
+  for (const [nodeId, neighbors] of adjacency) {
+    const node = nodeById.get(nodeId);
+    if (!node) {
+      continue;
+    }
+
+    neighbors.sort((leftId, rightId) => {
+      const left = nodeById.get(leftId);
+      const right = nodeById.get(rightId);
+      if (!left || !right) {
+        return 0;
+      }
+
+      return (
+        Math.atan2(left.position.y - node.position.y, left.position.x - node.position.x) -
+        Math.atan2(right.position.y - node.position.y, right.position.x - node.position.x)
+      );
+    });
+  }
+
+  const visitedDirectedEdges = new Set<string>();
+  const polygons: Vec2[][] = [];
+  const polygonKeys = new Set<string>();
+
+  for (const [startId, neighbors] of adjacency) {
+    for (const nextId of neighbors) {
+      const initialKey = `${startId}->${nextId}`;
+      if (visitedDirectedEdges.has(initialKey)) {
+        continue;
+      }
+
+      const cycleNodeIds: string[] = [];
+      let currentStartId = startId;
+      let currentEndId = nextId;
+      let isClosed = false;
+
+      for (let guard = 0; guard < edgeKeys.size * 4 + 4; guard += 1) {
+        const directedKey = `${currentStartId}->${currentEndId}`;
+        if (visitedDirectedEdges.has(directedKey)) {
+          isClosed = currentStartId === startId && currentEndId === nextId;
+          break;
+        }
+
+        visitedDirectedEdges.add(directedKey);
+        cycleNodeIds.push(currentStartId);
+
+        const endNeighbors = adjacency.get(currentEndId) ?? [];
+        const reverseIndex = endNeighbors.indexOf(currentStartId);
+        if (reverseIndex < 0 || endNeighbors.length === 0) {
+          break;
+        }
+
+        const nextNeighborIndex = (reverseIndex - 1 + endNeighbors.length) % endNeighbors.length;
+        const nextNeighborId = endNeighbors[nextNeighborIndex];
+        currentStartId = currentEndId;
+        currentEndId = nextNeighborId;
+
+        if (currentStartId === startId && currentEndId === nextId) {
+          isClosed = true;
+          break;
+        }
+      }
+
+      if (!isClosed || cycleNodeIds.length < 3) {
+        continue;
+      }
+
+      const polygon = cycleNodeIds
+        .map((nodeId) => nodeById.get(nodeId)?.position ?? null)
+        .filter((point): point is Vec2 => point !== null);
+      const areaM2 = getPolygonSignedArea(polygon);
+      if (areaM2 <= 0.05) {
+        continue;
+      }
+
+      const key = getRoomPolygonKey(polygon);
+      if (polygonKeys.has(key)) {
+        continue;
+      }
+
+      polygonKeys.add(key);
+      polygons.push(polygon);
+    }
+  }
+
+  return polygons;
+}
+
 interface SelectionClipboardPayload {
   nodes: NodeData[];
   walls: Wall[];
   shapes: Shape[];
   slabs: Slab[];
+  groundSurfaces: GroundSurface[];
+  rooms: Room[];
   models: ExternalModel[];
 }
 
@@ -475,6 +632,7 @@ function findWallAtPoint(project: Project, levelId: string, position: Vec2, pref
 export default function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const viewportCanvasRef = useRef<HTMLDivElement | null>(null);
+  const otherToolsMenuRef = useRef<HTMLDivElement | null>(null);
   const previewMenuRef = useRef<HTMLDivElement | null>(null);
   const settingsMenuRef = useRef<HTMLDivElement | null>(null);
   const previewWindowSourceIdRef = useRef(createId("preview_source"));
@@ -552,6 +710,7 @@ export default function App() {
   const [clipboardPayload, setClipboardPayload] = useState<SelectionClipboardPayload | null>(null);
   const [clipboardPasteCount, setClipboardPasteCount] = useState(0);
   const [projectNameDraft, setProjectNameDraft] = useState(project.projectName);
+  const [isOtherToolsMenuOpen, setIsOtherToolsMenuOpen] = useState(false);
   const [isPreviewMenuOpen, setIsPreviewMenuOpen] = useState(false);
   const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
   const [editingLevelId, setEditingLevelId] = useState<string | null>(null);
@@ -603,6 +762,9 @@ export default function App() {
   const [shapeToolKind, setShapeToolKind] = useState<Shape["kind"]>("Square");
   const [shapeToolBottomM, setShapeToolBottomM] = useState(0);
   const [shapeToolTopM, setShapeToolTopM] = useState(2.5);
+  const [groundToolKind, setGroundToolKind] = useState<GroundSurface["kind"]>("Floor");
+  const [roomToolMode, setRoomToolMode] = useState<"Manual" | "Auto">("Manual");
+  const [roomToolName, setRoomToolName] = useState("Room");
   const [roofToolStartElevationM, setRoofToolStartElevationM] = useState(3);
   const [roofToolEndElevationM, setRoofToolEndElevationM] = useState(3);
   const [roofToolEndElevationLocked, setRoofToolEndElevationLocked] = useState(true);
@@ -671,6 +833,7 @@ export default function App() {
           stairs: project.stairs.filter((stair) => !hiddenLevelIdSet.has(stair.levelId)),
           shapes: project.shapes.filter((shape) => !hiddenLevelIdSet.has(shape.levelId)),
           slabs: project.slabs.filter((slab) => !hiddenLevelIdSet.has(slab.levelId)),
+          rooms: project.rooms.filter((room) => !hiddenLevelIdSet.has(room.levelId)),
           externalModels: project.externalModels.filter(
             (model) => !hiddenLevelIdSet.has(model.levelId),
           ),
@@ -762,6 +925,14 @@ export default function App() {
     currentSelection?.kind === "slab"
       ? (project.slabs.find((slab) => slab.id === currentSelection.id) ?? null)
       : null;
+  const selectedGroundSurface =
+    currentSelection?.kind === "groundSurface"
+      ? (project.groundSurfaces.find((groundSurface) => groundSurface.id === currentSelection.id) ?? null)
+      : null;
+  const selectedRoom =
+    currentSelection?.kind === "room"
+      ? (project.rooms.find((room) => room.id === currentSelection.id) ?? null)
+      : null;
   const selectedRoofSketch =
     currentSelection?.kind === "roofEdge"
       ? (project.roofSketches.find((sketch) =>
@@ -846,6 +1017,12 @@ export default function App() {
     .map((selection) => selection.id);
   const selectedSlabIds = selectionSet
     .filter((selection) => selection.kind === "slab")
+    .map((selection) => selection.id);
+  const selectedGroundSurfaceIds = selectionSet
+    .filter((selection) => selection.kind === "groundSurface")
+    .map((selection) => selection.id);
+  const selectedRoomIds = selectionSet
+    .filter((selection) => selection.kind === "room")
     .map((selection) => selection.id);
   const selectedRoofEdgeIds = selectionSet
     .filter((selection) => selection.kind === "roofEdge")
@@ -944,6 +1121,9 @@ export default function App() {
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
       const target = event.target as Node;
+      if (!otherToolsMenuRef.current?.contains(target)) {
+        setIsOtherToolsMenuOpen(false);
+      }
       if (!previewMenuRef.current?.contains(target)) {
         setIsPreviewMenuOpen(false);
       }
@@ -1161,6 +1341,10 @@ export default function App() {
     );
     const shapes = project.shapes.filter((shape) => selectedShapeIds.includes(shape.id));
     const slabs = project.slabs.filter((slab) => selectedSlabIds.includes(slab.id));
+    const groundSurfaces = project.groundSurfaces.filter((groundSurface) =>
+      selectedGroundSurfaceIds.includes(groundSurface.id),
+    );
+    const rooms = project.rooms.filter((room) => selectedRoomIds.includes(room.id));
     const models = project.externalModels.filter((model) => selectedModelIds.includes(model.id));
 
     if (
@@ -1168,12 +1352,14 @@ export default function App() {
       walls.length === 0 &&
       shapes.length === 0 &&
       slabs.length === 0 &&
+      groundSurfaces.length === 0 &&
+      rooms.length === 0 &&
       models.length === 0
     ) {
       return null;
     }
 
-    return { nodes, walls, shapes, slabs, models };
+    return { nodes, walls, shapes, slabs, groundSurfaces, rooms, models };
   }
 
   function handleCopySelection() {
@@ -1186,7 +1372,7 @@ export default function App() {
     setClipboardPayload(payload);
     setClipboardPasteCount(0);
     reportSuccess(
-      `Copied ${payload.nodes.length} node(s), ${payload.shapes.length} shape(s), ${payload.slabs.length} slab(s), ${payload.models.length} model marker(s) and ${payload.walls.length} wall(s).`,
+      `Copied ${payload.nodes.length} node(s), ${payload.shapes.length} shape(s), ${payload.slabs.length} slab(s), ${payload.groundSurfaces.length} ground surface(s), ${payload.rooms.length} room(s), ${payload.models.length} model marker(s) and ${payload.walls.length} wall(s).`,
     );
   }
 
@@ -1268,6 +1454,34 @@ export default function App() {
         return nextSlab;
       });
 
+      const nextGroundSurfaces = clipboardPayload.groundSurfaces.map((groundSurface) => {
+        const nextGroundSurface = buildGroundSurface({
+          name: groundSurface.name,
+          kind: groundSurface.kind,
+          pose: createPose2D(
+            createVec2(
+              groundSurface.pose.position.x + delta.x,
+              groundSurface.pose.position.y + delta.y,
+            ),
+            groundSurface.pose.yawDeg,
+          ),
+          widthM: groundSurface.widthM,
+          depthM: groundSurface.depthM,
+        });
+        newSelections.push({ kind: "groundSurface", id: nextGroundSurface.id });
+        return nextGroundSurface;
+      });
+
+      const nextRooms = clipboardPayload.rooms.map((room) => {
+        const nextRoom = buildRoom({
+          levelId: room.levelId,
+          name: room.name,
+          polygon: room.polygon.map((point) => createVec2(point.x + delta.x, point.y + delta.y)),
+        });
+        newSelections.push({ kind: "room", id: nextRoom.id });
+        return nextRoom;
+      });
+
       const nextModels = clipboardPayload.models.map((model) => {
         const nextModel = buildExternalModel({
           levelId: model.levelId,
@@ -1289,6 +1503,8 @@ export default function App() {
         walls: [...current.walls, ...nextWalls],
         shapes: [...current.shapes, ...nextShapes],
         slabs: [...current.slabs, ...nextSlabs],
+        groundSurfaces: [...current.groundSurfaces, ...nextGroundSurfaces],
+        rooms: [...current.rooms, ...nextRooms],
         externalModels: [...current.externalModels, ...nextModels],
       };
     });
@@ -1384,6 +1600,18 @@ export default function App() {
           selectedSlab.widthM,
           selectedSlab.depthM,
         );
+      case "groundSurface":
+        if (!selectedGroundSurface) {
+          return null;
+        }
+
+        return createRectBounds(
+          selectedGroundSurface.pose.position,
+          selectedGroundSurface.widthM,
+          selectedGroundSurface.depthM,
+        );
+      case "room":
+        return selectedRoom ? createViewportBoundsFromPoints(selectedRoom.polygon) : null;
       case "roofEdge": {
         const sketch = project.roofSketches.find((candidate) =>
           candidate.edges.some((edge) => edge.id === currentSelection.id),
@@ -1474,6 +1702,17 @@ export default function App() {
         bounds,
         createRectBounds(slab.pose.position, slab.widthM, slab.depthM),
       );
+    }
+
+    for (const groundSurface of project.groundSurfaces) {
+      bounds = mergeViewportBounds(
+        bounds,
+        createRectBounds(groundSurface.pose.position, groundSurface.widthM, groundSurface.depthM),
+      );
+    }
+
+    for (const room of project.rooms.filter((item) => item.levelId === activeLevelId)) {
+      bounds = mergeViewportBounds(bounds, createViewportBoundsFromPoints(room.polygon));
     }
 
     for (const model of project.externalModels.filter((item) => item.levelId === activeLevelId)) {
@@ -2262,6 +2501,49 @@ export default function App() {
     }
   }
 
+  function handleMoveGroundSurface(groundSurfaceId: string, position: Vec2) {
+    try {
+      applyCommand((current) => {
+        const groundSurface = current.groundSurfaces.find((item) => item.id === groundSurfaceId);
+        if (!groundSurface) {
+          throw new Error(`Ground surface "${groundSurfaceId}" does not exist.`);
+        }
+
+        return updateGroundSurface(current, groundSurfaceId, {
+          pose: {
+            ...groundSurface.pose,
+            position: createVec2(position.x, position.y),
+          },
+        });
+      });
+      setErrorMessage(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Ground surface move failed.";
+      reportError(message);
+    }
+  }
+
+  function handleMoveRoom(roomId: string, position: Vec2) {
+    try {
+      applyCommand((current) => {
+        const room = current.rooms.find((item) => item.id === roomId);
+        if (!room) {
+          throw new Error(`Room "${roomId}" does not exist.`);
+        }
+
+        const center = getPolygonCenter(room.polygon);
+        const delta = createVec2(position.x - center.x, position.y - center.y);
+        return updateRoom(current, roomId, {
+          polygon: room.polygon.map((point) => createVec2(point.x + delta.x, point.y + delta.y)),
+        });
+      });
+      setErrorMessage(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Room move failed.";
+      reportError(message);
+    }
+  }
+
   function handleResizeSlab(
     slabId: string,
     patch: { position: Vec2; widthM: number; depthM: number },
@@ -2547,6 +2829,32 @@ export default function App() {
     }
   }
 
+  function handleDeleteGroundSurface(groundSurfaceId: string) {
+    try {
+      applyCommand((current) => deleteGroundSurface(current, groundSurfaceId));
+      if (currentSelection?.kind === "groundSurface" && currentSelection.id === groundSurfaceId) {
+        removeSelectionEntry("groundSurface", groundSurfaceId);
+      }
+      reportSuccess("Deleted ground surface.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Ground surface delete failed.";
+      reportError(message);
+    }
+  }
+
+  function handleDeleteRoom(roomId: string) {
+    try {
+      applyCommand((current) => deleteRoom(current, roomId));
+      if (currentSelection?.kind === "room" && currentSelection.id === roomId) {
+        removeSelectionEntry("room", roomId);
+      }
+      reportSuccess("Deleted room.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Room delete failed.";
+      reportError(message);
+    }
+  }
+
   function handleDeleteExternalModel(modelId: string) {
     try {
       applyCommand((current) => deleteExternalModel(current, modelId));
@@ -2729,6 +3037,42 @@ export default function App() {
       setActivityMessage(message);
     } catch (error) {
       const text = error instanceof Error ? error.message : "Slab update failed.";
+      reportError(text);
+    }
+  }
+
+  function handleUpdateSelectedGroundSurface(
+    patch: Parameters<typeof updateGroundSurface>[2],
+    message = "Updated ground surface values.",
+  ) {
+    if (!selectedGroundSurface) {
+      return;
+    }
+
+    try {
+      applyCommand((current) => updateGroundSurface(current, selectedGroundSurface.id, patch));
+      setErrorMessage(null);
+      setActivityMessage(message);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Ground surface update failed.";
+      reportError(text);
+    }
+  }
+
+  function handleUpdateSelectedRoom(
+    patch: Parameters<typeof updateRoom>[2],
+    message = "Updated room values.",
+  ) {
+    if (!selectedRoom) {
+      return;
+    }
+
+    try {
+      applyCommand((current) => updateRoom(current, selectedRoom.id, patch));
+      setErrorMessage(null);
+      setActivityMessage(message);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Room update failed.";
       reportError(text);
     }
   }
@@ -2959,6 +3303,101 @@ export default function App() {
           : position.depthM ?? 1.8,
       )}m.`,
     );
+  }
+
+  function handleCreateGroundSurfaceAt(position: Vec2 & { widthM?: number; depthM?: number }) {
+    applyCommand((current) =>
+      createGroundSurface(current, {
+        name: `ground_${current.groundSurfaces.length + 1}`,
+        kind: groundToolKind,
+        pose: createPose2D(createVec2(position.x, position.y), 0),
+        widthM: position.widthM ?? 2.4,
+        depthM: position.depthM ?? 1.8,
+      }),
+    );
+    reportSuccess(
+      `Painted ${groundToolKind.toLowerCase()} ground at ${formatNumber(position.x)}, ${formatNumber(position.y)} with size ${formatNumber(position.widthM ?? 2.4)} x ${formatNumber(position.depthM ?? 1.8)}m.`,
+    );
+  }
+
+  function handleCreateRoomFromPolygon(polygon: Vec2[]) {
+    if (!activeLevelId) {
+      reportError("Select an active level before creating a room.");
+      return;
+    }
+
+    const areaM2 = calculatePolygonAreaM2(polygon);
+    if (areaM2 < 0.05) {
+      reportError("Room area is too small.");
+      return;
+    }
+
+    let createdRoomId: string | null = null;
+    applyCommand((current) => {
+      const nextRoomName =
+        roomToolName.trim().length > 0
+          ? roomToolName.trim()
+          : `Room ${current.rooms.length + 1}`;
+      const nextProject = createRoom(current, {
+        levelId: activeLevelId,
+        name: nextRoomName,
+        polygon,
+      });
+      createdRoomId = nextProject.rooms[nextProject.rooms.length - 1]?.id ?? null;
+      return nextProject;
+    });
+    if (createdRoomId) {
+      setSingleSelection({ kind: "room", id: createdRoomId });
+    }
+    reportSuccess(`Created room "${roomToolName.trim() || "Room"}" (${formatNumber(areaM2)} m2).`);
+  }
+
+  function handleDiscoverRooms() {
+    if (!activeLevelId) {
+      reportError("Select an active level before discovering rooms.");
+      return;
+    }
+
+    const discoveredPolygons = discoverRoomPolygonsFromWalls(project, activeLevelId);
+    if (discoveredPolygons.length === 0) {
+      reportError("No closed wall-bounded rooms were found on the active level.");
+      return;
+    }
+
+    const existingKeys = new Set(
+      project.rooms
+        .filter((room) => room.levelId === activeLevelId)
+        .map((room) => getRoomPolygonKey(room.polygon)),
+    );
+    const newPolygons = discoveredPolygons.filter(
+      (polygon) => !existingKeys.has(getRoomPolygonKey(polygon)),
+    );
+
+    if (newPolygons.length === 0) {
+      reportSuccess("All discovered rooms already exist.");
+      return;
+    }
+
+    const newSelections: EditorSelection[] = [];
+    applyCommand((current) => {
+      let nextProject = current;
+      for (const polygon of newPolygons) {
+        nextProject = createRoom(nextProject, {
+          levelId: activeLevelId,
+          name: `${roomToolName.trim() || "Room"} ${nextProject.rooms.length + 1}`,
+          polygon,
+        });
+        const createdRoom = nextProject.rooms[nextProject.rooms.length - 1];
+        if (createdRoom) {
+          newSelections.push({ kind: "room", id: createdRoom.id });
+        }
+      }
+
+      return nextProject;
+    });
+
+    setSelectionSet(newSelections, newSelections[0] ?? null);
+    reportSuccess(`Discovered ${newPolygons.length} room(s) from closed walls.`);
   }
 
   function getManualRoofSketch(projectToSearch: Project): RoofSketch | null {
@@ -4131,6 +4570,64 @@ export default function App() {
       );
     }
 
+    if (activeTool === "Ground") {
+      return (
+        <div className="field-stack">
+          <p className="muted">
+            Drag in the 2D plan to paint a zero-height ground rectangle at world elevation 0.
+          </p>
+          <label className="field-label">
+            <span>Ground Surface</span>
+            <select
+              value={groundToolKind}
+              onChange={(event) => setGroundToolKind(event.target.value as GroundSurface["kind"])}
+            >
+              <option value="Floor">Floor - gray indoor surface</option>
+              <option value="Grass">Grass - green outdoor surface</option>
+            </select>
+          </label>
+        </div>
+      );
+    }
+
+    if (activeTool === "Rooms") {
+      return (
+        <div className="field-stack">
+          <p className="muted">
+            Manual mode draws a rectangular room. Auto mode discovers closed wall-bounded rooms on the active level.
+          </p>
+          <div className="button-row">
+            <button
+              type="button"
+              className={roomToolMode === "Manual" ? "is-active" : undefined}
+              onClick={() => setRoomToolMode("Manual")}
+            >
+              Manual
+            </button>
+            <button
+              type="button"
+              className={roomToolMode === "Auto" ? "is-active" : undefined}
+              onClick={() => setRoomToolMode("Auto")}
+            >
+              Auto
+            </button>
+          </div>
+          <label className="field-label">
+            <span>{roomToolMode === "Auto" ? "Name Prefix" : "Room Name"}</span>
+            <DraftTextInput
+              value={roomToolName}
+              onCommit={(nextValue) => setRoomToolName(nextValue.trim() || "Room")}
+            />
+          </label>
+          {roomToolMode === "Auto" ? (
+            <button type="button" onClick={handleDiscoverRooms}>
+              Discover Rooms
+            </button>
+          ) : null}
+        </div>
+      );
+    }
+
     if (activeTool === "Roof") {
       return (
         <div className="field-stack">
@@ -4885,6 +5382,96 @@ export default function App() {
       );
     }
 
+    if (selectedGroundSurface) {
+      return (
+        <div className="field-grid">
+          <label className="field-label">
+            <span>Surface</span>
+            <select
+              value={selectedGroundSurface.kind}
+              onChange={(event) =>
+                handleUpdateSelectedGroundSurface(
+                  { kind: event.target.value as GroundSurface["kind"] },
+                  `Updated ground surface to ${event.target.value}.`,
+                )
+              }
+            >
+              <option value="Floor">Floor</option>
+              <option value="Grass">Grass</option>
+            </select>
+          </label>
+          <label className="field-label">
+            <span>Width (m)</span>
+            <input
+              type="number"
+              step="0.1"
+              min="0.1"
+              value={selectedGroundSurface.widthM}
+              onChange={(event) =>
+                commitNumericInput(event.target.valueAsNumber, (value) =>
+                  handleUpdateSelectedGroundSurface({ widthM: value }, "Updated ground width."),
+                )
+              }
+            />
+          </label>
+          <label className="field-label">
+            <span>Depth (m)</span>
+            <input
+              type="number"
+              step="0.1"
+              min="0.1"
+              value={selectedGroundSurface.depthM}
+              onChange={(event) =>
+                commitNumericInput(event.target.valueAsNumber, (value) =>
+                  handleUpdateSelectedGroundSurface({ depthM: value }, "Updated ground depth."),
+                )
+              }
+            />
+          </label>
+          <div className="button-row">
+            <button
+              type="button"
+              onClick={() => handleDeleteGroundSurface(selectedGroundSurface.id)}
+            >
+              Delete Ground
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (selectedRoom) {
+      return (
+        <div className="field-grid">
+          <label className="field-label">
+            <span>Name</span>
+            <DraftTextInput
+              value={selectedRoom.name}
+              onCommit={(nextValue) =>
+                handleUpdateSelectedRoom(
+                  { name: nextValue.trim() || "Room" },
+                  `Renamed room to "${nextValue.trim() || "Room"}".`,
+                )
+              }
+            />
+          </label>
+          <div className="stat-row">
+            <span>Area</span>
+            <strong>{formatNumber(calculatePolygonAreaM2(selectedRoom.polygon))} m2</strong>
+          </div>
+          <div className="stat-row">
+            <span>Points</span>
+            <strong>{selectedRoom.polygon.length}</strong>
+          </div>
+          <div className="button-row">
+            <button type="button" onClick={() => handleDeleteRoom(selectedRoom.id)}>
+              Delete Room
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     if (
       selectedRoofSketch &&
       selectedRoofEdge &&
@@ -5041,16 +5628,61 @@ export default function App() {
         <div className="toolbar-group">
           <span className="brand-mark">WaWoD Studio</span>
           <div className="tool-strip">
-            {availableEditorTools.map((tool) => (
-              <button
-                key={tool}
-                type="button"
-                className={tool === activeTool ? "toolbar-button is-active" : "toolbar-button"}
-                onClick={() => setActiveTool(tool)}
-              >
-                {getEditorToolLabel(tool)}
-              </button>
-            ))}
+            {availableEditorTools.map((tool) =>
+              otherEditorTools.includes(tool) ? (
+                tool === otherEditorTools[0] ? (
+                  <div key="other-tools" ref={otherToolsMenuRef} className="toolbar-split-menu">
+                    <button
+                      type="button"
+                      className={
+                        otherEditorTools.includes(activeTool)
+                          ? "toolbar-button is-active"
+                          : "toolbar-button"
+                      }
+                      onClick={() => {
+                        setIsOtherToolsMenuOpen((current) => !current);
+                        setIsPreviewMenuOpen(false);
+                        setIsSettingsMenuOpen(false);
+                      }}
+                      aria-haspopup="menu"
+                      aria-expanded={isOtherToolsMenuOpen}
+                    >
+                      Other Tools
+                    </button>
+                    {isOtherToolsMenuOpen ? (
+                      <div className="toolbar-menu-panel">
+                        {otherEditorTools.map((otherTool) => (
+                          <button
+                            key={otherTool}
+                            type="button"
+                            className={
+                              otherTool === activeTool
+                                ? "toolbar-menu-item is-active"
+                                : "toolbar-menu-item"
+                            }
+                            onClick={() => {
+                              setActiveTool(otherTool);
+                              setIsOtherToolsMenuOpen(false);
+                            }}
+                          >
+                            {getEditorToolLabel(otherTool)}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null
+              ) : (
+                <button
+                  key={tool}
+                  type="button"
+                  className={tool === activeTool ? "toolbar-button is-active" : "toolbar-button"}
+                  onClick={() => setActiveTool(tool)}
+                >
+                  {getEditorToolLabel(tool)}
+                </button>
+              ),
+            )}
           </div>
         </div>
 
@@ -5093,7 +5725,11 @@ export default function App() {
             <button
               type="button"
               className="toolbar-button ghost toolbar-split-toggle"
-              onClick={() => setIsPreviewMenuOpen((current) => !current)}
+              onClick={() => {
+                setIsPreviewMenuOpen((current) => !current);
+                setIsOtherToolsMenuOpen(false);
+                setIsSettingsMenuOpen(false);
+              }}
               aria-label="Preview options"
               aria-expanded={isPreviewMenuOpen}
             >
@@ -5115,7 +5751,11 @@ export default function App() {
               <button
                 type="button"
                 className="toolbar-button ghost toolbar-icon-button"
-                onClick={() => setIsSettingsMenuOpen((current) => !current)}
+                onClick={() => {
+                  setIsSettingsMenuOpen((current) => !current);
+                  setIsOtherToolsMenuOpen(false);
+                  setIsPreviewMenuOpen(false);
+                }}
                 aria-label="Project settings"
                 aria-expanded={isSettingsMenuOpen}
               >
@@ -5264,6 +5904,8 @@ export default function App() {
                   wallAuthoringMode={wallAuthoringMode}
                   activeLevelId={activeLevelId}
                   slabMode={slabMode}
+                  groundToolKind={groundToolKind}
+                  roomToolMode={roomToolMode}
                   pendingWallStartNodeId={pendingWallStartNodeId}
                   currentSelection={currentSelection}
                   selectionSet={selectionSet}
@@ -5283,6 +5925,8 @@ export default function App() {
                   onCreateStair={handleCreateStair}
                   onCreateShapeAt={handleCreateShapeAt}
                   onCreateSlabAt={handleCreateSlabAt}
+                  onCreateGroundSurfaceAt={handleCreateGroundSurfaceAt}
+                  onCreateRoomFromPolygon={handleCreateRoomFromPolygon}
                   onCreateRoofLine={handleCreateRoofLine}
                   onCreateRoofOpening={handleCreateRoofOpening}
                   onCreateExternalModelAt={handleCreateExternalModelAt}
@@ -5298,6 +5942,8 @@ export default function App() {
                   onDeleteWallsConnectedToNode={handleDeleteWallsConnectedToNode}
                   onDeleteShape={handleDeleteShape}
                   onDeleteSlab={handleDeleteSlab}
+                  onDeleteGroundSurface={handleDeleteGroundSurface}
+                  onDeleteRoom={handleDeleteRoom}
                   onDeleteExternalModel={handleDeleteExternalModel}
                   measureToolUnit={measureToolUnit}
                   measureToolPermanent={measureToolPermanent}
@@ -5309,6 +5955,8 @@ export default function App() {
                   onMoveWindow={handleMoveWindow}
                   onMoveShape={handleMoveShape}
                   onMoveSlab={handleMoveSlab}
+                  onMoveGroundSurface={handleMoveGroundSurface}
+                  onMoveRoom={handleMoveRoom}
                   onResizeSlab={handleResizeSlab}
                   onMoveRoofEdge={handleMoveRoofEdge}
                   onMoveRoofVertex={handleMoveRoofVertex}

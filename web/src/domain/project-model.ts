@@ -1,5 +1,6 @@
 export type ShapeKind = "Square" | "Cylinder";
 export type SlabKind = "Rectangle" | "Circle";
+export type GroundSurfaceKind = "Floor" | "Grass";
 export type RoofType = "Flat" | "Gable" | "Shed" | "Hip";
 export type WallTopMode = "FixedHeight" | "FollowRoof";
 export type MeasurementUnit = "cm" | "dm" | "m";
@@ -217,6 +218,22 @@ export interface Slab {
   zOffsetM: number;
 }
 
+export interface GroundSurface {
+  id: string;
+  name: string;
+  kind: GroundSurfaceKind;
+  pose: Pose2D;
+  widthM: number;
+  depthM: number;
+}
+
+export interface Room {
+  id: string;
+  levelId: string;
+  name: string;
+  polygon: Vec2[];
+}
+
 export interface ExternalModel {
   id: string;
   levelId: string;
@@ -252,6 +269,8 @@ export interface Project {
   stairs: Stair[];
   shapes: Shape[];
   slabs: Slab[];
+  groundSurfaces: GroundSurface[];
+  rooms: Room[];
   externalModels: ExternalModel[];
   measurements: Measurement[];
 }
@@ -425,6 +444,46 @@ export function createSlab(overrides: Partial<Slab> = {}): Slab {
   };
 }
 
+export function createGroundSurface(overrides: Partial<GroundSurface> = {}): GroundSurface {
+  return {
+    id: overrides.id ?? createId("ground"),
+    name: overrides.name ?? "ground",
+    kind: overrides.kind ?? "Floor",
+    pose: overrides.pose ?? createPose2D(),
+    widthM: overrides.widthM ?? 4,
+    depthM: overrides.depthM ?? 4,
+  };
+}
+
+export function createRoom(overrides: Partial<Room> = {}): Room {
+  return {
+    id: overrides.id ?? createId("room"),
+    levelId: overrides.levelId ?? "",
+    name: overrides.name ?? "Room",
+    polygon: overrides.polygon?.map((point) => createVec2(point.x, point.y)) ?? [
+      createVec2(-1, -1),
+      createVec2(1, -1),
+      createVec2(1, 1),
+      createVec2(-1, 1),
+    ],
+  };
+}
+
+export function calculatePolygonAreaM2(points: readonly Vec2[]) {
+  if (points.length < 3) {
+    return 0;
+  }
+
+  let doubleArea = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    doubleArea += current.x * next.y - next.x * current.y;
+  }
+
+  return Math.abs(doubleArea) / 2;
+}
+
 export function createExternalModel(
   overrides: Partial<ExternalModel> = {},
 ): ExternalModel {
@@ -467,6 +526,8 @@ export function createEmptyProject(overrides: Partial<Project> = {}): Project {
     stairs: overrides.stairs ?? [],
     shapes: overrides.shapes ?? [],
     slabs: overrides.slabs ?? [],
+    groundSurfaces: overrides.groundSurfaces ?? [],
+    rooms: overrides.rooms ?? [],
     externalModels: overrides.externalModels ?? [],
     measurements: overrides.measurements ?? [],
   };
@@ -518,6 +579,8 @@ export function ensureProjectDefaults(project: Project): Project {
     levels,
     wallTypes,
     roofLayers,
+    groundSurfaces: project.groundSurfaces ?? [],
+    rooms: project.rooms ?? [],
     roofSketches,
     roofOpenings: (project.roofOpenings ?? [])
       .filter(
@@ -561,6 +624,8 @@ export function describeProject(project: Project) {
     `${project.stairs.length} stair(s)`,
     `${project.shapes.length} shape(s)`,
     `${project.slabs.length} slab(s)`,
+    `${project.groundSurfaces.length} ground surface(s)`,
+    `${project.rooms.length} room(s)`,
     `${project.externalModels.length} external model(s)`,
     `${project.measurements.length} measurement(s)`,
   ].join(" | ");

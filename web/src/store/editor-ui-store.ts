@@ -16,7 +16,9 @@ export type EditorTool =
   | "Roof"
   | "RoofOpening"
   | "RoofWindow"
-  | "Model";
+  | "Model"
+  | "Ground"
+  | "Rooms";
 export type ViewportMode = "2d" | "3d";
 export type WallAuthoringMode = "AutoWall" | "Topology";
 export type SelectableEntityKind =
@@ -31,6 +33,8 @@ export type SelectableEntityKind =
   | "roofEdge"
   | "roofFace"
   | "roofOpening"
+  | "groundSurface"
+  | "room"
   | "externalModel";
 export type SlabMode = "Rectangle" | "Circle";
 
@@ -180,6 +184,10 @@ function isSelectionValid(selection: EditorSelection | null, project: Project) {
       return project.shapes.some((shape) => shape.id === selection.id);
     case "slab":
       return project.slabs.some((slab) => slab.id === selection.id);
+    case "groundSurface":
+      return project.groundSurfaces.some((groundSurface) => groundSurface.id === selection.id);
+    case "room":
+      return project.rooms.some((room) => room.id === selection.id);
     case "roofEdge":
       return project.roofSketches.some((sketch) =>
         sketch.edges.some((edge) => edge.id === selection.id),
@@ -235,6 +243,10 @@ function isSelectionCompatibleWithTool(selection: EditorSelection | null, tool: 
       return selection.kind === "roofOpening";
     case "Model":
       return selection.kind === "externalModel";
+    case "Ground":
+      return selection.kind === "groundSurface";
+    case "Rooms":
+      return selection.kind === "room";
   }
 }
 
