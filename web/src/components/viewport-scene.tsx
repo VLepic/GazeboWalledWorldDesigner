@@ -77,6 +77,7 @@ interface ViewportSceneProps {
   onDeleteDoor: (doorId: string) => void;
   onDeleteWindow: (windowId: string) => void;
   onDeleteRoofOpening: (roofOpeningId: string) => void;
+  onDeleteRoofEdge: (roofEdgeId: string) => void;
   onDeleteMeasurement: (measurementId: string) => void;
   onDeleteStair: (stairId: string) => void;
   onDeleteWallsConnectedToNode: (nodeId: string) => void;
@@ -203,6 +204,7 @@ type PlacementDraftState =
       pointerId: number;
       startWorld: Vec2;
       currentWorld: Vec2;
+      startRoofVertexId?: string;
     };
 
 interface BoxSelectDragState {
@@ -738,6 +740,7 @@ export function ViewportScene({
   onDeleteDoor,
   onDeleteWindow,
   onDeleteRoofOpening,
+  onDeleteRoofEdge,
   onDeleteMeasurement,
   onDeleteStair,
   onDeleteWallsConnectedToNode,
@@ -858,6 +861,8 @@ export function ViewportScene({
         target instanceof Element ? target.closest<SVGElement>("[data-ground-surface-id]") : null;
       const roomElement =
         target instanceof Element ? target.closest<SVGElement>("[data-room-id]") : null;
+      const roofVertexElement =
+        target instanceof Element ? target.closest<SVGElement>("[data-roof-vertex-id]") : null;
       const roofEdgeElement =
         target instanceof Element ? target.closest<SVGElement>("[data-roof-edge-id]") : null;
       const roofFaceElement =
@@ -956,6 +961,19 @@ export function ViewportScene({
           event.stopPropagation();
           suppressClickRef.current = true;
           onDeleteRoofOpening(roofOpeningId);
+          return;
+        }
+
+        if (activeTool === "Roof" && roofEdgeElement) {
+          const roofEdgeId = roofEdgeElement.getAttribute("data-roof-edge-id");
+          if (!roofEdgeId) {
+            return;
+          }
+
+          event.preventDefault();
+          event.stopPropagation();
+          suppressClickRef.current = true;
+          onDeleteRoofEdge(roofEdgeId);
           return;
         }
 
@@ -1216,6 +1234,28 @@ export function ViewportScene({
         return;
       }
 
+      if (activeTool === "Roof" && event.button === 0 && roofVertexElement) {
+        const roofSketchId = roofVertexElement.getAttribute("data-roof-sketch-id");
+        const roofVertexId = roofVertexElement.getAttribute("data-roof-vertex-id");
+        const sketch = project.roofSketches.find((candidate) => candidate.id === roofSketchId);
+        const vertex = sketch?.vertices.find((candidate) => candidate.id === roofVertexId);
+        if (!vertex) {
+          return;
+        }
+
+        event.preventDefault();
+        suppressClickRef.current = false;
+        rootElement.setPointerCapture(event.pointerId);
+        setPlacementDraft({
+          kind: "roofLine",
+          pointerId: event.pointerId,
+          startWorld: vertex.position,
+          currentWorld: vertex.position,
+          startRoofVertexId: vertex.id,
+        });
+        return;
+      }
+
       if (activeTool === "Roof" && event.button === 0 && !isViewportEntityTarget(target)) {
         event.preventDefault();
         suppressClickRef.current = true;
@@ -1319,6 +1359,7 @@ export function ViewportScene({
     onDeleteDoor,
     onDeleteWindow,
     onDeleteRoofOpening,
+    onDeleteRoofEdge,
     onDeleteMeasurement,
     onDeleteStair,
     onDeleteExternalModel,
@@ -1545,6 +1586,8 @@ export function ViewportScene({
             ? [{ entityKind: "roofEdge" as const, entityId: selection.id, startPosition: position }]
             : [];
         }
+        case "roofVertex":
+          return [];
         case "roofOpening": {
           const position = getCurrentEntityPosition(project, "roofOpening", selection.id);
           return position
@@ -2052,6 +2095,25 @@ export function ViewportScene({
 
         if (distanceM >= 0.0001) {
           onCreateRoofLine(placementDraft.startWorld, placementDraft.currentWorld);
+        } else if (placementDraft.startRoofVertexId) {
+          const selection = { kind: "roofVertex" as const, id: placementDraft.startRoofVertexId };
+          const isAlreadySelected = isIncludedInSelectionSet(
+            selectionSet,
+            "roofVertex",
+            placementDraft.startRoofVertexId,
+          );
+          const nextSelectionSet = isAlreadySelected
+            ? selectionSet.filter(
+                (item) => !(item.kind === "roofVertex" && item.id === placementDraft.startRoofVertexId),
+              )
+            : [
+                ...selectionSet.filter(
+                  (item) => item.kind === "roofEdge" || item.kind === "roofVertex",
+                ),
+                selection,
+              ];
+          suppressClickRef.current = true;
+          onSelectionSetChange(nextSelectionSet, selection);
         }
 
         setPlacementDraft(null);
@@ -3260,6 +3322,12 @@ export function ViewportScene({
         const selected =
           isSelected(currentSelection, "roofEdge", edge.id) ||
           isIncludedInSelectionSet(selectionSet, "roofEdge", edge.id);
+        const startVertexSelected =
+          isSelected(currentSelection, "roofVertex", edge.startVertexId) ||
+          isIncludedInSelectionSet(selectionSet, "roofVertex", edge.startVertexId);
+        const endVertexSelected =
+          isSelected(currentSelection, "roofVertex", edge.endVertexId) ||
+          isIncludedInSelectionSet(selectionSet, "roofVertex", edge.endVertexId);
         const startElevationM = start.elevationM ?? sketch.baseElevationM;
         const endElevationM = end.elevationM ?? sketch.baseElevationM;
         const label =
@@ -3295,10 +3363,15 @@ export function ViewportScene({
               const selection = { kind: "roofEdge" as const, id: edge.id };
               const isAlreadySelected = isIncludedInSelectionSet(selectionSet, "roofEdge", edge.id);
               const nextSelectionSet = isAlreadySelected
-                ? selectionSet.filter(
-                    (item) => !(item.kind === "roofEdge" && item.id === edge.id),
-                  )
-                : [...selectionSet.filter((item) => item.kind === "roofEdge"), selection];
+                ? selectionSet.filter((item) => !(item.kind === "roofEdge" && item.id === edge.id))
+                : [
+                    ...selectionSet.filter(
+                      (item) =>
+                        (item.kind === "roofEdge" || item.kind === "roofVertex") &&
+                        !(item.kind === "roofEdge" && item.id === edge.id),
+                    ),
+                    selection,
+                  ];
               onSelectionSetChange(nextSelectionSet, selection);
             }}
           >
@@ -3321,48 +3394,60 @@ export function ViewportScene({
               strokeLinecap="round"
             />
             <circle
+              data-roof-sketch-id={sketch.id}
+              data-roof-vertex-id={edge.startVertexId}
               cx={startScreen.x}
               cy={startScreen.y}
               r={11}
               fill="transparent"
-              pointerEvents={activeTool === "Move" ? "auto" : "none"}
+              pointerEvents={activeTool === "Move" || activeTool === "Roof" ? "auto" : "none"}
               onPointerDown={(event) =>
                 startRoofVertexDrag(event, sketch.id, edge.id, edge.startVertexId, start.position)
               }
+              onClick={(event) => event.stopPropagation()}
             />
             <circle
+              data-roof-sketch-id={sketch.id}
+              data-roof-vertex-id={edge.startVertexId}
               cx={startScreen.x}
               cy={startScreen.y}
-              r={selected ? 5 : 4}
-              fill={selected ? "#ffe0a1" : "#f1b879"}
-              stroke="#7f4a26"
-              strokeWidth={1.5}
-              pointerEvents={activeTool === "Move" ? "auto" : "none"}
+              r={selected || startVertexSelected ? 5.5 : 4}
+              fill={startVertexSelected ? "#ffd166" : selected ? "#ffe0a1" : "#f1b879"}
+              stroke={startVertexSelected ? "#fff2bd" : "#7f4a26"}
+              strokeWidth={startVertexSelected ? 2.5 : 1.5}
+              pointerEvents={activeTool === "Move" || activeTool === "Roof" ? "auto" : "none"}
               onPointerDown={(event) =>
                 startRoofVertexDrag(event, sketch.id, edge.id, edge.startVertexId, start.position)
               }
+              onClick={(event) => event.stopPropagation()}
             />
             <circle
+              data-roof-sketch-id={sketch.id}
+              data-roof-vertex-id={edge.endVertexId}
               cx={endScreen.x}
               cy={endScreen.y}
               r={11}
               fill="transparent"
-              pointerEvents={activeTool === "Move" ? "auto" : "none"}
+              pointerEvents={activeTool === "Move" || activeTool === "Roof" ? "auto" : "none"}
               onPointerDown={(event) =>
                 startRoofVertexDrag(event, sketch.id, edge.id, edge.endVertexId, end.position)
               }
+              onClick={(event) => event.stopPropagation()}
             />
             <circle
+              data-roof-sketch-id={sketch.id}
+              data-roof-vertex-id={edge.endVertexId}
               cx={endScreen.x}
               cy={endScreen.y}
-              r={selected ? 5 : 4}
-              fill={selected ? "#ffe0a1" : "#f1b879"}
-              stroke="#7f4a26"
-              strokeWidth={1.5}
-              pointerEvents={activeTool === "Move" ? "auto" : "none"}
+              r={selected || endVertexSelected ? 5.5 : 4}
+              fill={endVertexSelected ? "#ffd166" : selected ? "#ffe0a1" : "#f1b879"}
+              stroke={endVertexSelected ? "#fff2bd" : "#7f4a26"}
+              strokeWidth={endVertexSelected ? 2.5 : 1.5}
+              pointerEvents={activeTool === "Move" || activeTool === "Roof" ? "auto" : "none"}
               onPointerDown={(event) =>
                 startRoofVertexDrag(event, sketch.id, edge.id, edge.endVertexId, end.position)
               }
+              onClick={(event) => event.stopPropagation()}
             />
             <g transform={`translate(${midpoint.x + 8} ${midpoint.y - 8})`}>
               <rect
@@ -3905,6 +3990,38 @@ export function ViewportScene({
             strokeWidth={14}
             strokeLinecap="round"
           />
+        );
+      }
+      case "roofVertex": {
+        const sketch = project.roofSketches.find((candidate) =>
+          candidate.vertices.some((vertex) => vertex.id === currentSelection.id),
+        );
+        const vertex = sketch?.vertices.find((candidate) => candidate.id === currentSelection.id);
+        if (!vertex) {
+          return null;
+        }
+
+        const point = worldToScreen(vertex.position, metrics);
+        return (
+          <g pointerEvents="none">
+            <circle
+              cx={point.x}
+              cy={point.y}
+              r={14}
+              fill="rgba(255, 209, 102, 0.16)"
+              stroke="#ffd166"
+              strokeWidth={3}
+            />
+            <circle
+              cx={point.x}
+              cy={point.y}
+              r={20}
+              fill="none"
+              stroke="rgba(255, 209, 102, 0.45)"
+              strokeWidth={2}
+              strokeDasharray="7 5"
+            />
+          </g>
         );
       }
       case "roofFace": {

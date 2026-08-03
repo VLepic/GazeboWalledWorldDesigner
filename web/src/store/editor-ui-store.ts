@@ -31,6 +31,7 @@ export type SelectableEntityKind =
   | "shape"
   | "slab"
   | "roofEdge"
+  | "roofVertex"
   | "roofFace"
   | "roofOpening"
   | "groundSurface"
@@ -192,6 +193,10 @@ function isSelectionValid(selection: EditorSelection | null, project: Project) {
       return project.roofSketches.some((sketch) =>
         sketch.edges.some((edge) => edge.id === selection.id),
       );
+    case "roofVertex":
+      return project.roofSketches.some((sketch) =>
+        sketch.vertices.some((vertex) => vertex.id === selection.id),
+      );
     case "roofFace":
       return project.roofSketches.some((sketch) =>
         sketch.faces.some((face) => face.id === selection.id),
@@ -236,7 +241,7 @@ function isSelectionCompatibleWithTool(selection: EditorSelection | null, tool: 
     case "Slab":
       return selection.kind === "slab";
     case "Roof":
-      return selection.kind === "roofEdge" || selection.kind === "roofFace";
+      return selection.kind === "roofEdge" || selection.kind === "roofVertex" || selection.kind === "roofFace";
     case "RoofOpening":
       return selection.kind === "roofFace" || selection.kind === "roofOpening";
     case "RoofWindow":

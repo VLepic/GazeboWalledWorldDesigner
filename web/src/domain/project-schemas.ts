@@ -108,6 +108,7 @@ export const roofEdgeSchema = z.object({
   startVertexId: nonEmptyStringSchema,
   endVertexId: nonEmptyStringSchema,
   role: roofEdgeRoleSchema,
+  chainId: nonEmptyStringSchema.optional(),
 }) satisfies z.ZodType<RoofEdge>;
 
 export const roofConstraintSchema = z.discriminatedUnion("kind", [

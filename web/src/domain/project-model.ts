@@ -65,6 +65,7 @@ export interface RoofEdge {
   startVertexId: string;
   endVertexId: string;
   role: RoofEdgeRole;
+  chainId?: string;
 }
 
 export type RoofConstraint =

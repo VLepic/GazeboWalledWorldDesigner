@@ -601,6 +601,155 @@ function distanceSquared(left: Vec2, right: Vec2) {
   return (left.x - right.x) * (left.x - right.x) + (left.y - right.y) * (left.y - right.y);
 }
 
+function getRoofEdgeChainId(edge: RoofSketch["edges"][number]) {
+  return edge.chainId ?? edge.id;
+}
+
+function findRoofVertexNear(sketch: RoofSketch, position: Vec2, toleranceM: number) {
+  let nearest: RoofSketch["vertices"][number] | null = null;
+  let nearestDistanceSquared = toleranceM * toleranceM;
+
+  for (const vertex of sketch.vertices) {
+    const currentDistanceSquared = distanceSquared(vertex.position, position);
+    if (currentDistanceSquared <= nearestDistanceSquared) {
+      nearest = vertex;
+      nearestDistanceSquared = currentDistanceSquared;
+    }
+  }
+
+  return nearest;
+}
+
+function getRoofChainVertexIds(sketch: RoofSketch, chainEdgeIds: readonly string[]) {
+  const selectedEdgeIdSet = new Set(chainEdgeIds);
+  const chainEdges = sketch.edges.filter((edge) => selectedEdgeIdSet.has(edge.id));
+  if (chainEdges.length === 0) {
+    return [];
+  }
+
+  const adjacency = new Map<string, Array<{ edgeId: string; neighborId: string }>>();
+  for (const edge of chainEdges) {
+    adjacency.set(edge.startVertexId, [
+      ...(adjacency.get(edge.startVertexId) ?? []),
+      { edgeId: edge.id, neighborId: edge.endVertexId },
+    ]);
+    adjacency.set(edge.endVertexId, [
+      ...(adjacency.get(edge.endVertexId) ?? []),
+      { edgeId: edge.id, neighborId: edge.startVertexId },
+    ]);
+  }
+
+  const endpoints = [...adjacency.entries()]
+    .filter(([, neighbors]) => neighbors.length === 1)
+    .map(([vertexId]) => vertexId);
+  const startVertexId = endpoints[0] ?? chainEdges[0].startVertexId;
+  const orderedVertexIds = [startVertexId];
+  const usedEdgeIds = new Set<string>();
+  let currentVertexId = startVertexId;
+
+  while (usedEdgeIds.size < chainEdges.length) {
+    const next = (adjacency.get(currentVertexId) ?? []).find(
+      (candidate) => !usedEdgeIds.has(candidate.edgeId),
+    );
+    if (!next) {
+      break;
+    }
+
+    usedEdgeIds.add(next.edgeId);
+    currentVertexId = next.neighborId;
+    if (currentVertexId === startVertexId) {
+      break;
+    }
+    orderedVertexIds.push(currentVertexId);
+  }
+
+  return orderedVertexIds;
+}
+
+function compactRoofFaceVertexIds(vertexIds: readonly string[]) {
+  const compacted: string[] = [];
+  for (const vertexId of vertexIds) {
+    if (compacted[compacted.length - 1] !== vertexId) {
+      compacted.push(vertexId);
+    }
+  }
+
+  if (compacted.length > 1 && compacted[0] === compacted[compacted.length - 1]) {
+    compacted.pop();
+  }
+
+  return compacted;
+}
+
+function splitDisconnectedRoofChainEdges(edges: RoofSketch["edges"]) {
+  const edgesByChainId = new Map<string, RoofSketch["edges"]>();
+  for (const edge of edges) {
+    const chainId = getRoofEdgeChainId(edge);
+    edgesByChainId.set(chainId, [...(edgesByChainId.get(chainId) ?? []), edge]);
+  }
+
+  return [...edgesByChainId.values()].flatMap((chainEdges) => {
+    if (chainEdges.length <= 1) {
+      return chainEdges;
+    }
+
+    const edgeById = new Map(chainEdges.map((edge) => [edge.id, edge] as const));
+    const edgeIdsByVertexId = new Map<string, string[]>();
+    for (const edge of chainEdges) {
+      edgeIdsByVertexId.set(edge.startVertexId, [
+        ...(edgeIdsByVertexId.get(edge.startVertexId) ?? []),
+        edge.id,
+      ]);
+      edgeIdsByVertexId.set(edge.endVertexId, [
+        ...(edgeIdsByVertexId.get(edge.endVertexId) ?? []),
+        edge.id,
+      ]);
+    }
+
+    const visitedEdgeIds = new Set<string>();
+    const nextEdges: RoofSketch["edges"] = [];
+    for (const edge of chainEdges) {
+      if (visitedEdgeIds.has(edge.id)) {
+        continue;
+      }
+
+      const componentEdgeIds = new Set<string>();
+      const stack = [edge.id];
+      while (stack.length > 0) {
+        const edgeId = stack.pop();
+        if (!edgeId || visitedEdgeIds.has(edgeId)) {
+          continue;
+        }
+
+        const currentEdge = edgeById.get(edgeId);
+        if (!currentEdge) {
+          continue;
+        }
+
+        visitedEdgeIds.add(edgeId);
+        componentEdgeIds.add(edgeId);
+        for (const vertexId of [currentEdge.startVertexId, currentEdge.endVertexId]) {
+          for (const neighborEdgeId of edgeIdsByVertexId.get(vertexId) ?? []) {
+            if (!visitedEdgeIds.has(neighborEdgeId)) {
+              stack.push(neighborEdgeId);
+            }
+          }
+        }
+      }
+
+      const componentChainId = edge.id;
+      for (const componentEdgeId of componentEdgeIds) {
+        const componentEdge = edgeById.get(componentEdgeId);
+        if (componentEdge) {
+          nextEdges.push({ ...componentEdge, chainId: componentChainId });
+        }
+      }
+    }
+
+    return nextEdges;
+  });
+}
+
 function findWallAtPoint(project: Project, levelId: string, position: Vec2, preferredWallId?: string | null) {
   const candidates = preferredWallId
     ? [
@@ -955,6 +1104,16 @@ export default function App() {
           (vertex) => vertex.id === selectedRoofEdge.endVertexId,
         ) ?? null)
       : null;
+  const selectedRoofVertexSketch =
+    currentSelection?.kind === "roofVertex"
+      ? (project.roofSketches.find((sketch) =>
+          sketch.vertices.some((vertex) => vertex.id === currentSelection.id),
+        ) ?? null)
+      : null;
+  const selectedRoofVertex =
+    currentSelection?.kind === "roofVertex" && selectedRoofVertexSketch
+      ? (selectedRoofVertexSketch.vertices.find((vertex) => vertex.id === currentSelection.id) ?? null)
+      : null;
   const selectedRoofFaceSketch =
     currentSelection?.kind === "roofFace"
       ? (project.roofSketches.find((sketch) =>
@@ -1027,6 +1186,22 @@ export default function App() {
   const selectedRoofEdgeIds = selectionSet
     .filter((selection) => selection.kind === "roofEdge")
     .map((selection) => selection.id);
+  const selectedRoofVertexIds = selectionSet
+    .filter((selection) => selection.kind === "roofVertex")
+    .map((selection) => selection.id);
+  const selectedRoofChainIds = useMemo(() => {
+    const chainIds = new Set<string>();
+    for (const edgeId of selectedRoofEdgeIds) {
+      const edge = project.roofSketches
+        .flatMap((sketch) => sketch.edges)
+        .find((candidate) => candidate.id === edgeId);
+      if (edge) {
+        chainIds.add(getRoofEdgeChainId(edge));
+      }
+    }
+
+    return [...chainIds];
+  }, [project.roofSketches, selectedRoofEdgeIds]);
   const selectedModelIds = selectionSet
     .filter((selection) => selection.kind === "externalModel")
     .map((selection) => selection.id);
@@ -1629,6 +1804,8 @@ export default function App() {
           ? createViewportBoundsFromPoints([startVertex.position, endVertex.position])
           : null;
       }
+      case "roofVertex":
+        return selectedRoofVertex ? createCircularBounds(selectedRoofVertex.position, 0.45) : null;
       case "roofFace": {
         const sketch = project.roofSketches.find((candidate) =>
           candidate.faces.some((face) => face.id === currentSelection.id),
@@ -2300,6 +2477,91 @@ export default function App() {
       reportSuccess("Removed 3D door from the selected opening.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "3D door removal failed.";
+      reportError(message);
+    }
+  }
+
+  function handleDeleteRoofEdge(roofEdgeId: string) {
+    try {
+      let removedFaceCount = 0;
+      applyCommand((current) => {
+        const sketch = current.roofSketches.find((candidate) =>
+          candidate.edges.some((edge) => edge.id === roofEdgeId),
+        );
+        const edge = sketch?.edges.find((candidate) => candidate.id === roofEdgeId);
+        if (!sketch || !edge) {
+          throw new Error(`Roof line segment "${roofEdgeId}" does not exist.`);
+        }
+
+        const removedFaceIds = new Set(
+          sketch.faces
+            .filter(
+              (face) =>
+                face.edgeIds.includes(roofEdgeId) ||
+                face.vertexIds.includes(edge.startVertexId) ||
+                face.vertexIds.includes(edge.endVertexId),
+            )
+            .map((face) => face.id),
+        );
+        removedFaceCount = removedFaceIds.size;
+        const remainingEdges = splitDisconnectedRoofChainEdges(
+          sketch.edges.filter((candidate) => candidate.id !== roofEdgeId),
+        );
+        const remainingFaces = sketch.faces.filter((face) => !removedFaceIds.has(face.id));
+        const referencedVertexIds = new Set([
+          ...remainingEdges.flatMap((candidate) => [
+            candidate.startVertexId,
+            candidate.endVertexId,
+          ]),
+          ...remainingFaces.flatMap((face) => face.vertexIds),
+        ]);
+        const prunedVertices = sketch.vertices.filter((vertex) =>
+          referencedVertexIds.has(vertex.id),
+        );
+        const remainingVertices = prunedVertices.length >= 2 ? prunedVertices : sketch.vertices;
+        const remainingConstraints = sketch.constraints.filter((constraint) => {
+          if (constraint.kind === "EdgeHeight") {
+            return constraint.edgeId !== roofEdgeId;
+          }
+          if (constraint.kind === "FaceSlope") {
+            return !removedFaceIds.has(constraint.faceId);
+          }
+          return referencedVertexIds.has(constraint.vertexId);
+        });
+
+        const updatedProject = updateRoofSketch(current, sketch.id, {
+          vertices: remainingVertices,
+          edges: remainingEdges,
+          faces: remainingFaces,
+          constraints: remainingConstraints,
+        });
+
+        return {
+          ...updatedProject,
+          roofOpenings: updatedProject.roofOpenings.filter(
+            (opening) =>
+              opening.roofSketchId !== sketch.id || !removedFaceIds.has(opening.roofFaceId),
+          ),
+        };
+      });
+
+      const nextSelectionSet = selectionSet.filter((selection) => {
+        if (selection.kind === "roofEdge" && selection.id === roofEdgeId) {
+          return false;
+        }
+        if (selection.kind === "roofFace" && currentSelection?.kind === "roofFace") {
+          return false;
+        }
+        return true;
+      });
+      setSelectionSet(nextSelectionSet, nextSelectionSet[0] ?? null);
+      reportSuccess(
+        removedFaceCount > 0
+          ? `Deleted roof line segment and ${removedFaceCount} dependent roof face(s).`
+          : "Deleted roof line segment.",
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Roof line segment delete failed.";
       reportError(message);
     }
   }
@@ -3424,31 +3686,64 @@ export default function App() {
         throw new Error("Project has no roof layer.");
       }
 
-      const startVertexId = createId("roof_vertex");
-      const endVertexId = createId("roof_vertex");
+      const existingSketch = getManualRoofSketch(current);
+      const matchToleranceM = Math.max(current.settings.snapToGrid ? current.settings.gridSpacingM * 0.2 : 0.05, 0.02);
+      const matchedStartVertex = existingSketch
+        ? findRoofVertexNear(existingSketch, start, matchToleranceM)
+        : null;
+      const matchedEndVertex = existingSketch
+        ? findRoofVertexNear(existingSketch, end, matchToleranceM)
+        : null;
       const edgeId = createId("roof_edge");
+      const startVertexId = matchedStartVertex?.id ?? createId("roof_vertex");
+      const endVertexId = matchedEndVertex?.id ?? createId("roof_vertex");
+      const incidentStartEdge =
+        existingSketch && matchedStartVertex
+          ? existingSketch.edges.find(
+              (edge) =>
+                edge.startVertexId === matchedStartVertex.id ||
+                edge.endVertexId === matchedStartVertex.id,
+            )
+          : null;
+      const incidentEndEdge =
+        existingSketch && matchedEndVertex
+          ? existingSketch.edges.find(
+              (edge) =>
+                edge.startVertexId === matchedEndVertex.id ||
+                edge.endVertexId === matchedEndVertex.id,
+            )
+          : null;
+      const chainId =
+        incidentStartEdge
+          ? getRoofEdgeChainId(incidentStartEdge)
+          : incidentEndEdge
+            ? getRoofEdgeChainId(incidentEndEdge)
+            : edgeId;
       createdEdgeId = edgeId;
-      const vertices = [
-        {
+      const vertices: RoofSketch["vertices"] = [];
+      if (!matchedStartVertex) {
+        vertices.push({
           id: startVertexId,
           position: createVec2(start.x, start.y),
-          elevationMode: "Explicit" as const,
+          elevationMode: "Explicit",
           elevationM: roofToolStartElevationM,
-        },
-        {
+        });
+      }
+      if (!matchedEndVertex) {
+        vertices.push({
           id: endVertexId,
           position: createVec2(end.x, end.y),
-          elevationMode: "Explicit" as const,
+          elevationMode: "Explicit",
           elevationM: roofToolEndElevationM,
-        },
-      ];
+        });
+      }
       const edge = {
         id: edgeId,
         startVertexId,
         endVertexId,
         role: "Generic" as const,
+        chainId,
       };
-      const existingSketch = getManualRoofSketch(current);
 
       if (!existingSketch) {
         return createRoofSketch(current, {
@@ -3473,7 +3768,7 @@ export default function App() {
       setSelectionSet([{ kind: "roofEdge", id: createdEdgeId }], { kind: "roofEdge", id: createdEdgeId });
     }
     reportSuccess(
-      `Created roof line from ${formatNumber(roofToolStartElevationM)} m to ${formatNumber(roofToolEndElevationM)} m, length ${formatNumber(lengthM)} m.`,
+      `Created roof line segment from ${formatNumber(roofToolStartElevationM)} m to ${formatNumber(roofToolEndElevationM)} m, length ${formatNumber(lengthM)} m.`,
     );
   }
 
@@ -3504,8 +3799,8 @@ export default function App() {
   }
 
   function handleLinkSelectedRoofEdges() {
-    if (selectedRoofEdgeIds.length !== 2) {
-      reportError("Select exactly two roof lines before linking them.");
+    if (selectedRoofChainIds.length !== 2) {
+      reportError("Select exactly two roof line chains before linking them.");
       return;
     }
 
@@ -3515,23 +3810,28 @@ export default function App() {
         selectedRoofEdgeIds.every((edgeId) => candidate.edges.some((edge) => edge.id === edgeId)),
       );
       if (!sketch) {
-        throw new Error("Selected roof lines must belong to the same roof sketch.");
+        throw new Error("Selected roof line chains must belong to the same roof sketch.");
       }
 
-      const [firstEdgeId, secondEdgeId] = selectedRoofEdgeIds;
-      const firstEdge = sketch.edges.find((edge) => edge.id === firstEdgeId);
-      const secondEdge = sketch.edges.find((edge) => edge.id === secondEdgeId);
-      if (!firstEdge || !secondEdge) {
-        throw new Error("Selected roof line no longer exists.");
+      const edgeGroups = selectedRoofChainIds.map((chainId) =>
+        sketch.edges.filter(
+          (edge) => selectedRoofEdgeIds.includes(edge.id) && getRoofEdgeChainId(edge) === chainId,
+        ),
+      );
+      const [firstGroup, secondGroup] = edgeGroups;
+      if (!firstGroup || !secondGroup || firstGroup.length === 0 || secondGroup.length === 0) {
+        throw new Error("Selected roof line chain no longer exists.");
       }
 
       const vertexById = new Map(sketch.vertices.map((vertex) => [vertex.id, vertex] as const));
-      const firstStart = vertexById.get(firstEdge.startVertexId);
-      const firstEnd = vertexById.get(firstEdge.endVertexId);
-      const secondStart = vertexById.get(secondEdge.startVertexId);
-      const secondEnd = vertexById.get(secondEdge.endVertexId);
+      const firstVertexIds = getRoofChainVertexIds(sketch, firstGroup.map((edge) => edge.id));
+      const secondVertexIds = getRoofChainVertexIds(sketch, secondGroup.map((edge) => edge.id));
+      const firstStart = vertexById.get(firstVertexIds[0]);
+      const firstEnd = vertexById.get(firstVertexIds[firstVertexIds.length - 1]);
+      const secondStart = vertexById.get(secondVertexIds[0]);
+      const secondEnd = vertexById.get(secondVertexIds[secondVertexIds.length - 1]);
       if (!firstStart || !firstEnd || !secondStart || !secondEnd) {
-        throw new Error("Selected roof line has missing vertices.");
+        throw new Error("Selected roof line chain has missing vertices.");
       }
 
       const sameDirectionCost =
@@ -3542,8 +3842,8 @@ export default function App() {
         distanceSquared(firstEnd.position, secondStart.position);
       const secondEdgeVertexIds =
         sameDirectionCost <= oppositeDirectionCost
-          ? [secondEdge.endVertexId, secondEdge.startVertexId]
-          : [secondEdge.startVertexId, secondEdge.endVertexId];
+          ? [...secondVertexIds].reverse()
+          : secondVertexIds;
       const faceId = createId("roof_face");
       linkedFaceId = faceId;
       return updateRoofSketch(current, sketch.id, {
@@ -3551,12 +3851,11 @@ export default function App() {
           ...sketch.faces,
           {
             id: faceId,
-            vertexIds: [
-              firstEdge.startVertexId,
-              firstEdge.endVertexId,
+            vertexIds: compactRoofFaceVertexIds([
+              ...firstVertexIds,
               ...secondEdgeVertexIds,
-            ],
-            edgeIds: [firstEdge.id, secondEdge.id],
+            ]),
+            edgeIds: [...firstGroup, ...secondGroup].map((edge) => edge.id),
             constraintIds: [],
             thicknessM: sketch.thicknessM,
           },
@@ -3645,6 +3944,63 @@ export default function App() {
       linkedFaceId
         ? `Linked selected roof line to endpoint into triangular face ${linkedFaceId}.`
         : "Linked selected roof line to endpoint into a triangular roof face.",
+    );
+  }
+
+  function handleLinkSelectedRoofChainToVertex() {
+    if (selectedRoofChainIds.length !== 1 || selectedRoofVertexIds.length !== 1) {
+      reportError("Select exactly one roof line chain and one roof node before linking them.");
+      return;
+    }
+
+    let linkedFaceId: string | null = null;
+    applyCommand((current) => {
+      const selectedVertexId = selectedRoofVertexIds[0];
+      const chainId = selectedRoofChainIds[0];
+      const sketch = current.roofSketches.find((candidate) => {
+        const hasSelectedVertex = candidate.vertices.some((vertex) => vertex.id === selectedVertexId);
+        const hasSelectedChain = candidate.edges.some(
+          (edge) => selectedRoofEdgeIds.includes(edge.id) && getRoofEdgeChainId(edge) === chainId,
+        );
+        return hasSelectedVertex && hasSelectedChain;
+      });
+      if (!sketch) {
+        throw new Error("Selected roof line chain and roof node must belong to the same roof sketch.");
+      }
+
+      const chainEdges = sketch.edges.filter(
+        (edge) => selectedRoofEdgeIds.includes(edge.id) && getRoofEdgeChainId(edge) === chainId,
+      );
+      const chainVertexIds = getRoofChainVertexIds(sketch, chainEdges.map((edge) => edge.id));
+      if (chainVertexIds.length < 2) {
+        throw new Error("Selected roof line chain has too few vertices.");
+      }
+
+      if (chainVertexIds.includes(selectedVertexId)) {
+        throw new Error("Selected roof node is already part of the selected roof line chain.");
+      }
+
+      const faceId = createId("roof_face");
+      linkedFaceId = faceId;
+      return updateRoofSketch(current, sketch.id, {
+        faces: [
+          ...sketch.faces,
+          {
+            id: faceId,
+            vertexIds: compactRoofFaceVertexIds([...chainVertexIds, selectedVertexId]),
+            edgeIds: chainEdges.map((edge) => edge.id),
+            constraintIds: [],
+            thicknessM: sketch.thicknessM,
+          },
+        ],
+      });
+    });
+
+    clearSelection();
+    reportSuccess(
+      linkedFaceId
+        ? `Linked selected roof line chain to roof node into face ${linkedFaceId}.`
+        : "Linked selected roof line chain to roof node.",
     );
   }
 
@@ -4669,7 +5025,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleLinkSelectedRoofEdges}
-              disabled={selectedRoofEdgeIds.length !== 2}
+              disabled={selectedRoofChainIds.length !== 2}
             >
               Link Selected Lines
             </button>
@@ -4680,14 +5036,27 @@ export default function App() {
             >
               Link Line To Endpoint
             </button>
-            <button type="button" onClick={clearSelection} disabled={selectedRoofEdgeIds.length === 0}>
+            <button
+              type="button"
+              onClick={handleLinkSelectedRoofChainToVertex}
+              disabled={selectedRoofChainIds.length !== 1 || selectedRoofVertexIds.length !== 1}
+            >
+              Link Line To Node
+            </button>
+            <button
+              type="button"
+              onClick={clearSelection}
+              disabled={selectedRoofEdgeIds.length === 0 && selectedRoofVertexIds.length === 0}
+            >
               Clear Selection
             </button>
           </div>
           <p className="muted">
-            Selected roof lines: {selectedRoofEdgeIds.length}. Link Selected Lines creates a four-point
-            face. Link Line To Endpoint uses the first selected line as the full edge and the closest
-            free endpoint of the second selected line as a triangular face tip.
+            Selected roof line chains: {selectedRoofChainIds.length} ({selectedRoofEdgeIds.length} segment(s)),
+            roof nodes: {selectedRoofVertexIds.length}.
+            Link Selected Lines creates a face from two selected chains. Link Line To Endpoint uses the first
+            selected segment as the full edge and the closest free endpoint of the second selected segment
+            as a triangular face tip. Link Line To Node connects one selected chain directly to one selected node.
           </p>
         </div>
       );
@@ -5937,6 +6306,7 @@ export default function App() {
                   onDeleteDoor={handleDeleteDoor}
                   onDeleteWindow={handleDeleteWindow}
                   onDeleteRoofOpening={handleDeleteRoofOpening}
+                  onDeleteRoofEdge={handleDeleteRoofEdge}
                   onDeleteMeasurement={handleDeleteMeasurement}
                   onDeleteStair={handleDeleteStair}
                   onDeleteWallsConnectedToNode={handleDeleteWallsConnectedToNode}

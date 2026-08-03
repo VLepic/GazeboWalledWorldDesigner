@@ -527,6 +527,7 @@ function parseRoofSketches(
         startVertexId,
         endVertexId,
         role,
+        chainId: pickString(edgeSource, "chainId", "chain_id"),
       });
     }
 
