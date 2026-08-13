@@ -7,7 +7,8 @@
     "gridLineWidthPx": 1,
     "axisLineWidthPx": 2,
     "pixelsPerMeter": 200,
-    "snapToGrid": true
+    "snapToGrid": true,
+    "showSolarPanels2D": false
   },
   "levels": [
     {
@@ -87,31 +88,13 @@
       "thicknessM": 0.2,
       "vertices": [
         {
-          "id": "roof_vertex_d3c119371970",
-          "position": {
-            "x": 0.75,
-            "y": 10.5
-          },
-          "elevationMode": "Explicit",
-          "elevationM": 3.5
-        },
-        {
-          "id": "roof_vertex_0eb2c72c2780",
-          "position": {
-            "x": 0.75,
-            "y": 0
-          },
-          "elevationMode": "Explicit",
-          "elevationM": 3.5
-        },
-        {
           "id": "roof_vertex_f2694bfc6894",
           "position": {
             "x": -5,
             "y": 10.5
           },
           "elevationMode": "Explicit",
-          "elevationM": 8
+          "elevationM": 8.5
         },
         {
           "id": "roof_vertex_9864f6c0ab36",
@@ -120,7 +103,7 @@
             "y": 0
           },
           "elevationMode": "Explicit",
-          "elevationM": 8
+          "elevationM": 8.5
         },
         {
           "id": "roof_vertex_8ef621a1d846",
@@ -165,16 +148,16 @@
             "y": -7.5
           },
           "elevationMode": "Explicit",
-          "elevationM": 8
+          "elevationM": 7.5
         },
         {
           "id": "roof_vertex_93c18dccd076",
           "position": {
             "x": -5,
-            "y": 0
+            "y": -3
           },
           "elevationMode": "Explicit",
-          "elevationM": 8
+          "elevationM": 7.5
         },
         {
           "id": "roof_vertex_502b4ca67da0",
@@ -337,15 +320,72 @@
           },
           "elevationMode": "Explicit",
           "elevationM": 7.2
+        },
+        {
+          "id": "roof_vertex_65175f484876",
+          "position": {
+            "x": 2.15,
+            "y": 1.75
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 3
+        },
+        {
+          "id": "roof_vertex_a9e86d382f70",
+          "position": {
+            "x": 0.1,
+            "y": 1.75
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 3
+        },
+        {
+          "id": "roof_vertex_438e994bdb74",
+          "position": {
+            "x": 2.15,
+            "y": 0.5
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 2
+        },
+        {
+          "id": "roof_vertex_a3407a95726f",
+          "position": {
+            "x": 0.1,
+            "y": 0.5
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 2
+        },
+        {
+          "id": "roof_vertex_bf878a3abe58",
+          "position": {
+            "x": 2.15,
+            "y": 3
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 2
+        },
+        {
+          "id": "roof_vertex_0880eea4a1aa",
+          "position": {
+            "x": 0.1,
+            "y": 3
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 2
+        },
+        {
+          "id": "roof_vertex_fca73e260076",
+          "position": {
+            "x": 0.75,
+            "y": 10.5
+          },
+          "elevationMode": "Explicit",
+          "elevationM": 3.5
         }
       ],
       "edges": [
-        {
-          "id": "roof_edge_4135bb4fb4f9",
-          "startVertexId": "roof_vertex_d3c119371970",
-          "endVertexId": "roof_vertex_0eb2c72c2780",
-          "role": "Generic"
-        },
         {
           "id": "roof_edge_6fe3c1ef5993",
           "startVertexId": "roof_vertex_f2694bfc6894",
@@ -368,7 +408,15 @@
           "id": "roof_edge_0ed8d1f504ff",
           "startVertexId": "roof_vertex_822031545ef7",
           "endVertexId": "roof_vertex_93c18dccd076",
-          "role": "Generic"
+          "role": "Generic",
+          "chainId": "roof_edge_0ed8d1f504ff"
+        },
+        {
+          "id": "roof_edge_9a546994d44a",
+          "startVertexId": "roof_vertex_93c18dccd076",
+          "endVertexId": "roof_vertex_9864f6c0ab36",
+          "role": "Generic",
+          "chainId": "roof_edge_0ed8d1f504ff"
         },
         {
           "id": "roof_edge_507589c9fb7d",
@@ -423,24 +471,34 @@
           "startVertexId": "roof_vertex_1e9ecd99746c",
           "endVertexId": "roof_vertex_ddb80dbe5108",
           "role": "Generic"
+        },
+        {
+          "id": "roof_edge_0fa3878e9218",
+          "startVertexId": "roof_vertex_65175f484876",
+          "endVertexId": "roof_vertex_a9e86d382f70",
+          "role": "Generic"
+        },
+        {
+          "id": "roof_edge_de8dddbb98c5",
+          "startVertexId": "roof_vertex_438e994bdb74",
+          "endVertexId": "roof_vertex_a3407a95726f",
+          "role": "Generic"
+        },
+        {
+          "id": "roof_edge_3906594c0d59",
+          "startVertexId": "roof_vertex_bf878a3abe58",
+          "endVertexId": "roof_vertex_0880eea4a1aa",
+          "role": "Generic"
+        },
+        {
+          "id": "roof_edge_431e7d180dc3",
+          "startVertexId": "roof_vertex_1bd3fc06b3a1",
+          "endVertexId": "roof_vertex_fca73e260076",
+          "role": "Generic",
+          "chainId": "roof_edge_35c6a147ea12"
         }
       ],
       "faces": [
-        {
-          "id": "roof_face_cf8c26824e90",
-          "vertexIds": [
-            "roof_vertex_f2694bfc6894",
-            "roof_vertex_9864f6c0ab36",
-            "roof_vertex_0eb2c72c2780",
-            "roof_vertex_d3c119371970"
-          ],
-          "edgeIds": [
-            "roof_edge_6fe3c1ef5993",
-            "roof_edge_4135bb4fb4f9"
-          ],
-          "constraintIds": [],
-          "thicknessM": 0.3
-        },
         {
           "id": "roof_face_67f351dc322f",
           "vertexIds": [
@@ -559,6 +617,77 @@
           ],
           "constraintIds": [],
           "thicknessM": 0.2
+        },
+        {
+          "id": "roof_face_daf4f5ee99be",
+          "vertexIds": [
+            "roof_vertex_bf878a3abe58",
+            "roof_vertex_0880eea4a1aa",
+            "roof_vertex_a9e86d382f70",
+            "roof_vertex_65175f484876"
+          ],
+          "edgeIds": [
+            "roof_edge_3906594c0d59",
+            "roof_edge_0fa3878e9218"
+          ],
+          "constraintIds": [],
+          "thicknessM": 0.2
+        },
+        {
+          "id": "roof_face_ac0d6d0de40d",
+          "vertexIds": [
+            "roof_vertex_438e994bdb74",
+            "roof_vertex_a3407a95726f",
+            "roof_vertex_a9e86d382f70",
+            "roof_vertex_65175f484876"
+          ],
+          "edgeIds": [
+            "roof_edge_de8dddbb98c5",
+            "roof_edge_0fa3878e9218"
+          ],
+          "constraintIds": [],
+          "thicknessM": 0.2
+        },
+        {
+          "id": "roof_face_0f04c11ce6c9",
+          "vertexIds": [
+            "roof_vertex_93c18dccd076",
+            "roof_vertex_9864f6c0ab36",
+            "roof_vertex_1bd3fc06b3a1"
+          ],
+          "edgeIds": [
+            "roof_edge_9a546994d44a"
+          ],
+          "constraintIds": [],
+          "thicknessM": 0.3
+        },
+        {
+          "id": "roof_face_0d07c07d75c9",
+          "vertexIds": [
+            "roof_vertex_93c18dccd076",
+            "roof_vertex_9864f6c0ab36",
+            "roof_vertex_fde42f2b28b5"
+          ],
+          "edgeIds": [
+            "roof_edge_9a546994d44a"
+          ],
+          "constraintIds": [],
+          "thicknessM": 0.3
+        },
+        {
+          "id": "roof_face_f7c3836b8d44",
+          "vertexIds": [
+            "roof_vertex_1bd3fc06b3a1",
+            "roof_vertex_fca73e260076",
+            "roof_vertex_f2694bfc6894",
+            "roof_vertex_9864f6c0ab36"
+          ],
+          "edgeIds": [
+            "roof_edge_431e7d180dc3",
+            "roof_edge_6fe3c1ef5993"
+          ],
+          "constraintIds": [],
+          "thicknessM": 0.3
         }
       ],
       "constraints": []
@@ -566,222 +695,12 @@
   ],
   "roofOpenings": [
     {
-      "id": "roof_opening_b54a7224ebd3",
-      "roofSketchId": "roof_8e15429a5325",
-      "roofFaceId": "roof_face_cf8c26824e90",
-      "center": {
-        "x": -0.75,
-        "y": 9.25
-      },
-      "widthM": 1,
-      "heightM": 1.5,
-      "cutMode": "NormalToRoof",
-      "rotationDeg": 0,
-      "design3D": {
-        "glassThicknessM": 0.02,
-        "frameThicknessM": 0.08,
-        "verticalDivisions": 0,
-        "horizontalDivisions": 0,
-        "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
-      }
-    },
-    {
-      "id": "roof_opening_1a4ddbff3a8a",
-      "roofSketchId": "roof_8e15429a5325",
-      "roofFaceId": "roof_face_cf8c26824e90",
-      "center": {
-        "x": -0.75,
-        "y": 7.75
-      },
-      "widthM": 1,
-      "heightM": 1.5,
-      "cutMode": "NormalToRoof",
-      "rotationDeg": 0,
-      "design3D": {
-        "glassThicknessM": 0.02,
-        "frameThicknessM": 0.08,
-        "verticalDivisions": 0,
-        "horizontalDivisions": 0,
-        "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
-      }
-    },
-    {
-      "id": "roof_opening_199fba686074",
-      "roofSketchId": "roof_8e15429a5325",
-      "roofFaceId": "roof_face_cf8c26824e90",
-      "center": {
-        "x": -3.25,
-        "y": 5.75
-      },
-      "widthM": 1,
-      "heightM": 1.5,
-      "cutMode": "NormalToRoof",
-      "rotationDeg": 0,
-      "design3D": {
-        "glassThicknessM": 0.02,
-        "frameThicknessM": 0.08,
-        "verticalDivisions": 0,
-        "horizontalDivisions": 0,
-        "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
-      }
-    },
-    {
-      "id": "roof_opening_c745d4c7bab5",
-      "roofSketchId": "roof_8e15429a5325",
-      "roofFaceId": "roof_face_cf8c26824e90",
-      "center": {
-        "x": -3.25,
-        "y": 9.25
-      },
-      "widthM": 1,
-      "heightM": 1.5,
-      "cutMode": "NormalToRoof",
-      "rotationDeg": 0,
-      "design3D": {
-        "glassThicknessM": 0.02,
-        "frameThicknessM": 0.08,
-        "verticalDivisions": 0,
-        "horizontalDivisions": 0,
-        "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
-      }
-    },
-    {
-      "id": "roof_opening_ca892860bfeb",
-      "roofSketchId": "roof_8e15429a5325",
-      "roofFaceId": "roof_face_cf8c26824e90",
-      "center": {
-        "x": -3.25,
-        "y": 4.25
-      },
-      "widthM": 1,
-      "heightM": 1.5,
-      "cutMode": "NormalToRoof",
-      "rotationDeg": 0,
-      "design3D": {
-        "glassThicknessM": 0.02,
-        "frameThicknessM": 0.08,
-        "verticalDivisions": 0,
-        "horizontalDivisions": 0,
-        "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
-      }
-    },
-    {
-      "id": "roof_opening_aebfebe7afc0",
-      "roofSketchId": "roof_8e15429a5325",
-      "roofFaceId": "roof_face_cf8c26824e90",
-      "center": {
-        "x": -3.25,
-        "y": 0.75
-      },
-      "widthM": 1,
-      "heightM": 1.5,
-      "cutMode": "NormalToRoof",
-      "rotationDeg": 0,
-      "design3D": {
-        "glassThicknessM": 0.02,
-        "frameThicknessM": 0.08,
-        "verticalDivisions": 0,
-        "horizontalDivisions": 0,
-        "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
-      }
-    },
-    {
-      "id": "roof_opening_254b28b96ada",
-      "roofSketchId": "roof_8e15429a5325",
-      "roofFaceId": "roof_face_cf8c26824e90",
-      "center": {
-        "x": -3.25,
-        "y": 2.25
-      },
-      "widthM": 1,
-      "heightM": 1.5,
-      "cutMode": "NormalToRoof",
-      "rotationDeg": 0,
-      "design3D": {
-        "glassThicknessM": 0.02,
-        "frameThicknessM": 0.08,
-        "verticalDivisions": 0,
-        "horizontalDivisions": 0,
-        "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
-      }
-    },
-    {
-      "id": "roof_opening_b96465d3246c",
-      "roofSketchId": "roof_8e15429a5325",
-      "roofFaceId": "roof_face_cf8c26824e90",
-      "center": {
-        "x": -3.25,
-        "y": 7.75
-      },
-      "widthM": 1,
-      "heightM": 1.5,
-      "cutMode": "NormalToRoof",
-      "rotationDeg": 0,
-      "design3D": {
-        "glassThicknessM": 0.02,
-        "frameThicknessM": 0.08,
-        "verticalDivisions": 0,
-        "horizontalDivisions": 0,
-        "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
-      }
-    },
-    {
-      "id": "roof_opening_b1464cf25a7b",
-      "roofSketchId": "roof_8e15429a5325",
-      "roofFaceId": "roof_face_cf8c26824e90",
-      "center": {
-        "x": -0.75,
-        "y": 5.75
-      },
-      "widthM": 1,
-      "heightM": 1.5,
-      "cutMode": "NormalToRoof",
-      "rotationDeg": 0,
-      "design3D": {
-        "glassThicknessM": 0.02,
-        "frameThicknessM": 0.08,
-        "verticalDivisions": 0,
-        "horizontalDivisions": 0,
-        "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
-      }
-    },
-    {
-      "id": "roof_opening_f12dba65c7a3",
-      "roofSketchId": "roof_8e15429a5325",
-      "roofFaceId": "roof_face_cf8c26824e90",
-      "center": {
-        "x": -0.75,
-        "y": 4.25
-      },
-      "widthM": 1,
-      "heightM": 1.5,
-      "cutMode": "NormalToRoof",
-      "rotationDeg": 0,
-      "design3D": {
-        "glassThicknessM": 0.02,
-        "frameThicknessM": 0.08,
-        "verticalDivisions": 0,
-        "horizontalDivisions": 0,
-        "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
-      }
-    },
-    {
       "id": "roof_opening_642a0f266e0a",
       "roofSketchId": "roof_8e15429a5325",
       "roofFaceId": "roof_face_204fb8b16dfa",
       "center": {
-        "x": -9.26587297916936,
-        "y": -8.253187208369486
+        "x": -9.3,
+        "y": -9.450000000000001
       },
       "widthM": 1,
       "heightM": 1.5,
@@ -801,8 +720,8 @@
       "roofSketchId": "roof_8e15429a5325",
       "roofFaceId": "roof_face_204fb8b16dfa",
       "center": {
-        "x": -9.244444407740788,
-        "y": -9.78890149408377
+        "x": -9.3,
+        "y": -10.75
       },
       "widthM": 1,
       "heightM": 1.5,
@@ -823,7 +742,7 @@
       "roofFaceId": "roof_face_508dce77b870",
       "center": {
         "x": -4.75,
-        "y": -11.75
+        "y": -11.8
       },
       "widthM": 1,
       "heightM": 1.5,
@@ -844,7 +763,7 @@
       "roofFaceId": "roof_face_508dce77b870",
       "center": {
         "x": -3.25,
-        "y": -11.75
+        "y": -11.8
       },
       "widthM": 1,
       "heightM": 1.5,
@@ -864,7 +783,7 @@
       "roofSketchId": "roof_8e15429a5325",
       "roofFaceId": "roof_face_1fa77f2c1161",
       "center": {
-        "x": -0.75,
+        "x": -0.7000000000000001,
         "y": -9.75
       },
       "widthM": 1,
@@ -885,7 +804,7 @@
       "roofSketchId": "roof_8e15429a5325",
       "roofFaceId": "roof_face_1fa77f2c1161",
       "center": {
-        "x": -0.75,
+        "x": -0.7000000000000001,
         "y": -7.6000000000000005
       },
       "widthM": 1,
@@ -906,8 +825,8 @@
       "roofSketchId": "roof_8e15429a5325",
       "roofFaceId": "roof_face_1fa77f2c1161",
       "center": {
-        "x": -0.75,
-        "y": -5.1000000000000005
+        "x": -0.7000000000000001,
+        "y": -5.65
       },
       "widthM": 1,
       "heightM": 1.5,
@@ -927,7 +846,7 @@
       "roofSketchId": "roof_8e15429a5325",
       "roofFaceId": "roof_face_1fa77f2c1161",
       "center": {
-        "x": -0.75,
+        "x": -0.7000000000000001,
         "y": -2.25
       },
       "widthM": 1,
@@ -942,8 +861,219 @@
         "wallDepthOffsetM": 0,
         "frameColorHex": "#000000"
       }
+    },
+    {
+      "id": "roof_opening_50dd79d67185",
+      "roofSketchId": "roof_8e15429a5325",
+      "roofFaceId": "roof_face_f7c3836b8d44",
+      "center": {
+        "x": -0.5,
+        "y": 8.85
+      },
+      "widthM": 0.8,
+      "heightM": 1,
+      "cutMode": "NormalToRoof",
+      "rotationDeg": 0,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
+    },
+    {
+      "id": "roof_opening_af393f8c3f24",
+      "roofSketchId": "roof_8e15429a5325",
+      "roofFaceId": "roof_face_f7c3836b8d44",
+      "center": {
+        "x": -0.5,
+        "y": 7.4
+      },
+      "widthM": 0.8,
+      "heightM": 1,
+      "cutMode": "NormalToRoof",
+      "rotationDeg": 0,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
+    },
+    {
+      "id": "roof_opening_3c905f00cc48",
+      "roofSketchId": "roof_8e15429a5325",
+      "roofFaceId": "roof_face_f7c3836b8d44",
+      "center": {
+        "x": -0.5,
+        "y": 5.7
+      },
+      "widthM": 0.8,
+      "heightM": 1,
+      "cutMode": "NormalToRoof",
+      "rotationDeg": 0,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
+    },
+    {
+      "id": "roof_opening_0cb18fa22d1e",
+      "roofSketchId": "roof_8e15429a5325",
+      "roofFaceId": "roof_face_f7c3836b8d44",
+      "center": {
+        "x": -0.5,
+        "y": 4.3
+      },
+      "widthM": 0.8,
+      "heightM": 1,
+      "cutMode": "NormalToRoof",
+      "rotationDeg": 0,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
+    },
+    {
+      "id": "roof_opening_19bf19fcc89b",
+      "roofSketchId": "roof_8e15429a5325",
+      "roofFaceId": "roof_face_f7c3836b8d44",
+      "center": {
+        "x": -0.5,
+        "y": 2.85
+      },
+      "widthM": 0.8,
+      "heightM": 1,
+      "cutMode": "NormalToRoof",
+      "rotationDeg": 0,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
+    },
+    {
+      "id": "roof_opening_545379354fc0",
+      "roofSketchId": "roof_8e15429a5325",
+      "roofFaceId": "roof_face_f7c3836b8d44",
+      "center": {
+        "x": -3,
+        "y": 5.7
+      },
+      "widthM": 0.8,
+      "heightM": 1,
+      "cutMode": "NormalToRoof",
+      "rotationDeg": 0,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
+    },
+    {
+      "id": "roof_opening_9af43cb76ac4",
+      "roofSketchId": "roof_8e15429a5325",
+      "roofFaceId": "roof_face_f7c3836b8d44",
+      "center": {
+        "x": -3,
+        "y": 4.3
+      },
+      "widthM": 0.8,
+      "heightM": 1,
+      "cutMode": "NormalToRoof",
+      "rotationDeg": 0,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
+    },
+    {
+      "id": "roof_opening_c72cc509caa6",
+      "roofSketchId": "roof_8e15429a5325",
+      "roofFaceId": "roof_face_f7c3836b8d44",
+      "center": {
+        "x": -3,
+        "y": 2.85
+      },
+      "widthM": 0.8,
+      "heightM": 1,
+      "cutMode": "NormalToRoof",
+      "rotationDeg": 0,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
+    },
+    {
+      "id": "roof_opening_3c87828be314",
+      "roofSketchId": "roof_8e15429a5325",
+      "roofFaceId": "roof_face_f7c3836b8d44",
+      "center": {
+        "x": -3,
+        "y": 8.8
+      },
+      "widthM": 0.8,
+      "heightM": 1,
+      "cutMode": "NormalToRoof",
+      "rotationDeg": 0,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
+    },
+    {
+      "id": "roof_opening_d9640c9100b1",
+      "roofSketchId": "roof_8e15429a5325",
+      "roofFaceId": "roof_face_f7c3836b8d44",
+      "center": {
+        "x": -3,
+        "y": 7.4
+      },
+      "widthM": 0.8,
+      "heightM": 1,
+      "cutMode": "NormalToRoof",
+      "rotationDeg": 0,
+      "design3D": {
+        "glassThicknessM": 0.02,
+        "frameThicknessM": 0.08,
+        "verticalDivisions": 0,
+        "horizontalDivisions": 0,
+        "wallDepthOffsetM": 0,
+        "frameColorHex": "#000000"
+      }
     }
   ],
+  "solarPanelArrays": [],
   "nodes": [
     {
       "id": "node_55e6ad64d2c1",
@@ -2258,6 +2388,22 @@
       "topMode": "FollowRoof",
       "startNodeId": "node_164ae3076c66",
       "endNodeId": "node_f78c5b4c9052"
+    },
+    {
+      "id": "wall_eca7bc9e806e",
+      "levelId": "level_ade6d3294ff7",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_754c63c76ad5",
+      "endNodeId": "node_4c233f0de449"
+    },
+    {
+      "id": "wall_362178305305",
+      "levelId": "level_ade6d3294ff7",
+      "wallTypeId": "wall_type_7459e8ca1a18",
+      "topMode": "FollowRoof",
+      "startNodeId": "node_4c233f0de449",
+      "endNodeId": "node_7e7fbe4a5a9b"
     }
   ],
   "doors": [
@@ -2282,8 +2428,12 @@
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
         "openState": "Open",
+        "openPercent": 100,
         "hingeSide": "Left",
-        "swingDirection": "Outward"
+        "swingDirection": "Outward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2299,8 +2449,12 @@
         "doorColorHex": "#965831",
         "wallDepthOffsetM": 0,
         "openState": "Open",
+        "openPercent": 100,
         "hingeSide": "Left",
-        "swingDirection": "Outward"
+        "swingDirection": "Outward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2316,8 +2470,12 @@
         "doorColorHex": "#965831",
         "wallDepthOffsetM": 0,
         "openState": "Open",
+        "openPercent": 100,
         "hingeSide": "Left",
-        "swingDirection": "Outward"
+        "swingDirection": "Outward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2333,8 +2491,12 @@
         "doorColorHex": "#965831",
         "wallDepthOffsetM": 0,
         "openState": "Open",
+        "openPercent": 100,
         "hingeSide": "Right",
-        "swingDirection": "Outward"
+        "swingDirection": "Outward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2350,8 +2512,12 @@
         "doorColorHex": "#965831",
         "wallDepthOffsetM": 0,
         "openState": "Open",
+        "openPercent": 100,
         "hingeSide": "Right",
-        "swingDirection": "Inward"
+        "swingDirection": "Inward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2367,8 +2533,12 @@
         "doorColorHex": "#965831",
         "wallDepthOffsetM": 0,
         "openState": "Open",
+        "openPercent": 100,
         "hingeSide": "Right",
-        "swingDirection": "Inward"
+        "swingDirection": "Inward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2384,8 +2554,12 @@
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
         "openState": "Open",
+        "openPercent": 53,
         "hingeSide": "Left",
-        "swingDirection": "Outward"
+        "swingDirection": "Outward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2393,7 +2567,7 @@
       "wallId": "wall_3f5ccdc3c1c6",
       "widthM": 0.9,
       "heightM": 2.1,
-      "offsetM": 1.75,
+      "offsetM": 1.4500000000000002,
       "design3D": {
         "kind": "Normal",
         "frameThicknessM": 0.08,
@@ -2401,8 +2575,12 @@
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
         "openState": "Open",
+        "openPercent": 100,
         "hingeSide": "Right",
-        "swingDirection": "Inward"
+        "swingDirection": "Inward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2418,8 +2596,12 @@
         "doorColorHex": "#919191",
         "wallDepthOffsetM": 0,
         "openState": "Closed",
+        "openPercent": 0,
         "hingeSide": "Left",
-        "swingDirection": "Inward"
+        "swingDirection": "Inward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2442,9 +2624,22 @@
         "frameColorHex": "#000000",
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
-        "openState": "Closed",
-        "hingeSide": "Left",
-        "swingDirection": "Inward"
+        "openState": "Open",
+        "openPercent": 56,
+        "hingeSide": "Right",
+        "swingDirection": "Inward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": {
+          "colorHex": "#8f949c",
+          "coveragePercent": 46,
+          "slatAngleDeg": -13,
+          "slatCount": 16,
+          "slatDepthM": 0.15,
+          "blindWidthM": 0.8,
+          "boxWidthM": 0.8,
+          "side": "Front"
+        },
+        "externalRollerShutter": null
       }
     },
     {
@@ -2468,8 +2663,12 @@
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
         "openState": "Open",
+        "openPercent": 100,
         "hingeSide": "Left",
-        "swingDirection": "Outward"
+        "swingDirection": "Outward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2485,8 +2684,12 @@
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
         "openState": "Open",
+        "openPercent": 100,
         "hingeSide": "Right",
-        "swingDirection": "Inward"
+        "swingDirection": "Inward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2502,8 +2705,12 @@
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
         "openState": "Open",
+        "openPercent": 100,
         "hingeSide": "Right",
-        "swingDirection": "Outward"
+        "swingDirection": "Outward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2519,8 +2726,12 @@
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
         "openState": "Open",
+        "openPercent": 100,
         "hingeSide": "Right",
-        "swingDirection": "Outward"
+        "swingDirection": "Outward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2536,8 +2747,12 @@
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
         "openState": "Open",
+        "openPercent": 100,
         "hingeSide": "Right",
-        "swingDirection": "Inward"
+        "swingDirection": "Inward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2553,8 +2768,12 @@
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
         "openState": "Open",
+        "openPercent": 100,
         "hingeSide": "Left",
-        "swingDirection": "Outward"
+        "swingDirection": "Outward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2578,8 +2797,12 @@
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
         "openState": "Open",
+        "openPercent": 100,
         "hingeSide": "Right",
-        "swingDirection": "Outward"
+        "swingDirection": "Outward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2595,25 +2818,12 @@
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
         "openState": "Closed",
+        "openPercent": 0,
         "hingeSide": "Left",
-        "swingDirection": "Inward"
-      }
-    },
-    {
-      "id": "door_c54041019f62",
-      "wallId": "wall_5aa05edefa02",
-      "widthM": 1,
-      "heightM": 2.3,
-      "offsetM": 1.2000000000000002,
-      "design3D": {
-        "kind": "Normal",
-        "frameThicknessM": 0.08,
-        "frameColorHex": "#c4cbd6",
-        "doorColorHex": "#8a5b3d",
-        "wallDepthOffsetM": 0,
-        "openState": "Open",
-        "hingeSide": "Left",
-        "swingDirection": "Inward"
+        "swingDirection": "Inward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2628,9 +2838,22 @@
         "frameColorHex": "#000000",
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
-        "openState": "Closed",
+        "openState": "Open",
+        "openPercent": 77,
         "hingeSide": "Right",
-        "swingDirection": "Inward"
+        "swingDirection": "Inward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": {
+          "colorHex": "#8f949c",
+          "coveragePercent": 46,
+          "slatAngleDeg": -13,
+          "slatCount": 16,
+          "slatDepthM": 0.15,
+          "blindWidthM": 3,
+          "boxWidthM": 3,
+          "side": "Back"
+        },
+        "externalRollerShutter": null
       }
     },
     {
@@ -2645,9 +2868,22 @@
         "frameColorHex": "#000000",
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
-        "openState": "Closed",
+        "openState": "Open",
+        "openPercent": 37,
         "hingeSide": "Left",
-        "swingDirection": "Inward"
+        "swingDirection": "Inward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": {
+          "colorHex": "#8f949c",
+          "coveragePercent": 100,
+          "slatAngleDeg": -13,
+          "slatCount": 16,
+          "slatDepthM": 0.15,
+          "blindWidthM": 3,
+          "boxWidthM": 3,
+          "side": "Back"
+        },
+        "externalRollerShutter": null
       }
     },
     {
@@ -2662,9 +2898,13 @@
         "frameColorHex": "#000000",
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
-        "openState": "Closed",
+        "openState": "Open",
+        "openPercent": 41,
         "hingeSide": "Left",
-        "swingDirection": "Inward"
+        "swingDirection": "Inward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2680,8 +2920,12 @@
         "doorColorHex": "#808080",
         "wallDepthOffsetM": 0,
         "openState": "Closed",
+        "openPercent": 0,
         "hingeSide": "Right",
-        "swingDirection": "Outward"
+        "swingDirection": "Outward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2697,8 +2941,33 @@
         "doorColorHex": "#8a5b3d",
         "wallDepthOffsetM": 0,
         "openState": "Open",
+        "openPercent": 100,
         "hingeSide": "Right",
-        "swingDirection": "Outward"
+        "swingDirection": "Outward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
+      }
+    },
+    {
+      "id": "door_c7c6a2242b68",
+      "wallId": "wall_d7f5a17f3ad5",
+      "widthM": 1.2,
+      "heightM": 2.1,
+      "offsetM": 1.7000000000000002,
+      "design3D": {
+        "kind": "Normal",
+        "frameThicknessM": 0.08,
+        "frameColorHex": "#c4cbd6",
+        "doorColorHex": "#8a5b3d",
+        "wallDepthOffsetM": 0,
+        "openState": "Open",
+        "openPercent": 62,
+        "hingeSide": "Right",
+        "swingDirection": "Outward",
+        "garageDoorStyle": "SinglePanel",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     }
   ],
@@ -2716,7 +2985,18 @@
         "verticalDivisions": 1,
         "horizontalDivisions": 0,
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "frameColorHex": "#000000",
+        "externalBlinds": {
+          "colorHex": "#8f949c",
+          "coveragePercent": 100,
+          "slatAngleDeg": -13,
+          "slatCount": 16,
+          "slatDepthM": 0.15,
+          "blindWidthM": 1.5,
+          "boxWidthM": 1.5,
+          "side": "Back"
+        },
+        "externalRollerShutter": null
       }
     },
     {
@@ -2732,7 +3012,18 @@
         "verticalDivisions": 1,
         "horizontalDivisions": 0,
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "frameColorHex": "#000000",
+        "externalBlinds": {
+          "colorHex": "#8f949c",
+          "coveragePercent": 100,
+          "slatAngleDeg": -13,
+          "slatCount": 16,
+          "slatDepthM": 0.15,
+          "blindWidthM": 1.5,
+          "boxWidthM": 1.5,
+          "side": "Back"
+        },
+        "externalRollerShutter": null
       }
     },
     {
@@ -2748,7 +3039,18 @@
         "verticalDivisions": 1,
         "horizontalDivisions": 0,
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "frameColorHex": "#000000",
+        "externalBlinds": {
+          "colorHex": "#8f949c",
+          "coveragePercent": 100,
+          "slatAngleDeg": -13,
+          "slatCount": 16,
+          "slatDepthM": 0.15,
+          "blindWidthM": 1.5,
+          "boxWidthM": 1.5,
+          "side": "Back"
+        },
+        "externalRollerShutter": null
       }
     },
     {
@@ -2764,7 +3066,18 @@
         "verticalDivisions": 1,
         "horizontalDivisions": 0,
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "frameColorHex": "#000000",
+        "externalBlinds": {
+          "colorHex": "#8f949c",
+          "coveragePercent": 100,
+          "slatAngleDeg": -13,
+          "slatCount": 16,
+          "slatDepthM": 0.15,
+          "blindWidthM": 1.5,
+          "boxWidthM": 1.5,
+          "side": "Back"
+        },
+        "externalRollerShutter": null
       }
     },
     {
@@ -2780,7 +3093,18 @@
         "verticalDivisions": 1,
         "horizontalDivisions": 0,
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "frameColorHex": "#000000",
+        "externalBlinds": {
+          "colorHex": "#8f949c",
+          "coveragePercent": 100,
+          "slatAngleDeg": -13,
+          "slatCount": 16,
+          "slatDepthM": 0.15,
+          "blindWidthM": 1.5,
+          "boxWidthM": 1.5,
+          "side": "Back"
+        },
+        "externalRollerShutter": null
       }
     },
     {
@@ -2796,7 +3120,18 @@
         "verticalDivisions": 1,
         "horizontalDivisions": 0,
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "frameColorHex": "#000000",
+        "externalBlinds": {
+          "colorHex": "#8f949c",
+          "coveragePercent": 100,
+          "slatAngleDeg": -13,
+          "slatCount": 16,
+          "slatDepthM": 0.15,
+          "blindWidthM": 1.5,
+          "boxWidthM": 1.5,
+          "side": "Back"
+        },
+        "externalRollerShutter": null
       }
     },
     {
@@ -2812,7 +3147,18 @@
         "verticalDivisions": 1,
         "horizontalDivisions": 0,
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "frameColorHex": "#000000",
+        "externalBlinds": {
+          "colorHex": "#8f949c",
+          "coveragePercent": 100,
+          "slatAngleDeg": -13,
+          "slatCount": 16,
+          "slatDepthM": 0.15,
+          "blindWidthM": 1.5,
+          "boxWidthM": 1.5,
+          "side": "Back"
+        },
+        "externalRollerShutter": null
       }
     },
     {
@@ -2828,7 +3174,18 @@
         "verticalDivisions": 1,
         "horizontalDivisions": 0,
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "frameColorHex": "#000000",
+        "externalBlinds": {
+          "colorHex": "#8f949c",
+          "coveragePercent": 100,
+          "slatAngleDeg": -13,
+          "slatCount": 16,
+          "slatDepthM": 0.15,
+          "blindWidthM": 1.5,
+          "boxWidthM": 1.5,
+          "side": "Front"
+        },
+        "externalRollerShutter": null
       }
     },
     {
@@ -2844,7 +3201,18 @@
         "verticalDivisions": 0,
         "horizontalDivisions": 0,
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "frameColorHex": "#000000",
+        "externalBlinds": {
+          "colorHex": "#8f949c",
+          "coveragePercent": 46,
+          "slatAngleDeg": -13,
+          "slatCount": 16,
+          "slatDepthM": 0.15,
+          "blindWidthM": 1,
+          "boxWidthM": 1,
+          "side": "Front"
+        },
+        "externalRollerShutter": null
       }
     },
     {
@@ -2860,7 +3228,9 @@
         "verticalDivisions": 0,
         "horizontalDivisions": 0,
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "frameColorHex": "#000000",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2876,7 +3246,9 @@
         "verticalDivisions": 0,
         "horizontalDivisions": 0,
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "frameColorHex": "#000000",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2892,7 +3264,9 @@
         "verticalDivisions": 0,
         "horizontalDivisions": 0,
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "frameColorHex": "#000000",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2908,7 +3282,9 @@
         "verticalDivisions": 0,
         "horizontalDivisions": 0,
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "frameColorHex": "#000000",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     },
     {
@@ -2924,23 +3300,9 @@
         "verticalDivisions": 0,
         "horizontalDivisions": 0,
         "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
-      }
-    },
-    {
-      "id": "window_1a3385a79e34",
-      "wallId": "wall_d7f5a17f3ad5",
-      "widthM": 1.2,
-      "heightM": 1.2,
-      "sillHeightM": 0.9,
-      "offsetM": 1.8000000000000003,
-      "design3D": {
-        "glassThicknessM": 0.02,
-        "frameThicknessM": 0.08,
-        "verticalDivisions": 0,
-        "horizontalDivisions": 0,
-        "wallDepthOffsetM": 0,
-        "frameColorHex": "#000000"
+        "frameColorHex": "#000000",
+        "externalBlinds": null,
+        "externalRollerShutter": null
       }
     }
   ],
@@ -3214,6 +3576,38 @@
       "sizeM": 0.15000000000000036,
       "zStartM": 0,
       "heightM": 2.4
+    },
+    {
+      "id": "shape_9be7da744e57",
+      "levelId": "level_61c02b847a52",
+      "name": "shape_7",
+      "kind": "Square",
+      "pose": {
+        "position": {
+          "x": 2.0500000000000003,
+          "y": 0.6000000000000001
+        },
+        "yawDeg": 0
+      },
+      "sizeM": 0.15000000000000036,
+      "zStartM": 0,
+      "heightM": 2
+    },
+    {
+      "id": "shape_20ffaccf3d12",
+      "levelId": "level_61c02b847a52",
+      "name": "shape_7",
+      "kind": "Square",
+      "pose": {
+        "position": {
+          "x": 2.0500000000000003,
+          "y": 2.9000000000000004
+        },
+        "yawDeg": 0
+      },
+      "sizeM": 0.15000000000000036,
+      "zStartM": 0,
+      "heightM": 2
     }
   ],
   "slabs": [
@@ -3234,7 +3628,9 @@
       "depthM": 10,
       "thicknessM": 0.2,
       "roofRiseM": 1.2,
-      "zOffsetM": 0
+      "zOffsetM": 0,
+      "polygon": [],
+      "connectWithOtherSlabs": false
     },
     {
       "id": "slab_def301935899",
@@ -3253,7 +3649,9 @@
       "depthM": 10,
       "thicknessM": 0.2,
       "roofRiseM": 1.2,
-      "zOffsetM": 0
+      "zOffsetM": 0,
+      "polygon": [],
+      "connectWithOtherSlabs": false
     },
     {
       "id": "slab_2343ae301101",
@@ -3272,7 +3670,9 @@
       "depthM": 3.799999999999999,
       "thicknessM": 0.2,
       "roofRiseM": 1.2,
-      "zOffsetM": 0
+      "zOffsetM": 0,
+      "polygon": [],
+      "connectWithOtherSlabs": false
     },
     {
       "id": "slab_095f49d6a809",
@@ -3291,7 +3691,9 @@
       "depthM": 8.700000000000001,
       "thicknessM": 0.2,
       "roofRiseM": 1.2,
-      "zOffsetM": 0
+      "zOffsetM": 0,
+      "polygon": [],
+      "connectWithOtherSlabs": false
     },
     {
       "id": "slab_0215d683f353",
@@ -3310,7 +3712,9 @@
       "depthM": 5.4,
       "thicknessM": 0.2,
       "roofRiseM": 1.2,
-      "zOffsetM": 0
+      "zOffsetM": 0,
+      "polygon": [],
+      "connectWithOtherSlabs": false
     },
     {
       "id": "slab_c1f7ff9d5354",
@@ -3320,16 +3724,18 @@
       "roofType": "Flat",
       "pose": {
         "position": {
-          "x": -2.5500000000000003,
-          "y": -5.525
+          "x": -2.6750000000000003,
+          "y": -5.4
         },
         "yawDeg": 0
       },
-      "widthM": 2.2,
-      "depthM": 11.05,
+      "widthM": 1.9500000000000002,
+      "depthM": 10.8,
       "thicknessM": 0.2,
       "roofRiseM": 1.2,
-      "zOffsetM": 0
+      "zOffsetM": 0,
+      "polygon": [],
+      "connectWithOtherSlabs": false
     },
     {
       "id": "slab_aa5756d40bab",
@@ -3339,16 +3745,18 @@
       "roofType": "Flat",
       "pose": {
         "position": {
-          "x": -6.084375000000001,
-          "y": -7.3609375
+          "x": -5.967187500000001,
+          "y": -7.23046875
         },
         "yawDeg": 0
       },
-      "widthM": 4.9312499999999995,
-      "depthM": 7.378125000000001,
+      "widthM": 4.665625,
+      "depthM": 7.1390625000000005,
       "thicknessM": 0.2,
       "roofRiseM": 1.2,
-      "zOffsetM": 0
+      "zOffsetM": 0,
+      "polygon": [],
+      "connectWithOtherSlabs": false
     },
     {
       "id": "slab_8413a60201ad",
@@ -3358,18 +3766,22 @@
       "roofType": "Flat",
       "pose": {
         "position": {
-          "x": -6.675,
+          "x": -6.550000000000001,
           "y": -1.85
         },
         "yawDeg": 0
       },
-      "widthM": 3.8499999999999996,
+      "widthM": 3.500000000000001,
       "depthM": 3.7,
       "thicknessM": 0.2,
       "roofRiseM": 1.2,
-      "zOffsetM": 0
+      "zOffsetM": 0,
+      "polygon": [],
+      "connectWithOtherSlabs": false
     }
   ],
+  "groundSurfaces": [],
+  "rooms": [],
   "externalModels": [],
   "measurements": [
     {
@@ -3395,6 +3807,19 @@
       "end": {
         "x": -2.15,
         "y": 3.1500000000000004
+      },
+      "unit": "m"
+    },
+    {
+      "id": "measure_e6dc0e5e470e",
+      "levelId": "level_61c02b847a52",
+      "start": {
+        "x": 2.25,
+        "y": 1.75
+      },
+      "end": {
+        "x": 2.25,
+        "y": 3
       },
       "unit": "m"
     }

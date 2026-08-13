@@ -14,6 +14,7 @@ import {
   createRoofLayer,
   createRoofOpening,
   createRoofSketch,
+  createSolarPanelArray,
   createRoom,
   createShape,
   createSlab,
@@ -26,6 +27,8 @@ import {
 } from "./project-model";
 import type {
   DoorOpening,
+  ExternalBlindsDesign3D,
+  ExternalRollerShutterDesign3D,
   ExternalModel,
   GroundSurface,
   GroundSurfaceKind,
@@ -41,6 +44,7 @@ import type {
   RoofLayer,
   RoofOpening,
   RoofSketch,
+  SolarPanelArray,
   RoofVertex,
   RoofVertexElevationMode,
   RoofType,
@@ -62,6 +66,7 @@ import {
   roofEdgeRoleSchema,
   roofOpeningCutModeSchema,
   roofOpeningRotationDegSchema,
+  solarPanelOrientationSchema,
   roofTypeSchema,
   roofVertexElevationModeSchema,
   shapeKindSchema,
@@ -160,6 +165,127 @@ function pickParsedValue<T>(
   }
 
   return undefined;
+}
+
+function parseExternalBlindsDesign3D(
+  design3DSource: Record<string, unknown> | null,
+  openingWidthM: number,
+): ExternalBlindsDesign3D | null {
+  if (!design3DSource) {
+    return null;
+  }
+
+  const source = asObject(
+    design3DSource.externalBlinds ?? design3DSource.external_blinds,
+  );
+  if (!source) {
+    return null;
+  }
+
+  const colorHex =
+    normalizeHexColor(source.colorHex) ?? normalizeHexColor(source.color_hex) ?? "#8f949c";
+  const coveragePercent = Math.max(
+    0,
+    Math.min(100, pickNumber(source, "coveragePercent", "coverage_percent") ?? 100),
+  );
+  const slatAngleDeg = Math.max(
+    -80,
+    Math.min(80, pickNumber(source, "slatAngleDeg", "slat_angle_deg") ?? 35),
+  );
+  const slatCount = Math.max(
+    1,
+    Math.min(200, Math.round(pickNumber(source, "slatCount", "slat_count") ?? 16)),
+  );
+  const slatDepthM = Math.max(
+    0.01,
+    pickNumber(source, "slatDepthM", "slat_depth_m", "slatWidthM", "slat_width_m") ?? 0.055,
+  );
+  const blindWidthM = Math.max(
+    0.05,
+    pickNumber(source, "blindWidthM", "blind_width_m") ?? openingWidthM,
+  );
+  const boxWidthM = Math.max(
+    0.05,
+    pickNumber(source, "boxWidthM", "box_width_m") ?? blindWidthM,
+  );
+  const side =
+    pickParsedValue(
+      source,
+      (value) => {
+        const parsed = z.enum(["Front", "Back"]).safeParse(value);
+        return parsed.success ? parsed.data : undefined;
+      },
+      "side",
+    ) ?? "Front";
+
+  return {
+    colorHex,
+    coveragePercent,
+    slatAngleDeg,
+    slatCount,
+    slatDepthM,
+    blindWidthM,
+    boxWidthM,
+    side,
+  };
+}
+
+function parseExternalRollerShutterDesign3D(
+  design3DSource: Record<string, unknown> | null,
+  openingWidthM: number,
+): ExternalRollerShutterDesign3D | null {
+  if (!design3DSource) {
+    return null;
+  }
+
+  const source = asObject(
+    design3DSource.externalRollerShutter ?? design3DSource.external_roller_shutter,
+  );
+  if (!source) {
+    return null;
+  }
+
+  const colorHex =
+    normalizeHexColor(source.colorHex) ?? normalizeHexColor(source.color_hex) ?? "#8b929b";
+  const coveragePercent = Math.max(
+    0,
+    Math.min(100, pickNumber(source, "coveragePercent", "coverage_percent") ?? 100),
+  );
+  const slatHeightM = Math.max(
+    0.01,
+    pickNumber(source, "slatHeightM", "slat_height_m") ?? 0.045,
+  );
+  const shutterDepthM = Math.max(
+    0.01,
+    pickNumber(source, "shutterDepthM", "shutter_depth_m") ?? 0.025,
+  );
+  const shutterWidthM = Math.max(
+    0.05,
+    pickNumber(source, "shutterWidthM", "shutter_width_m") ?? openingWidthM,
+  );
+  const boxWidthM = Math.max(
+    0.05,
+    pickNumber(source, "boxWidthM", "box_width_m") ?? shutterWidthM,
+  );
+  const side =
+    pickParsedValue(
+      source,
+      (value) => {
+        const parsed = z.enum(["Front", "Back"]).safeParse(value);
+        return parsed.success ? parsed.data : undefined;
+      },
+      "side",
+    ) ?? "Front";
+
+  return {
+    colorHex,
+    coveragePercent,
+    slatHeightM,
+    shutterDepthM,
+    shutterWidthM,
+    boxWidthM,
+    side,
+  };
 }
 
 function pickVec2(source: Record<string, unknown>) {
@@ -273,6 +399,9 @@ function parseSettings(data: unknown, warnings: string[]) {
     snapToGrid:
       pickBoolean(source, "snapToGrid", "snap_to_grid") ??
       DEFAULT_PROJECT_SETTINGS.snapToGrid,
+    showSolarPanels2D:
+      pickBoolean(source, "showSolarPanels2D", "show_solar_panels_2d") ??
+      DEFAULT_PROJECT_SETTINGS.showSolarPanels2D,
   };
 
   if (settings.gridSpacingM <= 0) {
@@ -708,6 +837,86 @@ function parseRoofOpenings(data: unknown, roofSketches: RoofSketch[], warnings: 
   return roofOpenings;
 }
 
+function parseSolarPanelArrays(
+  data: unknown,
+  roofSketches: RoofSketch[],
+  warnings: string[],
+) {
+  const solarPanelArrays: SolarPanelArray[] = [];
+  const roofSketchById = new Map(roofSketches.map((sketch) => [sketch.id, sketch] as const));
+
+  for (const [index, item] of asArray(data).entries()) {
+    const source = asObject(item);
+    const itemLabel = `solarPanelArrays[${index}]`;
+    if (!source) {
+      warnings.push(`${itemLabel}: skipped invalid solar panel array entry.`);
+      continue;
+    }
+
+    const roofSketchId = pickString(source, "roofSketchId", "roof_sketch_id", "sketchId");
+    const roofFaceId = pickString(source, "roofFaceId", "roof_face_id", "faceId");
+    const roofSketch = roofSketchId ? roofSketchById.get(roofSketchId) : null;
+    const center = pickVec2(asObject(source.center ?? source.position) ?? source);
+    if (!roofSketch || !roofFaceId || !roofSketch.faces.some((face) => face.id === roofFaceId) || !center) {
+      warnings.push(`${itemLabel}: skipped array with an invalid roof face or center.`);
+      continue;
+    }
+
+    const rows = Math.round(pickNumber(source, "rows") ?? 2);
+    const columns = Math.round(pickNumber(source, "columns", "cols") ?? 4);
+    const panelWidthM = pickNumber(source, "panelWidthM", "panel_width_m") ?? 1.134;
+    const panelHeightM = pickNumber(source, "panelHeightM", "panel_height_m") ?? 1.722;
+    const gapM = pickNumber(source, "gapM", "gap_m") ?? 0.03;
+    const mountingOffsetM = pickNumber(source, "mountingOffsetM", "mounting_offset_m") ?? 0.08;
+    const panelThicknessM = pickNumber(source, "panelThicknessM", "panel_thickness_m") ?? 0.04;
+    if (
+      rows < 1 || rows > 40 || columns < 1 || columns > 40 ||
+      panelWidthM <= 0 || panelHeightM <= 0 || gapM < 0 ||
+      mountingOffsetM < 0 || panelThicknessM <= 0
+    ) {
+      warnings.push(`${itemLabel}: skipped array with invalid dimensions.`);
+      continue;
+    }
+
+    const orientation =
+      pickParsedValue(
+        source,
+        (value) => {
+          const parsed = solarPanelOrientationSchema.safeParse(value);
+          return parsed.success ? parsed.data : undefined;
+        },
+        "orientation",
+      ) ?? "Portrait";
+
+    solarPanelArrays.push(
+      createSolarPanelArray({
+        id: pickString(source, "id") ?? createId("solar_array"),
+        roofSketchId,
+        roofFaceId,
+        center,
+        rows,
+        columns,
+        panelWidthM,
+        panelHeightM,
+        gapM,
+        orientation,
+        mountingOffsetM,
+        panelThicknessM,
+        panelColorHex:
+          normalizeHexColor(source.panelColorHex) ??
+          normalizeHexColor(source.panel_color_hex) ??
+          "#173f68",
+        frameColorHex:
+          normalizeHexColor(source.frameColorHex) ??
+          normalizeHexColor(source.frame_color_hex) ??
+          "#b8c1ca",
+      }),
+    );
+  }
+
+  return solarPanelArrays;
+}
+
 function parseNodes(data: unknown, levelIds: string[], warnings: string[]) {
   const nodes: NodeData[] = [];
   const fallbackLevelId = levelIds[0];
@@ -1038,8 +1247,17 @@ function parseSlabs(data: unknown, levelIds: string[], warnings: string[]) {
     const thicknessM = pickNumber(source, "thicknessM", "thickness_m", "thickness") ?? 0.2;
     const roofRiseM = pickNumber(source, "roofRiseM", "roof_rise_m", "roof_rise") ?? 1.2;
     const zOffsetM = pickNumber(source, "zOffsetM", "z_offset_m", "z_offset") ?? 0;
+    const polygon = parseRoomPolygon(source.polygon) ?? [];
+    const connectWithOtherSlabs =
+      pickBoolean(source, "connectWithOtherSlabs", "connect_with_other_slabs") ?? false;
 
-    if (widthM <= 0 || depthM <= 0 || thicknessM <= 0 || roofRiseM < 0) {
+    if (
+      widthM <= 0 ||
+      depthM <= 0 ||
+      thicknessM <= 0 ||
+      roofRiseM < 0 ||
+      (kind === "Freeform" && polygon.length < 3)
+    ) {
       warnings.push(`slabs[${index}]: skipped slab with non-positive dimensions.`);
       continue;
     }
@@ -1064,6 +1282,8 @@ function parseSlabs(data: unknown, levelIds: string[], warnings: string[]) {
         thicknessM,
         roofRiseM,
         zOffsetM,
+        polygon,
+        connectWithOtherSlabs,
       }),
     );
   }
@@ -1278,6 +1498,8 @@ function parseDoors(data: unknown, wallIds: string[], warnings: string[]) {
     const heightM = pickNumber(source, "heightM", "height_m", "height") ?? 2.1;
     const offsetM = pickNumber(source, "offsetM", "offset_m", "offset") ?? 0;
     const design3DSource = asObject(source.design3D ?? source.design_3d ?? source.door3D ?? source.door_3d);
+    const externalBlinds = parseExternalBlindsDesign3D(design3DSource, widthM);
+    const externalRollerShutter = parseExternalRollerShutterDesign3D(design3DSource, widthM);
     const kind =
       (design3DSource && pickParsedValue(design3DSource, (value) => {
         const parsed = z.enum(["Normal", "Garage", "Glass", "HSPortal"]).safeParse(value);
@@ -1316,6 +1538,11 @@ function parseDoors(data: unknown, wallIds: string[], warnings: string[]) {
         const parsed = z.enum(["Inward", "Outward"]).safeParse(value);
         return parsed.success ? parsed.data : undefined;
       }, "swingDirection", "swing_direction")) ?? "Inward";
+    const garageDoorStyle =
+      (design3DSource && pickParsedValue(design3DSource, (value) => {
+        const parsed = z.enum(["SinglePanel", "Sectional"]).safeParse(value);
+        return parsed.success ? parsed.data : undefined;
+      }, "garageDoorStyle", "garage_door_style")) ?? "SinglePanel";
 
     if (widthM <= 0 || heightM <= 0 || offsetM < 0) {
       warnings.push(`doors[${index}]: skipped door with invalid dimensions.`);
@@ -1334,6 +1561,9 @@ function parseDoors(data: unknown, wallIds: string[], warnings: string[]) {
             openPercent,
             hingeSide,
             swingDirection,
+            garageDoorStyle,
+            externalBlinds,
+            externalRollerShutter,
           }
         : null;
 
@@ -1390,6 +1620,8 @@ function parseWindows(
     const sillHeightM = pickNumber(source, "sillHeightM", "sill_height_m", "sillHeight", "sill_height") ?? 0.9;
     const offsetM = pickNumber(source, "offsetM", "offset_m", "offset") ?? 0;
     const design3DSource = asObject(source.design3D ?? source.design_3d ?? source.window3D ?? source.window_3d);
+    const externalBlinds = parseExternalBlindsDesign3D(design3DSource, widthM);
+    const externalRollerShutter = parseExternalRollerShutterDesign3D(design3DSource, widthM);
     const glassThicknessM =
       (design3DSource && pickNumber(design3DSource, "glassThicknessM", "glass_thickness_m")) ?? 0.02;
     const frameThicknessM =
@@ -1445,6 +1677,8 @@ function parseWindows(
             horizontalDivisions: Math.round(horizontalDivisions),
             wallDepthOffsetM,
             frameColorHex,
+            externalBlinds,
+            externalRollerShutter,
           }
         : null;
 
@@ -1676,6 +1910,33 @@ function repairProject(project: Project, warnings: string[]) {
 
       return isValid;
     });
+  project.solarPanelArrays = (project.solarPanelArrays ?? [])
+    .map((solarPanelArray) =>
+      createSolarPanelArray({ ...solarPanelArray, center: { ...solarPanelArray.center } }),
+    )
+    .filter((solarPanelArray) => {
+      const roofSketch = roofSketchById.get(solarPanelArray.roofSketchId);
+      const isValid =
+        roofSketch !== undefined &&
+        roofSketch.faces.some((face) => face.id === solarPanelArray.roofFaceId) &&
+        Number.isFinite(solarPanelArray.center.x) &&
+        Number.isFinite(solarPanelArray.center.y) &&
+        solarPanelArray.rows >= 1 &&
+        solarPanelArray.rows <= 40 &&
+        solarPanelArray.columns >= 1 &&
+        solarPanelArray.columns <= 40 &&
+        solarPanelArray.panelWidthM > 0 &&
+        solarPanelArray.panelHeightM > 0 &&
+        solarPanelArray.gapM >= 0 &&
+        solarPanelArray.mountingOffsetM >= 0 &&
+        solarPanelArray.panelThicknessM > 0;
+
+      if (!isValid) {
+        warnings.push(`solarPanelArrays: dropped solar panel array "${solarPanelArray.id}" with invalid data.`);
+      }
+
+      return isValid;
+    });
 
   project.nodes = project.nodes.filter((node) => levelIds.has(node.levelId));
   const nodeIds = new Set(project.nodes.map((node) => node.id));
@@ -1816,7 +2077,8 @@ function repairProject(project: Project, warnings: string[]) {
       slab.depthM > 0 &&
       slab.thicknessM > 0 &&
       slab.roofRiseM >= 0 &&
-      (slab.kind === "Rectangle" || slab.roofType === "Flat");
+      (slab.kind === "Rectangle" || slab.roofType === "Flat") &&
+      (slab.kind !== "Freeform" || slab.polygon.length >= 3);
     if (!isValid) {
       warnings.push(`slabs: dropped slab "${slab.id}" with invalid data.`);
     }
@@ -1899,6 +2161,7 @@ export function parseProjectData(data: unknown): ProjectParseResult {
     roofLayers,
     roofSketches: [],
     roofOpenings: [],
+    solarPanelArrays: [],
     nodes: [],
     walls: [],
     doors: [],
@@ -1927,6 +2190,11 @@ export function parseProjectData(data: unknown): ProjectParseResult {
   );
   projectBase.roofOpenings = parseRoofOpenings(
     root.roofOpenings ?? root.roof_openings,
+    projectBase.roofSketches,
+    warnings,
+  );
+  projectBase.solarPanelArrays = parseSolarPanelArrays(
+    root.solarPanelArrays ?? root.solar_panel_arrays,
     projectBase.roofSketches,
     warnings,
   );
@@ -1973,6 +2241,7 @@ export function parseProjectData(data: unknown): ProjectParseResult {
   ensureUniqueIds(projectBase.rooms, "room", "rooms", warnings);
   ensureUniqueIds(projectBase.roofSketches, "roof", "roofSketches", warnings);
   ensureUniqueIds(projectBase.roofOpenings, "roof_opening", "roofOpenings", warnings);
+  ensureUniqueIds(projectBase.solarPanelArrays, "solar_array", "solarPanelArrays", warnings);
   ensureUniqueIds(projectBase.externalModels, "model", "externalModels", warnings);
   ensureUniqueIds(projectBase.measurements, "measure", "measurements", warnings);
 

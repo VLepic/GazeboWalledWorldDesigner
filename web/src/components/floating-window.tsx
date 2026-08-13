@@ -47,6 +47,7 @@ export function FloatingWindow({
     }
 
     const viewportPadding = 12;
+    const statusOverlayClearance = 128;
     const minWidth = Math.min(220, Math.max(0, viewportSize.width - viewportPadding * 2));
     const resolvedWidth = Math.max(
       minWidth,
@@ -56,13 +57,19 @@ export function FloatingWindow({
     const minHeight = Math.min(180, Math.max(0, viewportSize.height - viewportPadding * 2));
     const maxOffsetY = Math.max(viewportPadding, viewportSize.height - minHeight - viewportPadding);
     const resolvedOffsetX = Math.min(Math.max(position.offsetX, viewportPadding), maxOffsetX);
-    const resolvedOffsetY = Math.min(Math.max(position.offsetY, viewportPadding), maxOffsetY);
+    const minOffsetY =
+      position.vertical === "bottom" ? statusOverlayClearance : viewportPadding;
+    const resolvedOffsetY = Math.min(Math.max(position.offsetY, minOffsetY), maxOffsetY);
+    const availableHeight =
+      position.vertical === "top"
+        ? viewportSize.height - resolvedOffsetY - statusOverlayClearance
+        : viewportSize.height - resolvedOffsetY - viewportPadding;
 
     return {
       width: resolvedWidth,
       offsetX: resolvedOffsetX,
       offsetY: resolvedOffsetY,
-      maxHeight: Math.max(minHeight, viewportSize.height - resolvedOffsetY - viewportPadding),
+      maxHeight: Math.max(minHeight, availableHeight),
     };
   }, [position.offsetX, position.offsetY, viewportSize.height, viewportSize.width, width]);
 

@@ -10,12 +10,14 @@ export type EditorTool =
   | "Measure"
   | "Door"
   | "Window"
+  | "ExternalShading"
   | "Stair"
   | "Shape"
   | "Slab"
   | "Roof"
   | "RoofOpening"
   | "RoofWindow"
+  | "SolarPanels"
   | "Model"
   | "Ground"
   | "Rooms";
@@ -34,10 +36,12 @@ export type SelectableEntityKind =
   | "roofVertex"
   | "roofFace"
   | "roofOpening"
+  | "solarPanelArray"
   | "groundSurface"
   | "room"
   | "externalModel";
-export type SlabMode = "Rectangle" | "Circle";
+export type SlabMode = "Rectangle" | "Circle" | "Freeform";
+export type RoomToolMode = "Rectangle" | "Freeform" | "Auto";
 
 export interface EditorSelection {
   kind: SelectableEntityKind;
@@ -203,6 +207,8 @@ function isSelectionValid(selection: EditorSelection | null, project: Project) {
       );
     case "roofOpening":
       return project.roofOpenings.some((opening) => opening.id === selection.id);
+    case "solarPanelArray":
+      return project.solarPanelArrays.some((array) => array.id === selection.id);
     case "door":
       return project.doors.some((door) => door.id === selection.id);
     case "window":
@@ -246,6 +252,8 @@ function isSelectionCompatibleWithTool(selection: EditorSelection | null, tool: 
       return selection.kind === "roofFace" || selection.kind === "roofOpening";
     case "RoofWindow":
       return selection.kind === "roofOpening";
+    case "SolarPanels":
+      return selection.kind === "solarPanelArray";
     case "Model":
       return selection.kind === "externalModel";
     case "Ground":

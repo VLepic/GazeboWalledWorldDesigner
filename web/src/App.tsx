@@ -4,7 +4,11 @@ import {
   type FloatingWindowPosition,
 } from "./components/floating-window";
 import { ViewportScene } from "./components/viewport-scene";
-import { ViewportScene3D } from "./components/viewport-scene-3d";
+import {
+  ViewportScene3D,
+  type ExternalShadingToolDesign,
+  type SolarPanelToolDesign,
+} from "./components/viewport-scene-3d";
 import {
   createDoor,
   createMeasurement,
@@ -18,6 +22,7 @@ import {
   createSlab,
   createRoofOpening,
   createRoofSketch,
+  createSolarPanelArray,
   createRoom,
   createStair,
   createWall,
@@ -27,6 +32,7 @@ import {
   deleteDoor,
   deleteWindow,
   deleteRoofOpening,
+  deleteSolarPanelArray,
   deleteRoom,
   deleteExternalModel,
   deleteGroundSurface,
@@ -46,6 +52,7 @@ import {
   updateProjectSettings,
   updateRoofSketch,
   updateRoofOpening,
+  updateSolarPanelArray,
   updateRoom,
   updateStair,
   updateWall,
@@ -59,6 +66,9 @@ import {
   type Door3DSwingDirection,
   type DoorDesign3D,
   type DoorOpening,
+  type ExternalBlindsDesign3D,
+  type ExternalRollerShutterDesign3D,
+  type GarageDoorStyle,
   type WindowOpening,
   type WindowDesign3D,
   calculatePolygonAreaM2,
@@ -82,6 +92,7 @@ import {
   type RoofSketch,
   type RoofOpeningCutMode,
   type RoofOpeningRotationDeg,
+  type SolarPanelArray,
   type WallTopMode,
   type RoofType,
   type Room,
@@ -104,6 +115,12 @@ import {
   type PreviewWindowMessage,
 } from "./domain/preview-window-sync";
 import {
+  createLocalPolygonFromWorld,
+  getPolygonDimensions,
+  getSlabWorldPolygon,
+  unionConnectedPolygons,
+} from "./domain/slab-geometry";
+import {
   createViewportBoundsFromPoints,
   expandViewportBounds,
   getViewportFit,
@@ -114,6 +131,7 @@ import {
 import {
   type EditorSelection,
   type EditorTool,
+  type RoomToolMode,
   type WallAuthoringMode,
   useEditorUiStore,
 } from "./store/editor-ui-store";
@@ -136,15 +154,45 @@ const editorTools: EditorTool[] = [
 const otherEditorTools: EditorTool[] = ["Model", "Ground", "Rooms"];
 
 const roofLayerEditorTools: EditorTool[] = ["Move", "Measure", "Roof", "RoofOpening", "RoofWindow"];
-const editorTools3D: EditorTool[] = ["Measure", "Door", "Window", "RoofWindow"];
+const editorTools3D: EditorTool[] = [
+  "Measure",
+  "Door",
+  "Window",
+  "ExternalShading",
+  "RoofWindow",
+  "SolarPanels",
+];
 const BUILT_IN_SAMPLE_URL = `${import.meta.env.BASE_URL}samples/default.wawod`;
 
 function getEditorToolLabel(tool: EditorTool) {
+  if (tool === "ExternalShading") {
+    return "External Shading";
+  }
+
   if (tool === "RoofOpening") {
     return "Roof Opening";
   }
 
+  if (tool === "SolarPanels") {
+    return "Solar Panels";
+  }
+
   return tool === "RoofWindow" ? "Roof Window" : tool;
+}
+
+function getSolarPanelToolDesign(array: SolarPanelArray): SolarPanelToolDesign {
+  return {
+    rows: array.rows,
+    columns: array.columns,
+    panelWidthM: array.panelWidthM,
+    panelHeightM: array.panelHeightM,
+    gapM: array.gapM,
+    orientation: array.orientation,
+    mountingOffsetM: array.mountingOffsetM,
+    panelThicknessM: array.panelThicknessM,
+    panelColorHex: array.panelColorHex,
+    frameColorHex: array.frameColorHex,
+  };
 }
 
 function toCentimeters(valueM: number) {
@@ -452,6 +500,300 @@ function DraftNumberInput({
         }
       }}
     />
+  );
+}
+
+function createDefaultExternalBlindsDesign3D(openingWidthM = 1.2): ExternalBlindsDesign3D {
+  return {
+    colorHex: "#8f949c",
+    coveragePercent: 100,
+    slatAngleDeg: 35,
+    slatCount: 16,
+    slatDepthM: 0.055,
+    blindWidthM: openingWidthM,
+    boxWidthM: openingWidthM,
+    side: "Front",
+  };
+}
+
+function createDefaultExternalRollerShutterDesign3D(
+  openingWidthM = 1.2,
+): ExternalRollerShutterDesign3D {
+  return {
+    colorHex: "#8b929b",
+    coveragePercent: 100,
+    slatHeightM: 0.045,
+    shutterDepthM: 0.025,
+    shutterWidthM: openingWidthM,
+    boxWidthM: openingWidthM,
+    side: "Front",
+  };
+}
+
+function ExternalBlindsControls({
+  blinds,
+  onAdd,
+  onChange,
+  onRemove,
+  subtitle = "Fixed to this opening",
+}: {
+  blinds?: ExternalBlindsDesign3D | null;
+  onAdd?: () => void;
+  onChange: (patch: Partial<ExternalBlindsDesign3D>) => void;
+  onRemove?: () => void;
+  subtitle?: string;
+}) {
+  if (!blinds) {
+    if (!onAdd) {
+      return null;
+    }
+
+    return (
+      <button
+        type="button"
+        className="toolbar-button field-grid-wide"
+        onClick={onAdd}
+      >
+        Add External Blinds
+      </button>
+    );
+  }
+
+  return (
+    <>
+      <div className="field-grid-section-label">
+        <strong>External Blinds</strong>
+        <span>{subtitle}</span>
+      </div>
+      <label className="field-label">
+        <span>Lowered ({Math.round(blinds.coveragePercent)}%)</span>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value={blinds.coveragePercent}
+          onChange={(event) => onChange({ coveragePercent: Number(event.target.value) })}
+        />
+      </label>
+      <label className="field-label">
+        <span>Slat Angle ({Math.round(blinds.slatAngleDeg)}°)</span>
+        <input
+          type="range"
+          min="-80"
+          max="80"
+          step="1"
+          value={blinds.slatAngleDeg}
+          onChange={(event) => onChange({ slatAngleDeg: Number(event.target.value) })}
+        />
+      </label>
+      <label className="field-label">
+        <span>Slat Count</span>
+        <DraftNumberInput
+          min="1"
+          max="200"
+          step="1"
+          value={blinds.slatCount}
+          onCommit={(nextValue) =>
+            onChange({ slatCount: Math.max(1, Math.min(200, Math.round(nextValue))) })
+          }
+        />
+      </label>
+      <label className="field-label">
+        <span>Blind Width (m)</span>
+        <DraftNumberInput
+          min="0.05"
+          step="0.05"
+          value={blinds.blindWidthM}
+          onCommit={(nextValue) => {
+            if (nextValue > 0) {
+              onChange({ blindWidthM: nextValue });
+            }
+          }}
+        />
+      </label>
+      <label className="field-label">
+        <span>Slat Depth (cm)</span>
+        <DraftNumberInput
+          min="1"
+          max="50"
+          step="0.5"
+          value={toCentimeters(blinds.slatDepthM)}
+          onCommit={(nextValue) => {
+            if (nextValue > 0) {
+              onChange({ slatDepthM: toMetersFromCentimeters(nextValue) });
+            }
+          }}
+        />
+      </label>
+      <label className="field-label">
+        <span>Box Width (m)</span>
+        <DraftNumberInput
+          min="0.05"
+          step="0.05"
+          value={blinds.boxWidthM}
+          onCommit={(nextValue) => {
+            if (nextValue > 0) {
+              onChange({ boxWidthM: nextValue });
+            }
+          }}
+        />
+      </label>
+      <label className="field-label">
+        <span>Slat Color</span>
+        <input
+          type="color"
+          value={blinds.colorHex}
+          onChange={(event) => onChange({ colorHex: event.target.value })}
+        />
+      </label>
+      <label className="field-label">
+        <span>Wall Side</span>
+        <select
+          value={blinds.side}
+          onChange={(event) =>
+            onChange({ side: event.target.value as ExternalBlindsDesign3D["side"] })
+          }
+        >
+          <option value="Front">Front</option>
+          <option value="Back">Back</option>
+        </select>
+      </label>
+      {onRemove ? (
+        <button
+          type="button"
+          className="toolbar-button field-grid-wide"
+          onClick={onRemove}
+        >
+          Remove External Blinds
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+function ExternalRollerShutterControls({
+  shutter,
+  onAdd,
+  onChange,
+  onRemove,
+  subtitle = "Fixed to this opening",
+}: {
+  shutter?: ExternalRollerShutterDesign3D | null;
+  onAdd?: () => void;
+  onChange: (patch: Partial<ExternalRollerShutterDesign3D>) => void;
+  onRemove?: () => void;
+  subtitle?: string;
+}) {
+  if (!shutter) {
+    if (!onAdd) {
+      return null;
+    }
+
+    return (
+      <button type="button" className="toolbar-button field-grid-wide" onClick={onAdd}>
+        Add Roller Shutter
+      </button>
+    );
+  }
+
+  return (
+    <>
+      <div className="field-grid-section-label">
+        <strong>Roller Shutter</strong>
+        <span>{subtitle}</span>
+      </div>
+      <label className="field-label">
+        <span>Lowered ({Math.round(shutter.coveragePercent)}%)</span>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value={shutter.coveragePercent}
+          onChange={(event) => onChange({ coveragePercent: Number(event.target.value) })}
+        />
+      </label>
+      <label className="field-label">
+        <span>Shutter Width (m)</span>
+        <DraftNumberInput
+          min="0.05"
+          step="0.05"
+          value={shutter.shutterWidthM}
+          onCommit={(nextValue) => {
+            if (nextValue > 0) {
+              onChange({ shutterWidthM: nextValue });
+            }
+          }}
+        />
+      </label>
+      <label className="field-label">
+        <span>Slat Height (cm)</span>
+        <DraftNumberInput
+          min="1"
+          max="25"
+          step="0.5"
+          value={toCentimeters(shutter.slatHeightM)}
+          onCommit={(nextValue) => {
+            if (nextValue > 0) {
+              onChange({ slatHeightM: toMetersFromCentimeters(nextValue) });
+            }
+          }}
+        />
+      </label>
+      <label className="field-label">
+        <span>Shutter Depth (cm)</span>
+        <DraftNumberInput
+          min="1"
+          max="50"
+          step="0.5"
+          value={toCentimeters(shutter.shutterDepthM)}
+          onCommit={(nextValue) => {
+            if (nextValue > 0) {
+              onChange({ shutterDepthM: toMetersFromCentimeters(nextValue) });
+            }
+          }}
+        />
+      </label>
+      <label className="field-label">
+        <span>Box Width (m)</span>
+        <DraftNumberInput
+          min="0.05"
+          step="0.05"
+          value={shutter.boxWidthM}
+          onCommit={(nextValue) => {
+            if (nextValue > 0) {
+              onChange({ boxWidthM: nextValue });
+            }
+          }}
+        />
+      </label>
+      <label className="field-label">
+        <span>Shutter Color</span>
+        <input
+          type="color"
+          value={shutter.colorHex}
+          onChange={(event) => onChange({ colorHex: event.target.value })}
+        />
+      </label>
+      <label className="field-label">
+        <span>Wall Side</span>
+        <select
+          value={shutter.side}
+          onChange={(event) =>
+            onChange({ side: event.target.value as ExternalRollerShutterDesign3D["side"] })
+          }
+        >
+          <option value="Front">Front</option>
+          <option value="Back">Back</option>
+        </select>
+      </label>
+      {onRemove ? (
+        <button type="button" className="toolbar-button field-grid-wide" onClick={onRemove}>
+          Remove Roller Shutter
+        </button>
+      ) : null}
+    </>
   );
 }
 
@@ -782,6 +1124,8 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const viewportCanvasRef = useRef<HTMLDivElement | null>(null);
   const otherToolsMenuRef = useRef<HTMLDivElement | null>(null);
+  const doorToolsMenuRef = useRef<HTMLDivElement | null>(null);
+  const windowToolsMenuRef = useRef<HTMLDivElement | null>(null);
   const previewMenuRef = useRef<HTMLDivElement | null>(null);
   const settingsMenuRef = useRef<HTMLDivElement | null>(null);
   const previewWindowSourceIdRef = useRef(createId("preview_source"));
@@ -855,11 +1199,15 @@ export default function App() {
     "History transactions now collapse drag edits into single undo and redo steps.",
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [slabConnectEnabled, setSlabConnectEnabled] = useState(false);
   const [viewportFrame, setViewportFrame] = useState({ widthPx: 0, heightPx: 0 });
   const [clipboardPayload, setClipboardPayload] = useState<SelectionClipboardPayload | null>(null);
   const [clipboardPasteCount, setClipboardPasteCount] = useState(0);
   const [projectNameDraft, setProjectNameDraft] = useState(project.projectName);
   const [isOtherToolsMenuOpen, setIsOtherToolsMenuOpen] = useState(false);
+  const [openingToolsMenuOpen, setOpeningToolsMenuOpen] = useState<"Door" | "Window" | null>(null);
+  const [externalShadingToolbarAnchor, setExternalShadingToolbarAnchor] =
+    useState<"Door" | "Window">("Window");
   const [isPreviewMenuOpen, setIsPreviewMenuOpen] = useState(false);
   const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
   const [editingLevelId, setEditingLevelId] = useState<string | null>(null);
@@ -889,6 +1237,8 @@ export default function App() {
   const [doorToolWidthM, setDoorToolWidthM] = useState(0.9);
   const [doorToolHeightM, setDoorToolHeightM] = useState(2.1);
   const [door3DKind, setDoor3DKind] = useState<DoorDesign3D["kind"]>("Normal");
+  const [door3DGarageDoorStyle, setDoor3DGarageDoorStyle] =
+    useState<GarageDoorStyle>("SinglePanel");
   const [door3DFrameThicknessM, setDoor3DFrameThicknessM] = useState(0.08);
   const [door3DFrameColorHex, setDoor3DFrameColorHex] = useState("#c4cbd6");
   const [door3DDoorColorHex, setDoor3DDoorColorHex] = useState("#8a5b3d");
@@ -906,13 +1256,21 @@ export default function App() {
   const [window3DVerticalDivisions, setWindow3DVerticalDivisions] = useState(0);
   const [window3DHorizontalDivisions, setWindow3DHorizontalDivisions] = useState(0);
   const [window3DWallDepthOffsetM, setWindow3DWallDepthOffsetM] = useState(0);
+  const [externalShadingKind, setExternalShadingKind] =
+    useState<ExternalShadingToolDesign["kind"]>("ExternalBlinds");
+  const [externalBlindsToolDesign, setExternalBlindsToolDesign] =
+    useState<ExternalBlindsDesign3D>(() => createDefaultExternalBlindsDesign3D());
+  const [externalRollerShutterToolDesign, setExternalRollerShutterToolDesign] =
+    useState<ExternalRollerShutterDesign3D>(() => createDefaultExternalRollerShutterDesign3D());
+  const [externalShadingFitOpeningWidth, setExternalShadingFitOpeningWidth] = useState(true);
   const [measureToolUnit, setMeasureToolUnit] = useState<MeasurementUnit>("m");
   const [measureToolPermanent, setMeasureToolPermanent] = useState(false);
   const [shapeToolKind, setShapeToolKind] = useState<Shape["kind"]>("Square");
   const [shapeToolBottomM, setShapeToolBottomM] = useState(0);
   const [shapeToolTopM, setShapeToolTopM] = useState(2.5);
   const [groundToolKind, setGroundToolKind] = useState<GroundSurface["kind"]>("Floor");
-  const [roomToolMode, setRoomToolMode] = useState<"Manual" | "Auto">("Manual");
+  const [roomToolMode, setRoomToolMode] = useState<RoomToolMode>("Rectangle");
+  const [roomConnectEnabled, setRoomConnectEnabled] = useState(false);
   const [roomToolName, setRoomToolName] = useState("Room");
   const [roofToolStartElevationM, setRoofToolStartElevationM] = useState(3);
   const [roofToolEndElevationM, setRoofToolEndElevationM] = useState(3);
@@ -923,6 +1281,18 @@ export default function App() {
     useState<RoofOpeningCutMode>("NormalToRoof");
   const [roofWindowToolRotationDeg, setRoofWindowToolRotationDeg] =
     useState<RoofOpeningRotationDeg>(0);
+  const [solarPanelToolDesign, setSolarPanelToolDesign] = useState<SolarPanelToolDesign>({
+    rows: 2,
+    columns: 4,
+    panelWidthM: 1.134,
+    panelHeightM: 1.722,
+    gapM: 0.03,
+    orientation: "Portrait",
+    mountingOffsetM: 0.08,
+    panelThicknessM: 0.04,
+    panelColorHex: "#173f68",
+    frameColorHex: "#b8c1ca",
+  });
   const [stairToolWidthM, setStairToolWidthM] = useState(1.1);
   const [stairToolEndElevationOffsetM, setStairToolEndElevationOffsetM] = useState(3);
   const [stairToolRiserHeightM, setStairToolRiserHeightM] = useState(0.17);
@@ -1005,6 +1375,13 @@ export default function App() {
           baseProject.roofSketches.some(
             (sketch) =>
               sketch.id === opening.roofSketchId &&
+              !hiddenRoofLayerIdSet2D.has(sketch.layerId),
+          ),
+        ),
+        solarPanelArrays: baseProject.solarPanelArrays.filter((array) =>
+          baseProject.roofSketches.some(
+            (sketch) =>
+              sketch.id === array.roofSketchId &&
               !hiddenRoofLayerIdSet2D.has(sketch.layerId),
           ),
         ),
@@ -1127,6 +1504,10 @@ export default function App() {
   const selectedRoofOpening =
     currentSelection?.kind === "roofOpening"
       ? (project.roofOpenings.find((opening) => opening.id === currentSelection.id) ?? null)
+      : null;
+  const selectedSolarPanelArray =
+    currentSelection?.kind === "solarPanelArray"
+      ? (project.solarPanelArrays.find((array) => array.id === currentSelection.id) ?? null)
       : null;
   const selectedExternalModel =
     currentSelection?.kind === "externalModel"
@@ -1298,6 +1679,12 @@ export default function App() {
       const target = event.target as Node;
       if (!otherToolsMenuRef.current?.contains(target)) {
         setIsOtherToolsMenuOpen(false);
+      }
+      if (
+        !doorToolsMenuRef.current?.contains(target) &&
+        !windowToolsMenuRef.current?.contains(target)
+      ) {
+        setOpeningToolsMenuOpen(null);
       }
       if (!previewMenuRef.current?.contains(target)) {
         setIsPreviewMenuOpen(false);
@@ -1624,6 +2011,8 @@ export default function App() {
           thicknessM: slab.thicknessM,
           roofRiseM: slab.roofRiseM,
           zOffsetM: slab.zOffsetM,
+          polygon: slab.polygon,
+          connectWithOtherSlabs: slab.connectWithOtherSlabs,
         });
         newSelections.push({ kind: "slab", id: nextSlab.id });
         return nextSlab;
@@ -1770,11 +2159,13 @@ export default function App() {
           return null;
         }
 
-        return createRectBounds(
-          selectedSlab.pose.position,
-          selectedSlab.widthM,
-          selectedSlab.depthM,
-        );
+        return selectedSlab.kind === "Freeform"
+          ? createViewportBoundsFromPoints(getSlabWorldPolygon(selectedSlab))
+          : createRectBounds(
+              selectedSlab.pose.position,
+              selectedSlab.widthM,
+              selectedSlab.depthM,
+            );
       case "groundSurface":
         if (!selectedGroundSurface) {
           return null;
@@ -1831,6 +2222,10 @@ export default function App() {
         const heightM = opening.rotationDeg === 90 ? opening.heightM : opening.widthM;
         return createRectBounds(opening.center, widthM, heightM);
       }
+      case "solarPanelArray":
+        return selectedSolarPanelArray
+          ? createCircularBounds(selectedSolarPanelArray.center, 1)
+          : null;
       case "externalModel":
         return selectedExternalModel
           ? createCircularBounds(selectedExternalModel.position, 0.8)
@@ -1877,7 +2272,9 @@ export default function App() {
     for (const slab of project.slabs.filter((item) => item.levelId === activeLevelId)) {
       bounds = mergeViewportBounds(
         bounds,
-        createRectBounds(slab.pose.position, slab.widthM, slab.depthM),
+        slab.kind === "Freeform"
+          ? createViewportBoundsFromPoints(getSlabWorldPolygon(slab))
+          : createRectBounds(slab.pose.position, slab.widthM, slab.depthM),
       );
     }
 
@@ -2448,6 +2845,7 @@ export default function App() {
   function createCurrentDoor3DDesign(): DoorDesign3D {
     return {
       kind: door3DKind,
+      garageDoorStyle: door3DGarageDoorStyle,
       frameThicknessM: door3DFrameThicknessM,
       frameColorHex: door3DFrameColorHex,
       doorColorHex: door3DDoorColorHex,
@@ -2459,10 +2857,48 @@ export default function App() {
     };
   }
 
+  function createCurrentExternalShadingDesign(openingWidthM: number): ExternalShadingToolDesign {
+    if (externalShadingKind === "ExternalBlinds") {
+      return {
+        kind: "ExternalBlinds",
+        design: {
+          ...externalBlindsToolDesign,
+          blindWidthM: externalShadingFitOpeningWidth
+            ? openingWidthM
+            : externalBlindsToolDesign.blindWidthM,
+          boxWidthM: externalShadingFitOpeningWidth
+            ? openingWidthM
+            : externalBlindsToolDesign.boxWidthM,
+        },
+      };
+    }
+
+    return {
+      kind: "RollerShutter",
+      design: {
+        ...externalRollerShutterToolDesign,
+        shutterWidthM: externalShadingFitOpeningWidth
+          ? openingWidthM
+          : externalRollerShutterToolDesign.shutterWidthM,
+        boxWidthM: externalShadingFitOpeningWidth
+          ? openingWidthM
+          : externalRollerShutterToolDesign.boxWidthM,
+      },
+    };
+  }
+
   function handleApplyDoor3DInsert(doorId: string) {
     try {
-      const design3D = createCurrentDoor3DDesign();
-      applyCommand((current) => updateDoor(current, doorId, { design3D }));
+      const toolDesign = createCurrentDoor3DDesign();
+      applyCommand((current) => {
+        const currentDoor = current.doors.find((door) => door.id === doorId);
+        const design3D: DoorDesign3D = {
+          ...toolDesign,
+          externalBlinds: currentDoor?.design3D?.externalBlinds ?? null,
+          externalRollerShutter: currentDoor?.design3D?.externalRollerShutter ?? null,
+        };
+        return updateDoor(current, doorId, { design3D });
+      });
       setSingleSelection({ kind: "door", id: doorId });
       reportSuccess("Inserted 3D door into the selected opening.");
     } catch (error) {
@@ -2477,6 +2913,42 @@ export default function App() {
       reportSuccess("Removed 3D door from the selected opening.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "3D door removal failed.";
+      reportError(message);
+    }
+  }
+
+  function handleApplyExternalShadingToDoor(doorId: string) {
+    try {
+      applyCommand((current) => {
+        const door = current.doors.find((candidate) => candidate.id === doorId);
+        if (!door) {
+          throw new Error(`Door opening "${doorId}" does not exist.`);
+        }
+
+        const shading = createCurrentExternalShadingDesign(door.widthM);
+        const baseDesign = door.design3D ?? createCurrentDoor3DDesign();
+        return updateDoor(current, doorId, {
+          design3D:
+            shading.kind === "ExternalBlinds"
+              ? {
+                  ...baseDesign,
+                  externalBlinds: shading.design,
+                  externalRollerShutter: null,
+                }
+              : {
+                  ...baseDesign,
+                  externalBlinds: null,
+                  externalRollerShutter: shading.design,
+                },
+        });
+      });
+      reportSuccess(
+        externalShadingKind === "ExternalBlinds"
+          ? "Applied external blinds to the door."
+          : "Applied a roller shutter to the door.",
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "External shading failed.";
       reportError(message);
     }
   }
@@ -2579,8 +3051,16 @@ export default function App() {
 
   function handleApplyWindow3DInsert(windowId: string) {
     try {
-      const design3D = createCurrentWindow3DDesign();
-      applyCommand((current) => updateWindow(current, windowId, { design3D }));
+      const toolDesign = createCurrentWindow3DDesign();
+      applyCommand((current) => {
+        const currentWindow = current.windows.find((windowOpening) => windowOpening.id === windowId);
+        const design3D: WindowDesign3D = {
+          ...toolDesign,
+          externalBlinds: currentWindow?.design3D?.externalBlinds ?? null,
+          externalRollerShutter: currentWindow?.design3D?.externalRollerShutter ?? null,
+        };
+        return updateWindow(current, windowId, { design3D });
+      });
       setSingleSelection({ kind: "window", id: windowId });
       reportSuccess("Inserted 3D window into the selected opening.");
     } catch (error) {
@@ -2595,6 +3075,42 @@ export default function App() {
       reportSuccess("Removed 3D window from the selected opening.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "3D window removal failed.";
+      reportError(message);
+    }
+  }
+
+  function handleApplyExternalShadingToWindow(windowId: string) {
+    try {
+      applyCommand((current) => {
+        const windowOpening = current.windows.find((candidate) => candidate.id === windowId);
+        if (!windowOpening) {
+          throw new Error(`Window opening "${windowId}" does not exist.`);
+        }
+
+        const shading = createCurrentExternalShadingDesign(windowOpening.widthM);
+        const baseDesign = windowOpening.design3D ?? createCurrentWindow3DDesign();
+        return updateWindow(current, windowId, {
+          design3D:
+            shading.kind === "ExternalBlinds"
+              ? {
+                  ...baseDesign,
+                  externalBlinds: shading.design,
+                  externalRollerShutter: null,
+                }
+              : {
+                  ...baseDesign,
+                  externalBlinds: null,
+                  externalRollerShutter: shading.design,
+                },
+        });
+      });
+      reportSuccess(
+        externalShadingKind === "ExternalBlinds"
+          ? "Applied external blinds to the window."
+          : "Applied a roller shutter to the window.",
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "External shading failed.";
       reportError(message);
     }
   }
@@ -2645,11 +3161,104 @@ export default function App() {
     }
   }
 
+  function handleCreateSolarPanelArray(input: {
+    roofSketchId: string;
+    roofFaceId: string;
+    center: Vec2;
+  }) {
+    try {
+      const id = createId("solar_array");
+      applyCommand((current) =>
+        createSolarPanelArray(current, {
+          id,
+          ...input,
+          ...solarPanelToolDesign,
+        }),
+      );
+      setSingleSelection({ kind: "solarPanelArray", id });
+      reportSuccess(
+        `Placed ${solarPanelToolDesign.rows} x ${solarPanelToolDesign.columns} solar panel array.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Solar panel placement failed.";
+      reportError(message);
+    }
+  }
+
+  function handleSelectSolarPanelArray(solarPanelArrayId: string) {
+    if (!project.solarPanelArrays.some((array) => array.id === solarPanelArrayId)) {
+      return;
+    }
+
+    setActiveTool("SolarPanels");
+    setSingleSelection({ kind: "solarPanelArray", id: solarPanelArrayId });
+    reportSuccess(`Selected solar panel array "${solarPanelArrayId}".`);
+  }
+
+  function handleMoveSolarPanelArray(solarPanelArrayId: string, center: Vec2) {
+    try {
+      applyCommand((current) => updateSolarPanelArray(current, solarPanelArrayId, { center }));
+      reportSuccess("Moved solar panel array on its roof plane.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Solar panel move failed.";
+      reportError(message);
+    }
+  }
+
+  function handleCommitSolarPanelToolDesign(
+    patch: Partial<SolarPanelToolDesign>,
+    message: string,
+  ) {
+    try {
+      if (selectedSolarPanelArray) {
+        applyCommand((current) =>
+          updateSolarPanelArray(current, selectedSolarPanelArray.id, patch),
+        );
+      } else {
+        setSolarPanelToolDesign((current) => ({ ...current, ...patch }));
+      }
+      reportSuccess(message);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Solar panel update failed.";
+      reportError(errorMessage);
+    }
+  }
+
+  function handleDeleteSolarPanelArray(solarPanelArrayId: string) {
+    try {
+      applyCommand((current) => deleteSolarPanelArray(current, solarPanelArrayId));
+      if (
+        currentSelection?.kind === "solarPanelArray" &&
+        currentSelection.id === solarPanelArrayId
+      ) {
+        clearSelection();
+      }
+      reportSuccess("Deleted solar panel array.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Solar panel delete failed.";
+      reportError(message);
+    }
+  }
+
+  function handleToggleSolarPanels2D() {
+    applyCommand((current) =>
+      updateProjectSettings(current, {
+        showSolarPanels2D: !current.settings.showSolarPanels2D,
+      }),
+    );
+    reportSuccess(
+      project.settings.showSolarPanels2D
+        ? "Solar panels hidden from the 2D plan."
+        : "Solar panels shown in the 2D plan.",
+    );
+  }
+
   function handleClear3DOpeningSelection() {
     if (
       currentSelection?.kind !== "window" &&
       currentSelection?.kind !== "door" &&
-      currentSelection?.kind !== "roofOpening"
+      currentSelection?.kind !== "roofOpening" &&
+      currentSelection?.kind !== "solarPanelArray"
     ) {
       return;
     }
@@ -2829,6 +3438,23 @@ export default function App() {
       setErrorMessage(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Slab resize failed.";
+      reportError(message);
+    }
+  }
+
+  function handleUpdateSlabPolygon(slabId: string, polygon: Vec2[]) {
+    try {
+      const dimensions = getPolygonDimensions(polygon);
+      applyCommand((current) =>
+        updateSlab(current, slabId, {
+          polygon,
+          widthM: Math.max(dimensions.widthM, 0.01),
+          depthM: Math.max(dimensions.depthM, 0.01),
+        }),
+      );
+      setErrorMessage(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Slab vertex move failed.";
       reportError(message);
     }
   }
@@ -3234,6 +3860,7 @@ export default function App() {
       };
 
       setDoor3DKind(nextDesign.kind);
+      setDoor3DGarageDoorStyle(nextDesign.garageDoorStyle ?? "SinglePanel");
       setDoor3DFrameThicknessM(nextDesign.frameThicknessM);
       setDoor3DFrameColorHex(nextDesign.frameColorHex);
       setDoor3DDoorColorHex(nextDesign.doorColorHex);
@@ -3535,9 +4162,94 @@ export default function App() {
     reportSuccess("Created a slab through the command layer.");
   }
 
+  function handleCreateSlabFromPolygon(worldPolygon: Vec2[]) {
+    if (!activeLevelId || worldPolygon.length < 3) {
+      reportError("Select an active level and close a slab outline with at least three points.");
+      return;
+    }
+
+    let mergedSlabCount = 0;
+    applyCommand((current) => {
+      let mergedPolygon = worldPolygon;
+      const mergedSlabIds = new Set<string>();
+
+      if (slabConnectEnabled) {
+        let mergedAnotherSlab = true;
+        while (mergedAnotherSlab) {
+          mergedAnotherSlab = false;
+          for (const candidate of current.slabs) {
+            if (
+              mergedSlabIds.has(candidate.id) ||
+              candidate.levelId !== activeLevelId ||
+              candidate.kind === "Circle" ||
+              candidate.roofType !== "Flat" ||
+              Math.abs(candidate.thicknessM - 0.2) > 0.0001 ||
+              Math.abs(candidate.zOffsetM) > 0.0001
+            ) {
+              continue;
+            }
+
+            const union = unionConnectedPolygons(
+              mergedPolygon,
+              getSlabWorldPolygon(candidate),
+            );
+            if (!union) {
+              continue;
+            }
+
+            mergedPolygon = union;
+            mergedSlabIds.add(candidate.id);
+            mergedAnotherSlab = true;
+          }
+        }
+      }
+
+      mergedSlabCount = mergedSlabIds.size;
+      const localized = createLocalPolygonFromWorld(mergedPolygon);
+      const dimensions = getPolygonDimensions(mergedPolygon);
+      const withoutMergedSlabs = {
+        ...current,
+        slabs: current.slabs.filter((slab) => !mergedSlabIds.has(slab.id)),
+      };
+
+      return createSlab(withoutMergedSlabs, {
+        levelId: activeLevelId,
+        name: `slab_${current.slabs.length + 1}`,
+        kind: "Freeform",
+        roofType: "Flat",
+        pose: createPose2D(localized.center, 0),
+        widthM: Math.max(dimensions.widthM, 0.01),
+        depthM: Math.max(dimensions.depthM, 0.01),
+        thicknessM: 0.2,
+        roofRiseM: 1.2,
+        zOffsetM: 0,
+        polygon: localized.polygon,
+        connectWithOtherSlabs: slabConnectEnabled,
+      });
+    });
+
+    reportSuccess(
+      mergedSlabCount > 0
+        ? `Created a freeform slab and joined ${mergedSlabCount} connected slab(s).`
+        : "Created a freeform slab.",
+    );
+  }
+
   function handleCreateSlabAt(position: Vec2 & { widthM?: number; depthM?: number }) {
     if (!activeLevelId) {
       reportError("Select an active level before creating a slab.");
+      return;
+    }
+
+    if (slabMode === "Rectangle" && slabConnectEnabled) {
+      const widthM = position.widthM ?? 2.4;
+      const depthM = position.depthM ?? 1.8;
+      handleCreateSlabFromPolygon([
+        createVec2(position.x - widthM / 2, position.y - depthM / 2),
+        createVec2(position.x + widthM / 2, position.y - depthM / 2),
+        createVec2(position.x + widthM / 2, position.y + depthM / 2),
+        createVec2(position.x - widthM / 2, position.y + depthM / 2),
+      ]);
       return;
     }
 
@@ -3556,6 +4268,7 @@ export default function App() {
         thicknessM: 0.2,
         roofRiseM: 1.2,
         zOffsetM: 0,
+        connectWithOtherSlabs: slabConnectEnabled,
       }),
     );
     reportSuccess(
@@ -3595,15 +4308,50 @@ export default function App() {
     }
 
     let createdRoomId: string | null = null;
+    let mergedRoomCount = 0;
+    let finalAreaM2 = areaM2;
     applyCommand((current) => {
+      let mergedPolygon = polygon;
+      const mergedRoomIds = new Set<string>();
+
+      if (roomConnectEnabled) {
+        let mergedAnotherRoom = true;
+        while (mergedAnotherRoom) {
+          mergedAnotherRoom = false;
+          for (const candidate of current.rooms) {
+            if (
+              mergedRoomIds.has(candidate.id) ||
+              candidate.levelId !== activeLevelId
+            ) {
+              continue;
+            }
+
+            const union = unionConnectedPolygons(mergedPolygon, candidate.polygon);
+            if (!union) {
+              continue;
+            }
+
+            mergedPolygon = union;
+            mergedRoomIds.add(candidate.id);
+            mergedAnotherRoom = true;
+          }
+        }
+      }
+
+      mergedRoomCount = mergedRoomIds.size;
+      finalAreaM2 = calculatePolygonAreaM2(mergedPolygon);
       const nextRoomName =
         roomToolName.trim().length > 0
           ? roomToolName.trim()
           : `Room ${current.rooms.length + 1}`;
-      const nextProject = createRoom(current, {
+      const withoutMergedRooms = {
+        ...current,
+        rooms: current.rooms.filter((room) => !mergedRoomIds.has(room.id)),
+      };
+      const nextProject = createRoom(withoutMergedRooms, {
         levelId: activeLevelId,
         name: nextRoomName,
-        polygon,
+        polygon: mergedPolygon,
       });
       createdRoomId = nextProject.rooms[nextProject.rooms.length - 1]?.id ?? null;
       return nextProject;
@@ -3611,7 +4359,11 @@ export default function App() {
     if (createdRoomId) {
       setSingleSelection({ kind: "room", id: createdRoomId });
     }
-    reportSuccess(`Created room "${roomToolName.trim() || "Room"}" (${formatNumber(areaM2)} m2).`);
+    reportSuccess(
+      mergedRoomCount > 0
+        ? `Created room "${roomToolName.trim() || "Room"}" and joined ${mergedRoomCount} connected room(s) (${formatNumber(finalAreaM2)} m2).`
+        : `Created room "${roomToolName.trim() || "Room"}" (${formatNumber(finalAreaM2)} m2).`,
+    );
   }
 
   function handleDiscoverRooms() {
@@ -4158,12 +4910,16 @@ export default function App() {
     (activeTool === "Measure" ||
       activeTool === "Door" ||
       activeTool === "Window" ||
+      activeTool === "ExternalShading" ||
       activeTool === "Shape" ||
       activeTool === "Stair" ||
       activeTool === "Slab" ||
+      activeTool === "Ground" ||
+      activeTool === "Rooms" ||
       activeTool === "Roof" ||
       activeTool === "RoofOpening" ||
       activeTool === "RoofWindow" ||
+      activeTool === "SolarPanels" ||
       viewportMode === "3d");
 
   const showContextWindow =
@@ -4173,11 +4929,61 @@ export default function App() {
       viewportMode === "3d" &&
       ((activeTool === "Window" && currentSelection.kind === "window") ||
         (activeTool === "Door" && currentSelection.kind === "door") ||
-        (activeTool === "RoofWindow" && currentSelection.kind === "roofOpening"))
+        (activeTool === "RoofWindow" && currentSelection.kind === "roofOpening") ||
+        (activeTool === "SolarPanels" && currentSelection.kind === "solarPanelArray"))
     );
 
   function renderToolWindowContent() {
     if (viewportMode === "3d") {
+      if (activeTool === "ExternalShading") {
+        return (
+          <div className="field-grid">
+            <label className="field-label field-grid-wide">
+              <span>Shading Type</span>
+              <select
+                value={externalShadingKind}
+                onChange={(event) =>
+                  setExternalShadingKind(event.target.value as ExternalShadingToolDesign["kind"])
+                }
+              >
+                <option value="ExternalBlinds">External Blinds</option>
+                <option value="RollerShutter">Roller Shutter</option>
+              </select>
+            </label>
+            <label className="field-label field-grid-wide">
+              <span>Width</span>
+              <button
+                type="button"
+                className={externalShadingFitOpeningWidth ? "is-active" : undefined}
+                onClick={() => setExternalShadingFitOpeningWidth((current) => !current)}
+              >
+                {externalShadingFitOpeningWidth ? "Fit Opening Width" : "Use Preset Width"}
+              </button>
+            </label>
+            {externalShadingKind === "ExternalBlinds" ? (
+              <ExternalBlindsControls
+                blinds={externalBlindsToolDesign}
+                subtitle="Preset for clicked openings"
+                onChange={(patch) =>
+                  setExternalBlindsToolDesign((current) => ({ ...current, ...patch }))
+                }
+              />
+            ) : (
+              <ExternalRollerShutterControls
+                shutter={externalRollerShutterToolDesign}
+                subtitle="Preset for clicked openings"
+                onChange={(patch) =>
+                  setExternalRollerShutterToolDesign((current) => ({ ...current, ...patch }))
+                }
+              />
+            )}
+            <p className="muted field-grid-wide">
+              Hover an existing wall opening to preview the preset, then left-click to apply it.
+            </p>
+          </div>
+        );
+      }
+
       if (activeTool === "Measure") {
         return (
           <div className="field-stack">
@@ -4243,6 +5049,23 @@ export default function App() {
                 <option value="HSPortal">HS Portal</option>
               </select>
             </label>
+            {effectiveDoor3DDesign.kind === "Garage" ? (
+              <label className="field-label">
+                <span>Garage Door Style</span>
+                <select
+                  value={effectiveDoor3DDesign.garageDoorStyle ?? "SinglePanel"}
+                  onChange={(event) =>
+                    handleCommitDoor3DToolDesign(
+                      { garageDoorStyle: event.target.value as GarageDoorStyle },
+                      "Updated garage door style.",
+                    )
+                  }
+                >
+                  <option value="SinglePanel">Single Panel</option>
+                  <option value="Sectional">Sectional</option>
+                </select>
+              </label>
+            ) : null}
             <label className="field-label">
               <span>State</span>
               <select
@@ -4390,23 +5213,106 @@ export default function App() {
                 </select>
               </label>
             ) : null}
+            {effectiveDoor3DDesign.kind === "Garage" ? (
+              <label className="field-label">
+                <span>Open Direction</span>
+                <select
+                  value={effectiveDoor3DDesign.swingDirection}
+                  onChange={(event) =>
+                    handleCommitDoor3DToolDesign(
+                      { swingDirection: event.target.value as Door3DSwingDirection },
+                      "Updated garage door opening direction.",
+                    )
+                  }
+                >
+                  <option value="Inward">Inward</option>
+                  <option value="Outward">Outward</option>
+                </select>
+              </label>
+            ) : null}
             {selectedDoor ? (
-              <div className="window-tool-action-row">
-                <button
-                  type="button"
-                  className="toolbar-button"
-                  onClick={() => handleRemoveDoor3DInsert(selectedDoor.id)}
-                >
-                  Delete Door
-                </button>
-                <button
-                  type="button"
-                  className="toolbar-button"
-                  onClick={() => handleDeleteDoor(selectedDoor.id)}
-                >
-                  Delete Opening
-                </button>
-              </div>
+              <>
+                <ExternalBlindsControls
+                  blinds={effectiveDoor3DDesign.externalBlinds}
+                  onAdd={() =>
+                    handleCommitDoor3DToolDesign(
+                      {
+                        externalBlinds: createDefaultExternalBlindsDesign3D(selectedDoor.widthM),
+                        externalRollerShutter: null,
+                      },
+                      "Added external blinds to the selected door.",
+                    )
+                  }
+                  onChange={(patch) =>
+                    handleCommitDoor3DToolDesign(
+                      {
+                        externalBlinds: {
+                          ...(effectiveDoor3DDesign.externalBlinds ??
+                            createDefaultExternalBlindsDesign3D(selectedDoor.widthM)),
+                          ...patch,
+                        },
+                        externalRollerShutter: null,
+                      },
+                      "Updated external door blinds.",
+                    )
+                  }
+                  onRemove={() =>
+                    handleCommitDoor3DToolDesign(
+                      { externalBlinds: null },
+                      "Removed external blinds from the selected door.",
+                    )
+                  }
+                />
+                <ExternalRollerShutterControls
+                  shutter={effectiveDoor3DDesign.externalRollerShutter}
+                  onAdd={() =>
+                    handleCommitDoor3DToolDesign(
+                      {
+                        externalBlinds: null,
+                        externalRollerShutter: createDefaultExternalRollerShutterDesign3D(
+                          selectedDoor.widthM,
+                        ),
+                      },
+                      "Added a roller shutter to the selected door.",
+                    )
+                  }
+                  onChange={(patch) =>
+                    handleCommitDoor3DToolDesign(
+                      {
+                        externalBlinds: null,
+                        externalRollerShutter: {
+                          ...(effectiveDoor3DDesign.externalRollerShutter ??
+                            createDefaultExternalRollerShutterDesign3D(selectedDoor.widthM)),
+                          ...patch,
+                        },
+                      },
+                      "Updated the external door roller shutter.",
+                    )
+                  }
+                  onRemove={() =>
+                    handleCommitDoor3DToolDesign(
+                      { externalRollerShutter: null },
+                      "Removed the roller shutter from the selected door.",
+                    )
+                  }
+                />
+                <div className="window-tool-action-row">
+                  <button
+                    type="button"
+                    className="toolbar-button"
+                    onClick={() => handleRemoveDoor3DInsert(selectedDoor.id)}
+                  >
+                    Delete Door
+                  </button>
+                  <button
+                    type="button"
+                    className="toolbar-button"
+                    onClick={() => handleDeleteDoor(selectedDoor.id)}
+                  >
+                    Delete Opening
+                  </button>
+                </div>
+              </>
             ) : null}
           </div>
         );
@@ -4539,22 +5445,88 @@ export default function App() {
               />
             </label>
             {selectedWindow ? (
-              <div className="window-tool-action-row">
-                <button
-                  type="button"
-                  className="toolbar-button"
-                  onClick={() => handleRemoveWindow3DInsert(selectedWindow.id)}
-                >
-                  Delete Window
-                </button>
-                <button
-                  type="button"
-                  className="toolbar-button"
-                  onClick={() => handleDeleteWindow(selectedWindow.id)}
-                >
-                  Delete Opening
-                </button>
-              </div>
+              <>
+                <ExternalBlindsControls
+                  blinds={effectiveWindow3DDesign.externalBlinds}
+                  onAdd={() =>
+                    handleCommitWindow3DToolDesign(
+                      {
+                        externalBlinds: createDefaultExternalBlindsDesign3D(selectedWindow.widthM),
+                        externalRollerShutter: null,
+                      },
+                      "Added external blinds to the selected window.",
+                    )
+                  }
+                  onChange={(patch) =>
+                    handleCommitWindow3DToolDesign(
+                      {
+                        externalBlinds: {
+                          ...(effectiveWindow3DDesign.externalBlinds ??
+                            createDefaultExternalBlindsDesign3D(selectedWindow.widthM)),
+                          ...patch,
+                        },
+                        externalRollerShutter: null,
+                      },
+                      "Updated external window blinds.",
+                    )
+                  }
+                  onRemove={() =>
+                    handleCommitWindow3DToolDesign(
+                      { externalBlinds: null },
+                      "Removed external blinds from the selected window.",
+                    )
+                  }
+                />
+                <ExternalRollerShutterControls
+                  shutter={effectiveWindow3DDesign.externalRollerShutter}
+                  onAdd={() =>
+                    handleCommitWindow3DToolDesign(
+                      {
+                        externalBlinds: null,
+                        externalRollerShutter: createDefaultExternalRollerShutterDesign3D(
+                          selectedWindow.widthM,
+                        ),
+                      },
+                      "Added a roller shutter to the selected window.",
+                    )
+                  }
+                  onChange={(patch) =>
+                    handleCommitWindow3DToolDesign(
+                      {
+                        externalBlinds: null,
+                        externalRollerShutter: {
+                          ...(effectiveWindow3DDesign.externalRollerShutter ??
+                            createDefaultExternalRollerShutterDesign3D(selectedWindow.widthM)),
+                          ...patch,
+                        },
+                      },
+                      "Updated the external window roller shutter.",
+                    )
+                  }
+                  onRemove={() =>
+                    handleCommitWindow3DToolDesign(
+                      { externalRollerShutter: null },
+                      "Removed the roller shutter from the selected window.",
+                    )
+                  }
+                />
+                <div className="window-tool-action-row">
+                  <button
+                    type="button"
+                    className="toolbar-button"
+                    onClick={() => handleRemoveWindow3DInsert(selectedWindow.id)}
+                  >
+                    Delete Window
+                  </button>
+                  <button
+                    type="button"
+                    className="toolbar-button"
+                    onClick={() => handleDeleteWindow(selectedWindow.id)}
+                  >
+                    Delete Opening
+                  </button>
+                </div>
+              </>
             ) : null}
           </div>
         );
@@ -4684,6 +5656,189 @@ export default function App() {
                   {selectedRoofOpening.design3D ? "Remove 3D Window" : "Insert 3D Window"}
                 </button>
               </div>
+            ) : null}
+          </div>
+        );
+      }
+
+      if (activeTool === "SolarPanels") {
+        const effectiveDesign = selectedSolarPanelArray
+          ? getSolarPanelToolDesign(selectedSolarPanelArray)
+          : solarPanelToolDesign;
+        return (
+          <div className="field-grid">
+            {selectedSolarPanelArray ? (
+              <div className="stat-row field-grid-wide">
+                <span>Selected Array</span>
+                <strong>{selectedSolarPanelArray.id}</strong>
+              </div>
+            ) : (
+              <p className="muted field-grid-wide">
+                Move over a roof face for a preview, then click to place the array.
+              </p>
+            )}
+            <label className="field-label">
+              <span>Rows</span>
+              <DraftNumberInput
+                value={effectiveDesign.rows}
+                min="1"
+                max="40"
+                step="1"
+                onCommit={(value) =>
+                  handleCommitSolarPanelToolDesign(
+                    { rows: clampValue(Math.round(value), 1, 40) },
+                    "Updated solar panel rows.",
+                  )
+                }
+              />
+            </label>
+            <label className="field-label">
+              <span>Columns</span>
+              <DraftNumberInput
+                value={effectiveDesign.columns}
+                min="1"
+                max="40"
+                step="1"
+                onCommit={(value) =>
+                  handleCommitSolarPanelToolDesign(
+                    { columns: clampValue(Math.round(value), 1, 40) },
+                    "Updated solar panel columns.",
+                  )
+                }
+              />
+            </label>
+            <label className="field-label">
+              <span>Orientation</span>
+              <select
+                value={effectiveDesign.orientation}
+                onChange={(event) =>
+                  handleCommitSolarPanelToolDesign(
+                    { orientation: event.target.value as SolarPanelArray["orientation"] },
+                    "Updated solar panel orientation.",
+                  )
+                }
+              >
+                <option value="Portrait">Portrait</option>
+                <option value="Landscape">Landscape</option>
+              </select>
+            </label>
+            <label className="field-label">
+              <span>Module Width (m)</span>
+              <DraftNumberInput
+                value={effectiveDesign.panelWidthM}
+                min="0.1"
+                step="0.01"
+                onCommit={(value) => {
+                  if (value > 0) {
+                    handleCommitSolarPanelToolDesign(
+                      { panelWidthM: value },
+                      "Updated solar module width.",
+                    );
+                  }
+                }}
+              />
+            </label>
+            <label className="field-label">
+              <span>Module Height (m)</span>
+              <DraftNumberInput
+                value={effectiveDesign.panelHeightM}
+                min="0.1"
+                step="0.01"
+                onCommit={(value) => {
+                  if (value > 0) {
+                    handleCommitSolarPanelToolDesign(
+                      { panelHeightM: value },
+                      "Updated solar module height.",
+                    );
+                  }
+                }}
+              />
+            </label>
+            <label className="field-label">
+              <span>Module Gap (cm)</span>
+              <DraftNumberInput
+                value={toCentimeters(effectiveDesign.gapM)}
+                min="0"
+                step="0.5"
+                onCommit={(value) =>
+                  handleCommitSolarPanelToolDesign(
+                    { gapM: Math.max(0, toMetersFromCentimeters(value)) },
+                    "Updated solar module gap.",
+                  )
+                }
+              />
+            </label>
+            <label className="field-label">
+              <span>Mounting Offset (cm)</span>
+              <DraftNumberInput
+                value={toCentimeters(effectiveDesign.mountingOffsetM)}
+                min="0"
+                step="0.5"
+                onCommit={(value) =>
+                  handleCommitSolarPanelToolDesign(
+                    { mountingOffsetM: Math.max(0, toMetersFromCentimeters(value)) },
+                    "Updated solar mounting offset.",
+                  )
+                }
+              />
+            </label>
+            <label className="field-label">
+              <span>Panel Thickness (cm)</span>
+              <DraftNumberInput
+                value={toCentimeters(effectiveDesign.panelThicknessM)}
+                min="0.1"
+                step="0.5"
+                onCommit={(value) => {
+                  if (value > 0) {
+                    handleCommitSolarPanelToolDesign(
+                      { panelThicknessM: toMetersFromCentimeters(value) },
+                      "Updated solar panel thickness.",
+                    );
+                  }
+                }}
+              />
+            </label>
+            <label className="field-label">
+              <span>Panel Color</span>
+              <input
+                type="color"
+                value={effectiveDesign.panelColorHex}
+                onChange={(event) =>
+                  handleCommitSolarPanelToolDesign(
+                    { panelColorHex: event.target.value },
+                    "Updated solar panel color.",
+                  )
+                }
+              />
+            </label>
+            <label className="field-label">
+              <span>Frame Color</span>
+              <input
+                type="color"
+                value={effectiveDesign.frameColorHex}
+                onChange={(event) =>
+                  handleCommitSolarPanelToolDesign(
+                    { frameColorHex: event.target.value },
+                    "Updated solar panel frame color.",
+                  )
+                }
+              />
+            </label>
+            <button
+              type="button"
+              className={project.settings.showSolarPanels2D ? "is-active field-grid-wide" : "field-grid-wide"}
+              onClick={handleToggleSolarPanels2D}
+            >
+              {project.settings.showSolarPanels2D ? "Shown In 2D Plan" : "Hidden From 2D Plan"}
+            </button>
+            {selectedSolarPanelArray ? (
+              <button
+                type="button"
+                className="toolbar-button field-grid-wide"
+                onClick={() => handleDeleteSolarPanelArray(selectedSolarPanelArray.id)}
+              >
+                Delete Solar Panel Array
+              </button>
             ) : null}
           </div>
         );
@@ -4907,21 +6062,40 @@ export default function App() {
 
     if (activeTool === "Slab") {
       return (
-        <div className="button-row">
+        <div className="field-stack">
+          <div className="button-row">
+            <button
+              type="button"
+              className={slabMode === "Rectangle" ? "is-active" : undefined}
+              onClick={() => setSlabMode("Rectangle")}
+            >
+              Rectangle
+            </button>
+            <button
+              type="button"
+              className={slabMode === "Circle" ? "is-active" : undefined}
+              onClick={() => setSlabMode("Circle")}
+            >
+              Circle
+            </button>
+            <button
+              type="button"
+              className={slabMode === "Freeform" ? "is-active" : undefined}
+              onClick={() => setSlabMode("Freeform")}
+            >
+              Freeform
+            </button>
+          </div>
           <button
             type="button"
-            className={slabMode === "Rectangle" ? "is-active" : undefined}
-            onClick={() => setSlabMode("Rectangle")}
+            className={slabConnectEnabled ? "is-active" : undefined}
+            onClick={() => setSlabConnectEnabled((enabled) => !enabled)}
           >
-            Rectangle
+            Connect With Other Slabs
           </button>
-          <button
-            type="button"
-            className={slabMode === "Circle" ? "is-active" : undefined}
-            onClick={() => setSlabMode("Circle")}
-          >
-            Circle
-          </button>
+          {slabMode === "Freeform" ? (
+            <p className="muted">Click corners and click the first point to close the slab.</p>
+          ) : null}
         </div>
       );
     }
@@ -4950,15 +6124,22 @@ export default function App() {
       return (
         <div className="field-stack">
           <p className="muted">
-            Manual mode draws a rectangular room. Auto mode discovers closed wall-bounded rooms on the active level.
+            Draw a rectangular or freeform room, or discover closed wall-bounded rooms on the active level.
           </p>
           <div className="button-row">
             <button
               type="button"
-              className={roomToolMode === "Manual" ? "is-active" : undefined}
-              onClick={() => setRoomToolMode("Manual")}
+              className={roomToolMode === "Rectangle" ? "is-active" : undefined}
+              onClick={() => setRoomToolMode("Rectangle")}
             >
-              Manual
+              Rectangle
+            </button>
+            <button
+              type="button"
+              className={roomToolMode === "Freeform" ? "is-active" : undefined}
+              onClick={() => setRoomToolMode("Freeform")}
+            >
+              Freeform
             </button>
             <button
               type="button"
@@ -4975,6 +6156,20 @@ export default function App() {
               onCommit={(nextValue) => setRoomToolName(nextValue.trim() || "Room")}
             />
           </label>
+          {roomToolMode !== "Auto" ? (
+            <button
+              type="button"
+              className={roomConnectEnabled ? "is-active" : undefined}
+              onClick={() => setRoomConnectEnabled((enabled) => !enabled)}
+            >
+              Connect With Other Rooms
+            </button>
+          ) : null}
+          {roomToolMode === "Freeform" ? (
+            <p className="muted">
+              Click room corners and click the first point to close the outline. Right-click empty space to cancel.
+            </p>
+          ) : null}
           {roomToolMode === "Auto" ? (
             <button type="button" onClick={handleDiscoverRooms}>
               Discover Rooms
@@ -5695,34 +6890,43 @@ export default function App() {
               </select>
             </label>
           ) : null}
-          <label className="field-label">
-            <span>Width (m)</span>
-            <input
-              type="number"
-              step="0.1"
-              min="0.1"
-              value={selectedSlab.widthM}
-              onChange={(event) =>
-                commitNumericInput(event.target.valueAsNumber, (value) =>
-                  handleUpdateSelectedSlab({ widthM: value }, "Updated slab width."),
-                )
-              }
-            />
-          </label>
-          <label className="field-label">
-            <span>Depth (m)</span>
-            <input
-              type="number"
-              step="0.1"
-              min="0.1"
-              value={selectedSlab.depthM}
-              onChange={(event) =>
-                commitNumericInput(event.target.valueAsNumber, (value) =>
-                  handleUpdateSelectedSlab({ depthM: value }, "Updated slab depth."),
-                )
-              }
-            />
-          </label>
+          {selectedSlab.kind !== "Freeform" ? (
+            <>
+              <label className="field-label">
+                <span>Width (m)</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  value={selectedSlab.widthM}
+                  onChange={(event) =>
+                    commitNumericInput(event.target.valueAsNumber, (value) =>
+                      handleUpdateSelectedSlab({ widthM: value }, "Updated slab width."),
+                    )
+                  }
+                />
+              </label>
+              <label className="field-label">
+                <span>Depth (m)</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  value={selectedSlab.depthM}
+                  onChange={(event) =>
+                    commitNumericInput(event.target.valueAsNumber, (value) =>
+                      handleUpdateSelectedSlab({ depthM: value }, "Updated slab depth."),
+                    )
+                  }
+                />
+              </label>
+            </>
+          ) : (
+            <div className="stat-row">
+              <span>Editable Corners</span>
+              <strong>{selectedSlab.polygon.length}</strong>
+            </div>
+          )}
           {selectedSlab.kind === "Rectangle" && selectedSlab.roofType !== "Flat" ? (
             <label className="field-label">
               <span>Roof Rise (m)</span>
@@ -5997,9 +7201,13 @@ export default function App() {
         <div className="toolbar-group">
           <span className="brand-mark">WaWoD Studio</span>
           <div className="tool-strip">
-            {availableEditorTools.map((tool) =>
-              otherEditorTools.includes(tool) ? (
-                tool === otherEditorTools[0] ? (
+            {availableEditorTools.map((tool) => {
+              if (tool === "ExternalShading") {
+                return null;
+              }
+
+              if (otherEditorTools.includes(tool)) {
+                return tool === otherEditorTools[0] ? (
                   <div key="other-tools" ref={otherToolsMenuRef} className="toolbar-split-menu">
                     <button
                       type="button"
@@ -6010,6 +7218,7 @@ export default function App() {
                       }
                       onClick={() => {
                         setIsOtherToolsMenuOpen((current) => !current);
+                        setOpeningToolsMenuOpen(null);
                         setIsPreviewMenuOpen(false);
                         setIsSettingsMenuOpen(false);
                       }}
@@ -6040,8 +7249,71 @@ export default function App() {
                       </div>
                     ) : null}
                   </div>
-                ) : null
-              ) : (
+                ) : null;
+              }
+
+              if (viewportMode === "3d" && (tool === "Door" || tool === "Window")) {
+                const isShadingAnchor =
+                  activeTool === "ExternalShading" && externalShadingToolbarAnchor === tool;
+                return (
+                  <div
+                    key={tool}
+                    ref={tool === "Door" ? doorToolsMenuRef : windowToolsMenuRef}
+                    className="toolbar-split-menu"
+                  >
+                    <button
+                      type="button"
+                      className={tool === activeTool ? "toolbar-button is-active" : "toolbar-button"}
+                      onClick={() => {
+                        setActiveTool(tool);
+                        setOpeningToolsMenuOpen(null);
+                      }}
+                    >
+                      {getEditorToolLabel(tool)}
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        isShadingAnchor
+                          ? "toolbar-button toolbar-split-toggle is-active"
+                          : "toolbar-button toolbar-split-toggle"
+                      }
+                      onClick={() => {
+                        setOpeningToolsMenuOpen((current) => (current === tool ? null : tool));
+                        setIsOtherToolsMenuOpen(false);
+                        setIsPreviewMenuOpen(false);
+                        setIsSettingsMenuOpen(false);
+                      }}
+                      aria-label={`${tool} related tools`}
+                      aria-haspopup="menu"
+                      aria-expanded={openingToolsMenuOpen === tool}
+                    >
+                      v
+                    </button>
+                    {openingToolsMenuOpen === tool ? (
+                      <div className="toolbar-menu-panel">
+                        <button
+                          type="button"
+                          className={
+                            activeTool === "ExternalShading"
+                              ? "toolbar-menu-item is-active"
+                              : "toolbar-menu-item"
+                          }
+                          onClick={() => {
+                            setExternalShadingToolbarAnchor(tool);
+                            setActiveTool("ExternalShading");
+                            setOpeningToolsMenuOpen(null);
+                          }}
+                        >
+                          External Shading
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              }
+
+              return (
                 <button
                   key={tool}
                   type="button"
@@ -6050,8 +7322,8 @@ export default function App() {
                 >
                   {getEditorToolLabel(tool)}
                 </button>
-              ),
-            )}
+              );
+            })}
           </div>
         </div>
 
@@ -6111,7 +7383,7 @@ export default function App() {
                   className="toolbar-menu-item"
                   onClick={handleOpenPreviewInNewTab}
                 >
-                  Open In New Tab
+                  Detached Preview
                 </button>
                 </div>
               ) : null}
@@ -6294,6 +7566,7 @@ export default function App() {
                   onCreateStair={handleCreateStair}
                   onCreateShapeAt={handleCreateShapeAt}
                   onCreateSlabAt={handleCreateSlabAt}
+                  onCreateSlabFromPolygon={handleCreateSlabFromPolygon}
                   onCreateGroundSurfaceAt={handleCreateGroundSurfaceAt}
                   onCreateRoomFromPolygon={handleCreateRoomFromPolygon}
                   onCreateRoofLine={handleCreateRoofLine}
@@ -6328,6 +7601,7 @@ export default function App() {
                   onMoveGroundSurface={handleMoveGroundSurface}
                   onMoveRoom={handleMoveRoom}
                   onResizeSlab={handleResizeSlab}
+                  onUpdateSlabPolygon={handleUpdateSlabPolygon}
                   onMoveRoofEdge={handleMoveRoofEdge}
                   onMoveRoofVertex={handleMoveRoofVertex}
                   onMoveRoofOpening={handleMoveRoofOpening}
@@ -6345,15 +7619,28 @@ export default function App() {
                 selectedDoorId={selectedDoor?.id ?? null}
                 onSelectDoor={handleSelectDoor3D}
                 onInsertDoor3D={handleApplyDoor3DInsert}
+                onApplyExternalShadingToDoor={handleApplyExternalShadingToDoor}
                 selectedWindowId={selectedWindow?.id ?? null}
                 onSelectWindow={handleSelectWindow3D}
                 onClearOpeningSelection={handleClear3DOpeningSelection}
                 onInsertWindow3D={handleApplyWindow3DInsert}
+                onApplyExternalShadingToWindow={handleApplyExternalShadingToWindow}
                 selectedRoofOpeningId={selectedRoofOpening?.id ?? null}
                 onSelectRoofOpening={handleSelectRoofWindow3D}
                 onInsertRoofWindow3D={handleApplyRoofWindow3DInsert}
+                selectedSolarPanelArrayId={selectedSolarPanelArray?.id ?? null}
+                onSelectSolarPanelArray={handleSelectSolarPanelArray}
+                onCreateSolarPanelArray={handleCreateSolarPanelArray}
+                onMoveSolarPanelArray={handleMoveSolarPanelArray}
+                solarPanelToolDesign={solarPanelToolDesign}
                 door3DToolDesign={createCurrentDoor3DDesign()}
                 window3DToolDesign={createCurrentWindow3DDesign()}
+                externalShadingToolDesign={
+                  externalShadingKind === "ExternalBlinds"
+                    ? { kind: "ExternalBlinds", design: externalBlindsToolDesign }
+                    : { kind: "RollerShutter", design: externalRollerShutterToolDesign }
+                }
+                externalShadingFitOpeningWidth={externalShadingFitOpeningWidth}
                 hiddenRoofLayerIds={hiddenRoofLayerIds3D}
               />
             )}
@@ -6392,7 +7679,8 @@ export default function App() {
               <p className="muted">
                 Node Tool: left-click places a node, or hold and drag to measure from the start point
                 and place the node on release. Right-click deletes a node, and duplicate nodes cannot
-                be placed on the same spot.
+                be placed on the same spot. If several entities overlap under a right-click, choose
+                the intended entity from the viewport menu instead.
               </p>
               <p className="muted">
                 Wall Tool: click one node to arm the start point, click a second
@@ -6420,8 +7708,12 @@ export default function App() {
               </p>
               <p className="muted">
                 Shape Tool: click and drag to draw the shape size. Slab Tool: drag to draw
-                a rectangle slab, or in circle mode click for center and drag radius. Model Tool:
-                left-click places a marker.
+                a rectangle slab, in circle mode click for center and drag radius, or in freeform
+                mode click straight-edged corners and close the outline at its first point. Connected
+                slab mode unions touching or overlapping flat outlines. Rooms Tool can draw rectangles,
+                close freeform outlines, or discover wall-bounded rooms automatically. Its optional
+                connected mode unions touching or overlapping rooms on the active level. Ground Tool
+                paints floor or grass rectangles, and Model Tool places a marker.
               </p>
               <p className="muted">
                 Shape, Slab and Model delete: right-click the entity while its matching tool
@@ -6853,7 +8145,7 @@ export default function App() {
 
             {showToolWindow ? (
               <FloatingWindow
-                title={viewportMode === "3d" ? `${activeTool} Tool` : `${activeTool} Tool`}
+                title={`${getEditorToolLabel(activeTool)} Tool`}
                 kicker="Tool"
                 position={floatingWindowPositions.tool}
                 width={320}
@@ -7424,7 +8716,24 @@ export default function App() {
                     >
                       Circle
                     </button>
+                    <button
+                      type="button"
+                      className={slabMode === "Freeform" ? "is-active" : undefined}
+                      onClick={() => setSlabMode("Freeform")}
+                    >
+                      Freeform
+                    </button>
                   </div>
+                  <button
+                    type="button"
+                    className={slabConnectEnabled ? "is-active" : undefined}
+                    onClick={() => setSlabConnectEnabled((enabled) => !enabled)}
+                  >
+                    Connect With Other Slabs
+                  </button>
+                  {slabMode === "Freeform" ? (
+                    <p className="muted">Click corners and click the first point to close.</p>
+                  ) : null}
                 </section>
               ) : null}
 
@@ -7650,6 +8959,30 @@ export default function App() {
                             <option value="HSPortal">HS Portal</option>
                           </select>
                         </label>
+                        {(selectedDoor.design3D?.kind ?? door3DKind) === "Garage" ? (
+                          <label className="field-label">
+                            <span>Garage Door Style</span>
+                            <select
+                              value={
+                                selectedDoor.design3D?.garageDoorStyle ?? door3DGarageDoorStyle
+                              }
+                              onChange={(event) =>
+                                handleUpdateSelectedDoor(
+                                  {
+                                    design3D: {
+                                      ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
+                                      garageDoorStyle: event.target.value as GarageDoorStyle,
+                                    },
+                                  },
+                                  "Updated garage door style.",
+                                )
+                              }
+                            >
+                              <option value="SinglePanel">Single Panel</option>
+                              <option value="Sectional">Sectional</option>
+                            </select>
+                          </label>
+                        ) : null}
                         <label className="field-label">
                           <span>State</span>
                           <select
@@ -7864,6 +9197,28 @@ export default function App() {
                             >
                               <option value="Left">Left Panel</option>
                               <option value="Right">Right Panel</option>
+                            </select>
+                          </label>
+                        ) : null}
+                        {(selectedDoor.design3D?.kind ?? door3DKind) === "Garage" ? (
+                          <label className="field-label">
+                            <span>Open Direction</span>
+                            <select
+                              value={selectedDoor.design3D?.swingDirection ?? door3DSwingDirection}
+                              onChange={(event) =>
+                                handleUpdateSelectedDoor(
+                                  {
+                                    design3D: {
+                                      ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
+                                      swingDirection: event.target.value as Door3DSwingDirection,
+                                    },
+                                  },
+                                  "Updated garage door opening direction.",
+                                )
+                              }
+                            >
+                              <option value="Inward">Inward</option>
+                              <option value="Outward">Outward</option>
                             </select>
                           </label>
                         ) : null}
@@ -8458,20 +9813,30 @@ export default function App() {
                       <span>Kind</span>
                       <select
                         value={selectedSlab.kind}
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          const nextKind = event.target.value as typeof selectedSlab.kind;
                           handleUpdateSelectedSlab(
-                            event.target.value === "Circle"
+                            nextKind === "Freeform"
                               ? {
-                                  kind: event.target.value as typeof selectedSlab.kind,
+                                  kind: nextKind,
                                   roofType: "Flat",
+                                  polygon: [
+                                    createVec2(-selectedSlab.widthM / 2, -selectedSlab.depthM / 2),
+                                    createVec2(selectedSlab.widthM / 2, -selectedSlab.depthM / 2),
+                                    createVec2(selectedSlab.widthM / 2, selectedSlab.depthM / 2),
+                                    createVec2(-selectedSlab.widthM / 2, selectedSlab.depthM / 2),
+                                  ],
                                 }
-                              : { kind: event.target.value as typeof selectedSlab.kind },
-                            `Changed slab kind to ${event.target.value}.`,
-                          )
-                        }
+                              : nextKind === "Circle"
+                                ? { kind: nextKind, roofType: "Flat" }
+                                : { kind: nextKind },
+                            `Changed slab kind to ${nextKind}.`,
+                          );
+                        }}
                       >
                         <option value="Rectangle">Rectangle</option>
                         <option value="Circle">Circle</option>
+                        <option value="Freeform">Freeform</option>
                       </select>
                     </label>
                     {selectedSlab.kind === "Rectangle" ? (
@@ -8537,34 +9902,43 @@ export default function App() {
                         }
                       />
                     </label>
-                    <label className="field-label">
-                      <span>Width (m)</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0.1"
-                        value={selectedSlab.widthM}
-                        onChange={(event) =>
-                          commitNumericInput(event.target.valueAsNumber, (value) =>
-                            handleUpdateSelectedSlab({ widthM: value }, "Updated slab width."),
-                          )
-                        }
-                      />
-                    </label>
-                    <label className="field-label">
-                      <span>Depth (m)</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0.1"
-                        value={selectedSlab.depthM}
-                        onChange={(event) =>
-                          commitNumericInput(event.target.valueAsNumber, (value) =>
-                            handleUpdateSelectedSlab({ depthM: value }, "Updated slab depth."),
-                          )
-                        }
-                      />
-                    </label>
+                    {selectedSlab.kind !== "Freeform" ? (
+                      <>
+                        <label className="field-label">
+                          <span>Width (m)</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0.1"
+                            value={selectedSlab.widthM}
+                            onChange={(event) =>
+                              commitNumericInput(event.target.valueAsNumber, (value) =>
+                                handleUpdateSelectedSlab({ widthM: value }, "Updated slab width."),
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="field-label">
+                          <span>Depth (m)</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0.1"
+                            value={selectedSlab.depthM}
+                            onChange={(event) =>
+                              commitNumericInput(event.target.valueAsNumber, (value) =>
+                                handleUpdateSelectedSlab({ depthM: value }, "Updated slab depth."),
+                              )
+                            }
+                          />
+                        </label>
+                      </>
+                    ) : (
+                      <div className="stat-row">
+                        <span>Editable Corners</span>
+                        <strong>{selectedSlab.polygon.length}</strong>
+                      </div>
+                    )}
                     <label className="field-label">
                       <span>Thickness (m)</span>
                       <input

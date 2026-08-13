@@ -1,6 +1,7 @@
 import {
   createVec2,
 } from "./project-model";
+import { ShapeUtils, Vector2 } from "three";
 import type {
   GroundSurface,
   Project,
@@ -21,6 +22,7 @@ import {
   getSegmentDirection2D,
 } from "./preview-3d-wall-geometry";
 import type { RenderWallRun } from "./preview-3d-wall-geometry";
+import { getSlabWorldPolygon } from "./slab-geometry";
 import type { RoofWallSegment } from "./roof-solver";
 import type {
   Preview3DRenderMode,
@@ -1065,6 +1067,47 @@ export function buildPreview3DScene(
 
     if (slab.kind === "Circle") {
       addCylinderPrimitive(center, Math.max(slab.widthM, slab.depthM) / 2, slab.thicknessM, color);
+      return;
+    }
+
+    if (slab.kind === "Freeform") {
+      const polygon = getSlabWorldPolygon(slab);
+      if (polygon.length < 3) {
+        return;
+      }
+
+      const contour = polygon.map((point) => new Vector2(point.x, point.y));
+      const triangles = ShapeUtils.triangulateShape(contour, []);
+      const bottomM = levelElevationM + slab.zOffsetM;
+      const topM = bottomM + slab.thicknessM;
+      const topVertices = polygon.map((point) => vec3(point.x, topM, -point.y));
+      const bottomVertices = polygon.map((point) => vec3(point.x, bottomM, -point.y));
+      const vertices = [...topVertices, ...bottomVertices];
+      const indices: number[] = [];
+
+      for (const triangle of triangles) {
+        const [first, second, third] = triangle;
+        indices.push(first, second, third);
+        indices.push(
+          polygon.length + first,
+          polygon.length + third,
+          polygon.length + second,
+        );
+      }
+
+      for (let index = 0; index < polygon.length; index += 1) {
+        const nextIndex = (index + 1) % polygon.length;
+        indices.push(
+          index,
+          nextIndex,
+          polygon.length + nextIndex,
+          index,
+          polygon.length + nextIndex,
+          polygon.length + index,
+        );
+      }
+
+      addMeshPrimitive(vertices, indices, color);
       return;
     }
 
