@@ -10,14 +10,19 @@ export type EditorTool =
   | "Measure"
   | "Door"
   | "Window"
+  | "ExternalShading"
   | "Stair"
   | "Shape"
   | "Slab"
   | "Roof"
   | "RoofOpening"
   | "RoofWindow"
-  | "Model";
+  | "SolarPanels"
+  | "Model"
+  | "Ground"
+  | "Rooms";
 export type ViewportMode = "2d" | "3d";
+export type EditorMode = "Building" | "Design" | "Terrain";
 export type WallAuthoringMode = "AutoWall" | "Topology";
 export type SelectableEntityKind =
   | "node"
@@ -29,10 +34,15 @@ export type SelectableEntityKind =
   | "shape"
   | "slab"
   | "roofEdge"
+  | "roofVertex"
   | "roofFace"
   | "roofOpening"
+  | "solarPanelArray"
+  | "groundSurface"
+  | "room"
   | "externalModel";
-export type SlabMode = "Rectangle" | "Circle";
+export type SlabMode = "Rectangle" | "Circle" | "Freeform";
+export type RoomToolMode = "Rectangle" | "Freeform" | "Auto";
 
 export interface EditorSelection {
   kind: SelectableEntityKind;
@@ -78,6 +88,7 @@ export interface Preview3DState {
 }
 
 export interface EditorUiState {
+  editorMode: EditorMode;
   viewportMode: ViewportMode;
   wallAuthoringMode: WallAuthoringMode;
   activeTool: EditorTool;
@@ -96,6 +107,7 @@ export interface EditorUiState {
   viewport: ViewportState;
   preview3D: Preview3DState;
   viewportPresets: ViewportPreset[];
+  setEditorMode: (mode: EditorMode) => void;
   setViewportMode: (mode: ViewportMode) => void;
   setWallAuthoringMode: (mode: WallAuthoringMode) => void;
   setActiveTool: (tool: EditorTool) => void;
@@ -132,6 +144,7 @@ export interface EditorUiState {
 
 const DEFAULT_EDITOR_TOOL: EditorTool = "Move";
 const DEFAULT_SLAB_MODE: SlabMode = "Rectangle";
+const DEFAULT_EDITOR_MODE: EditorMode = "Building";
 const DEFAULT_VIEWPORT_MODE: ViewportMode = "2d";
 const DEFAULT_WALL_AUTHORING_MODE: WallAuthoringMode = "AutoWall";
 
@@ -180,9 +193,17 @@ function isSelectionValid(selection: EditorSelection | null, project: Project) {
       return project.shapes.some((shape) => shape.id === selection.id);
     case "slab":
       return project.slabs.some((slab) => slab.id === selection.id);
+    case "groundSurface":
+      return project.groundSurfaces.some((groundSurface) => groundSurface.id === selection.id);
+    case "room":
+      return project.rooms.some((room) => room.id === selection.id);
     case "roofEdge":
       return project.roofSketches.some((sketch) =>
         sketch.edges.some((edge) => edge.id === selection.id),
+      );
+    case "roofVertex":
+      return project.roofSketches.some((sketch) =>
+        sketch.vertices.some((vertex) => vertex.id === selection.id),
       );
     case "roofFace":
       return project.roofSketches.some((sketch) =>
@@ -190,6 +211,8 @@ function isSelectionValid(selection: EditorSelection | null, project: Project) {
       );
     case "roofOpening":
       return project.roofOpenings.some((opening) => opening.id === selection.id);
+    case "solarPanelArray":
+      return project.solarPanelArrays.some((array) => array.id === selection.id);
     case "door":
       return project.doors.some((door) => door.id === selection.id);
     case "window":
@@ -228,13 +251,19 @@ function isSelectionCompatibleWithTool(selection: EditorSelection | null, tool: 
     case "Slab":
       return selection.kind === "slab";
     case "Roof":
-      return selection.kind === "roofEdge" || selection.kind === "roofFace";
+      return selection.kind === "roofEdge" || selection.kind === "roofVertex" || selection.kind === "roofFace";
     case "RoofOpening":
       return selection.kind === "roofFace" || selection.kind === "roofOpening";
     case "RoofWindow":
       return selection.kind === "roofOpening";
+    case "SolarPanels":
+      return selection.kind === "solarPanelArray";
     case "Model":
       return selection.kind === "externalModel";
+    case "Ground":
+      return selection.kind === "groundSurface";
+    case "Rooms":
+      return selection.kind === "room";
   }
 }
 
@@ -262,6 +291,7 @@ function getValidSelectionSet(selectionSet: EditorSelection[], project: Project)
 export const useEditorUiStore = create<EditorUiState>()(
   persist(
     (set, get) => ({
+      editorMode: DEFAULT_EDITOR_MODE,
       viewportMode: DEFAULT_VIEWPORT_MODE,
       wallAuthoringMode: DEFAULT_WALL_AUTHORING_MODE,
       activeTool: DEFAULT_EDITOR_TOOL,
@@ -280,6 +310,15 @@ export const useEditorUiStore = create<EditorUiState>()(
       viewport: defaultViewport(),
       preview3D: defaultPreview3D(),
       viewportPresets: defaultViewportPresets(),
+
+      setEditorMode: (mode) => {
+        set({
+          editorMode: mode,
+          currentSelection: null,
+          selectionSet: [],
+          pendingWallStartNodeId: null,
+        });
+      },
 
       setViewportMode: (mode) => {
         set({ viewportMode: mode });
@@ -513,6 +552,7 @@ export const useEditorUiStore = create<EditorUiState>()(
 
       resetEditorUi: () => {
         set({
+          editorMode: DEFAULT_EDITOR_MODE,
           viewportMode: DEFAULT_VIEWPORT_MODE,
           wallAuthoringMode: DEFAULT_WALL_AUTHORING_MODE,
           activeTool: DEFAULT_EDITOR_TOOL,
@@ -594,6 +634,7 @@ export const useEditorUiStore = create<EditorUiState>()(
       name: "wawod-studio-ui",
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
+        editorMode: state.editorMode,
         wallAuthoringMode: state.wallAuthoringMode,
         hiddenLevelIds2D: state.hiddenLevelIds2D,
         hiddenLevelIds3D: state.hiddenLevelIds3D,

@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { createVec2 } from "../domain/project-model";
+import { calculatePolygonAreaM2, createVec2 } from "../domain/project-model";
 import type {
   DoorOpening,
   ExternalModel,
+  GroundSurface,
   Measurement,
   MeasurementUnit,
   NodeData,
   Project,
+  Room,
   Shape,
   Slab,
   Stair,
@@ -14,6 +16,17 @@ import type {
   Wall,
   WindowOpening,
 } from "../domain/project-model";
+import {
+  getSlabWorldPolygon,
+  slabWorldToLocal,
+} from "../domain/slab-geometry";
+import { solveProjectRoofs } from "../domain/roof-solver";
+import { createRoofSurfaceFrame } from "../domain/roof-surface-geometry";
+import {
+  getSolarPanelModuleOffsets,
+  getSolarPanelModuleSize,
+  getSolarPanelRectPlanCorners,
+} from "../domain/solar-panel-geometry";
 import {
   getGridLines,
   getViewportBounds,
@@ -25,6 +38,7 @@ import {
 import type {
   EditorSelection,
   EditorTool,
+  RoomToolMode,
   SlabMode,
   ViewportState,
   WallAuthoringMode,
@@ -32,10 +46,13 @@ import type {
 
 interface ViewportSceneProps {
   project: Project;
+  readOnly?: boolean;
   activeTool: EditorTool;
   wallAuthoringMode: WallAuthoringMode;
   activeLevelId: string | null;
   slabMode: SlabMode;
+  groundToolKind: GroundSurface["kind"];
+  roomToolMode: RoomToolMode;
   pendingWallStartNodeId: string | null;
   currentSelection: EditorSelection | null;
   selectionSet: EditorSelection[];
@@ -58,6 +75,9 @@ interface ViewportSceneProps {
   onCreateStair: (pathNodes: Vec2[]) => void;
   onCreateShapeAt: (input: Vec2 & { sizeM?: number }) => void;
   onCreateSlabAt: (input: Vec2 & { widthM?: number; depthM?: number }) => void;
+  onCreateSlabFromPolygon: (polygon: Vec2[]) => void;
+  onCreateGroundSurfaceAt: (input: Vec2 & { widthM?: number; depthM?: number }) => void;
+  onCreateRoomFromPolygon: (polygon: Vec2[]) => void;
   onCreateRoofLine: (start: Vec2, end: Vec2) => void;
   onCreateRoofOpening: (input: { roofSketchId: string; roofFaceId: string; center: Vec2 }) => void;
   onCreateExternalModelAt: (position: Vec2) => void;
@@ -71,11 +91,14 @@ interface ViewportSceneProps {
   onDeleteDoor: (doorId: string) => void;
   onDeleteWindow: (windowId: string) => void;
   onDeleteRoofOpening: (roofOpeningId: string) => void;
+  onDeleteRoofEdge: (roofEdgeId: string) => void;
   onDeleteMeasurement: (measurementId: string) => void;
   onDeleteStair: (stairId: string) => void;
   onDeleteWallsConnectedToNode: (nodeId: string) => void;
   onDeleteShape: (shapeId: string) => void;
   onDeleteSlab: (slabId: string) => void;
+  onDeleteGroundSurface: (groundSurfaceId: string) => void;
+  onDeleteRoom: (roomId: string) => void;
   onDeleteExternalModel: (modelId: string) => void;
   onMoveInteractionStart: () => void;
   onMoveInteractionCommit: () => void;
@@ -85,7 +108,10 @@ interface ViewportSceneProps {
   onMoveWindow: (windowId: string, position: Vec2) => void;
   onMoveShape: (shapeId: string, position: Vec2) => void;
   onMoveSlab: (slabId: string, position: Vec2) => void;
+  onMoveGroundSurface: (groundSurfaceId: string, position: Vec2) => void;
+  onMoveRoom: (roomId: string, position: Vec2) => void;
   onResizeSlab: (slabId: string, patch: { position: Vec2; widthM: number; depthM: number }) => void;
+  onUpdateSlabPolygon: (slabId: string, polygon: Vec2[]) => void;
   onMoveRoofEdge: (roofEdgeId: string, position: Vec2) => void;
   onMoveRoofVertex: (roofSketchId: string, roofVertexId: string, position: Vec2) => void;
   onMoveRoofOpening: (roofOpeningId: string, position: Vec2) => void;
@@ -110,6 +136,8 @@ interface MoveDragState {
     | "window"
     | "shape"
     | "slab"
+    | "groundSurface"
+    | "room"
     | "roofEdge"
     | "roofOpening"
     | "externalModel";
@@ -123,6 +151,8 @@ interface MoveDragState {
       | "window"
       | "shape"
       | "slab"
+      | "groundSurface"
+      | "room"
       | "roofEdge"
       | "roofOpening"
       | "externalModel";
@@ -152,6 +182,13 @@ interface SlabResizeDragState {
   startDepthM: number;
 }
 
+interface SlabVertexDragState {
+  kind: "slabVertex";
+  pointerId: number;
+  slabId: string;
+  vertexIndex: number;
+}
+
 type MoveDragItem = MoveDragState["items"][number];
 
 type PlacementDraftState =
@@ -164,7 +201,7 @@ type PlacementDraftState =
       splitWallId: string | null;
     }
   | {
-      kind: "shape" | "slab";
+      kind: "shape" | "slab" | "groundSurface" | "room";
       pointerId: number;
       startWorld: Vec2;
       currentWorld: Vec2;
@@ -189,6 +226,7 @@ type PlacementDraftState =
       pointerId: number;
       startWorld: Vec2;
       currentWorld: Vec2;
+      startRoofVertexId?: string;
     };
 
 interface BoxSelectDragState {
@@ -203,6 +241,7 @@ type DragState =
   | MoveDragState
   | RoofVertexDragState
   | SlabResizeDragState
+  | SlabVertexDragState
   | BoxSelectDragState;
 
 interface VisibleEntityStyle {
@@ -210,6 +249,12 @@ interface VisibleEntityStyle {
   fill: string;
   opacity: number;
   interactive: boolean;
+}
+
+interface EntityPickerState {
+  x: number;
+  y: number;
+  candidates: Array<EditorSelection & { label: string }>;
 }
 
 function getLevelStyle(project: Project, levelId: string, activeLevelId: string | null): VisibleEntityStyle | null {
@@ -277,6 +322,8 @@ function isEntityInteractiveForTool(
     | "stair"
     | "shape"
     | "slab"
+    | "groundSurface"
+    | "room"
     | "roofEdge"
     | "roofFace"
     | "roofOpening"
@@ -301,6 +348,10 @@ function isEntityInteractiveForTool(
       return entityKind === "shape";
     case "Slab":
       return entityKind === "slab";
+    case "Ground":
+      return entityKind === "groundSurface";
+    case "Rooms":
+      return entityKind === "room";
     case "Roof":
       return entityKind === "roofEdge" || entityKind === "roofFace";
     case "RoofOpening":
@@ -378,6 +429,18 @@ function hasSamePosition(left: Vec2, right: Vec2) {
   return Math.abs(left.x - right.x) < 0.0001 && Math.abs(left.y - right.y) < 0.0001;
 }
 
+function getPolygonCenter(points: readonly Vec2[]) {
+  if (points.length === 0) {
+    return createVec2();
+  }
+
+  const total = points.reduce(
+    (sum, point) => createVec2(sum.x + point.x, sum.y + point.y),
+    createVec2(),
+  );
+  return createVec2(total.x / points.length, total.y / points.length);
+}
+
 function projectPointOntoSegment(point: Vec2, start: Vec2, end: Vec2) {
   const deltaX = end.x - start.x;
   const deltaY = end.y - start.y;
@@ -445,6 +508,12 @@ function getCurrentEntityPosition(
       return project.shapes.find((item) => item.id === entityId)?.pose.position ?? null;
     case "slab":
       return project.slabs.find((item) => item.id === entityId)?.pose.position ?? null;
+    case "groundSurface":
+      return project.groundSurfaces.find((item) => item.id === entityId)?.pose.position ?? null;
+    case "room": {
+      const room = project.rooms.find((item) => item.id === entityId);
+      return room ? getPolygonCenter(room.polygon) : null;
+    }
     case "roofEdge": {
       const sketch = project.roofSketches.find((candidate) =>
         candidate.edges.some((edge) => edge.id === entityId),
@@ -638,6 +707,10 @@ type RenderedSlabOutline =
       y: number;
       width: number;
       height: number;
+    }
+  | {
+      kind: "polygon";
+      points: Vec2[];
     };
 
 function renderSlabOutline(slab: Slab, metrics: Parameters<typeof worldToScreen>[1]) {
@@ -652,6 +725,13 @@ function renderSlabOutline(slab: Slab, metrics: Parameters<typeof worldToScreen>
     } satisfies RenderedSlabOutline;
   }
 
+  if (slab.kind === "Freeform") {
+    return {
+      kind: "polygon" as const,
+      points: getSlabWorldPolygon(slab),
+    } satisfies RenderedSlabOutline;
+  }
+
   return {
     kind: "rect" as const,
     x: center.x - (slab.widthM * scale) / 2,
@@ -663,10 +743,13 @@ function renderSlabOutline(slab: Slab, metrics: Parameters<typeof worldToScreen>
 
 export function ViewportScene({
   project,
+  readOnly = false,
   activeTool,
   wallAuthoringMode,
   activeLevelId,
   slabMode,
+  groundToolKind,
+  roomToolMode,
   pendingWallStartNodeId,
   currentSelection,
   selectionSet,
@@ -686,6 +769,9 @@ export function ViewportScene({
   onCreateStair,
   onCreateShapeAt,
   onCreateSlabAt,
+  onCreateSlabFromPolygon,
+  onCreateGroundSurfaceAt,
+  onCreateRoomFromPolygon,
   onCreateRoofLine,
   onCreateRoofOpening,
   onCreateExternalModelAt,
@@ -696,11 +782,14 @@ export function ViewportScene({
   onDeleteDoor,
   onDeleteWindow,
   onDeleteRoofOpening,
+  onDeleteRoofEdge,
   onDeleteMeasurement,
   onDeleteStair,
   onDeleteWallsConnectedToNode,
   onDeleteShape,
   onDeleteSlab,
+  onDeleteGroundSurface,
+  onDeleteRoom,
   onDeleteExternalModel,
   onMoveInteractionStart,
   onMoveInteractionCommit,
@@ -710,7 +799,10 @@ export function ViewportScene({
   onMoveWindow,
   onMoveShape,
   onMoveSlab,
+  onMoveGroundSurface,
+  onMoveRoom,
   onResizeSlab,
+  onUpdateSlabPolygon,
   onMoveRoofEdge,
   onMoveRoofVertex,
   onMoveRoofOpening,
@@ -724,6 +816,9 @@ export function ViewportScene({
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [placementDraft, setPlacementDraft] = useState<PlacementDraftState | null>(null);
   const [stairDraftPoints, setStairDraftPoints] = useState<Vec2[]>([]);
+  const [freeformSlabDraftPoints, setFreeformSlabDraftPoints] = useState<Vec2[]>([]);
+  const [freeformRoomDraftPoints, setFreeformRoomDraftPoints] = useState<Vec2[]>([]);
+  const [entityPicker, setEntityPicker] = useState<EntityPickerState | null>(null);
 
   useEffect(() => {
     if (activeTool !== "Stair") {
@@ -732,8 +827,127 @@ export function ViewportScene({
   }, [activeTool]);
 
   useEffect(() => {
+    if (activeTool !== "Slab" || slabMode !== "Freeform") {
+      setFreeformSlabDraftPoints([]);
+    }
+  }, [activeTool, slabMode]);
+
+  useEffect(() => {
+    if (activeTool !== "Rooms" || roomToolMode !== "Freeform") {
+      setFreeformRoomDraftPoints([]);
+    }
+  }, [activeTool, roomToolMode]);
+
+  useEffect(() => {
     setStairDraftPoints([]);
+    setFreeformSlabDraftPoints([]);
+    setFreeformRoomDraftPoints([]);
   }, [activeLevelId]);
+
+  useEffect(() => {
+    setEntityPicker(null);
+  }, [activeTool, activeLevelId]);
+
+  function getSelectionLabel(selection: EditorSelection) {
+    switch (selection.kind) {
+      case "node":
+        return `Node - ${selection.id}`;
+      case "wall":
+        return `Wall - ${selection.id}`;
+      case "door":
+        return `Door - ${selection.id}`;
+      case "window":
+        return `Window - ${selection.id}`;
+      case "measure":
+        return `Measurement - ${selection.id}`;
+      case "stair":
+        return `Stair - ${project.stairs.find((item) => item.id === selection.id)?.name ?? selection.id}`;
+      case "shape":
+        return `Shape - ${project.shapes.find((item) => item.id === selection.id)?.name ?? selection.id}`;
+      case "slab":
+        return `Slab - ${project.slabs.find((item) => item.id === selection.id)?.name ?? selection.id}`;
+      case "groundSurface":
+        return `Ground - ${project.groundSurfaces.find((item) => item.id === selection.id)?.name ?? selection.id}`;
+      case "room":
+        return `Room - ${project.rooms.find((item) => item.id === selection.id)?.name ?? selection.id}`;
+      case "roofEdge":
+        return `Roof edge - ${selection.id}`;
+      case "roofVertex":
+        return `Roof node - ${selection.id}`;
+      case "roofFace":
+        return `Roof face - ${selection.id}`;
+      case "roofOpening":
+        return `Roof opening - ${selection.id}`;
+      case "solarPanelArray":
+        return `Solar panel array - ${selection.id}`;
+      case "externalModel":
+        return `Model - ${project.externalModels.find((item) => item.id === selection.id)?.name ?? selection.id}`;
+    }
+  }
+
+  function getEntityCandidatesAtClient(clientX: number, clientY: number) {
+    const rootElement = rootRef.current;
+    if (!rootElement) {
+      return [];
+    }
+
+    const idAttributeByKind: Partial<Record<EditorSelection["kind"], string>> = {
+      node: "data-node-id",
+      wall: "data-wall-id",
+      door: "data-door-id",
+      window: "data-window-id",
+      measure: "data-measure-id",
+      stair: "data-stair-id",
+      shape: "data-shape-id",
+      slab: "data-slab-id",
+      groundSurface: "data-ground-surface-id",
+      room: "data-room-id",
+      roofEdge: "data-roof-edge-id",
+      roofFace: "data-roof-face-id",
+      roofOpening: "data-roof-opening-id",
+      externalModel: "data-model-id",
+    };
+    const candidates: Array<EditorSelection & { label: string }> = [];
+    const seen = new Set<string>();
+    const elements = Array.from(
+      rootElement.querySelectorAll<SVGGraphicsElement>("[data-viewport-entity]"),
+    ).reverse();
+
+    for (const element of elements) {
+      const kind = element.getAttribute("data-viewport-entity") as EditorSelection["kind"] | null;
+      const idAttribute = kind ? idAttributeByKind[kind] : undefined;
+      const id = idAttribute ? element.getAttribute(idAttribute) : null;
+      if (!kind || !id || seen.has(`${kind}:${id}`)) {
+        continue;
+      }
+
+      let hit = false;
+      if (element instanceof SVGGeometryElement) {
+        const transform = element.getScreenCTM();
+        if (transform) {
+          const localPoint = new DOMPoint(clientX, clientY).matrixTransform(transform.inverse());
+          hit = element.isPointInFill(localPoint) || element.isPointInStroke(localPoint);
+        }
+      } else {
+        const bounds = element.getBoundingClientRect();
+        hit =
+          clientX >= bounds.left &&
+          clientX <= bounds.right &&
+          clientY >= bounds.top &&
+          clientY <= bounds.bottom;
+      }
+
+      if (!hit) {
+        continue;
+      }
+
+      const selection = { kind, id } satisfies EditorSelection;
+      seen.add(`${kind}:${id}`);
+      candidates.push({ ...selection, label: getSelectionLabel(selection) });
+    }
+
+    return candidates;
+  }
 
   useEffect(() => {
     const element = rootRef.current;
@@ -768,6 +982,10 @@ export function ViewportScene({
     const rootElement = element;
 
     function handleNativePlacementToolPointerDown(event: PointerEvent) {
+      if (readOnly) {
+        return;
+      }
+
       if (
         (!activeLevelId &&
           activeTool !== "Roof" &&
@@ -781,6 +999,8 @@ export function ViewportScene({
           activeTool !== "Stair" &&
           activeTool !== "Shape" &&
           activeTool !== "Slab" &&
+          activeTool !== "Ground" &&
+          activeTool !== "Rooms" &&
           activeTool !== "Roof" &&
           activeTool !== "RoofOpening" &&
           activeTool !== "RoofWindow" &&
@@ -790,6 +1010,9 @@ export function ViewportScene({
       }
 
       const target = event.target;
+      if (target instanceof Element && target.closest(".viewport-entity-picker")) {
+        return;
+      }
       const nodeElement =
         target instanceof Element ? target.closest<SVGElement>("[data-node-id]") : null;
       const wallElement =
@@ -806,6 +1029,12 @@ export function ViewportScene({
         target instanceof Element ? target.closest<SVGElement>("[data-shape-id]") : null;
       const slabElement =
         target instanceof Element ? target.closest<SVGElement>("[data-slab-id]") : null;
+      const groundSurfaceElement =
+        target instanceof Element ? target.closest<SVGElement>("[data-ground-surface-id]") : null;
+      const roomElement =
+        target instanceof Element ? target.closest<SVGElement>("[data-room-id]") : null;
+      const roofVertexElement =
+        target instanceof Element ? target.closest<SVGElement>("[data-roof-vertex-id]") : null;
       const roofEdgeElement =
         target instanceof Element ? target.closest<SVGElement>("[data-roof-edge-id]") : null;
       const roofFaceElement =
@@ -816,6 +1045,48 @@ export function ViewportScene({
         target instanceof Element ? target.closest<SVGElement>("[data-model-id]") : null;
 
       if (event.button === 2) {
+        if (activeTool === "Node") {
+          const candidates = getEntityCandidatesAtClient(event.clientX, event.clientY);
+          if (candidates.length > 1) {
+            const bounds = rootElement.getBoundingClientRect();
+            event.preventDefault();
+            event.stopPropagation();
+            suppressClickRef.current = true;
+            setEntityPicker({
+              x: Math.min(Math.max(event.clientX - bounds.left, 8), Math.max(size.width - 260, 8)),
+              y: Math.min(Math.max(event.clientY - bounds.top, 8), Math.max(size.height - 220, 8)),
+              candidates,
+            });
+            return;
+          }
+        }
+
+        if (
+          activeTool === "Slab" &&
+          slabMode === "Freeform" &&
+          freeformSlabDraftPoints.length > 0 &&
+          !slabElement
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          suppressClickRef.current = true;
+          setFreeformSlabDraftPoints([]);
+          return;
+        }
+
+        if (
+          activeTool === "Rooms" &&
+          roomToolMode === "Freeform" &&
+          freeformRoomDraftPoints.length > 0 &&
+          !roomElement
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          suppressClickRef.current = true;
+          setFreeformRoomDraftPoints([]);
+          return;
+        }
+
         if (activeTool === "Node" && nodeElement) {
           const nodeId = nodeElement.getAttribute("data-node-id");
           if (!nodeId) {
@@ -855,6 +1126,32 @@ export function ViewportScene({
           return;
         }
 
+        if (activeTool === "Ground" && groundSurfaceElement) {
+          const groundSurfaceId = groundSurfaceElement.getAttribute("data-ground-surface-id");
+          if (!groundSurfaceId) {
+            return;
+          }
+
+          event.preventDefault();
+          event.stopPropagation();
+          suppressClickRef.current = true;
+          onDeleteGroundSurface(groundSurfaceId);
+          return;
+        }
+
+        if (activeTool === "Rooms" && roomElement) {
+          const roomId = roomElement.getAttribute("data-room-id");
+          if (!roomId) {
+            return;
+          }
+
+          event.preventDefault();
+          event.stopPropagation();
+          suppressClickRef.current = true;
+          onDeleteRoom(roomId);
+          return;
+        }
+
         if (activeTool === "Window" && windowElement) {
           const windowId = windowElement.getAttribute("data-window-id");
           if (!windowId) {
@@ -878,6 +1175,19 @@ export function ViewportScene({
           event.stopPropagation();
           suppressClickRef.current = true;
           onDeleteRoofOpening(roofOpeningId);
+          return;
+        }
+
+        if (activeTool === "Roof" && roofEdgeElement) {
+          const roofEdgeId = roofEdgeElement.getAttribute("data-roof-edge-id");
+          if (!roofEdgeId) {
+            return;
+          }
+
+          event.preventDefault();
+          event.stopPropagation();
+          suppressClickRef.current = true;
+          onDeleteRoofEdge(roofEdgeId);
           return;
         }
 
@@ -1138,6 +1448,28 @@ export function ViewportScene({
         return;
       }
 
+      if (activeTool === "Roof" && event.button === 0 && roofVertexElement) {
+        const roofSketchId = roofVertexElement.getAttribute("data-roof-sketch-id");
+        const roofVertexId = roofVertexElement.getAttribute("data-roof-vertex-id");
+        const sketch = project.roofSketches.find((candidate) => candidate.id === roofSketchId);
+        const vertex = sketch?.vertices.find((candidate) => candidate.id === roofVertexId);
+        if (!vertex) {
+          return;
+        }
+
+        event.preventDefault();
+        suppressClickRef.current = false;
+        rootElement.setPointerCapture(event.pointerId);
+        setPlacementDraft({
+          kind: "roofLine",
+          pointerId: event.pointerId,
+          startWorld: vertex.position,
+          currentWorld: vertex.position,
+          startRoofVertexId: vertex.id,
+        });
+        return;
+      }
+
       if (activeTool === "Roof" && event.button === 0 && !isViewportEntityTarget(target)) {
         event.preventDefault();
         suppressClickRef.current = true;
@@ -1156,6 +1488,64 @@ export function ViewportScene({
       }
 
       if (activeTool === "RoofOpening" && event.button === 0 && roofFaceElement) {
+        return;
+      }
+
+      if (activeTool === "Rooms" && roomToolMode === "Auto") {
+        return;
+      }
+
+      if (activeTool === "Slab" && slabMode === "Freeform" && event.button === 0) {
+        event.preventDefault();
+        event.stopPropagation();
+        suppressClickRef.current = true;
+
+        const firstPoint = freeformSlabDraftPoints[0];
+        const closeDistanceM = Math.max(
+          project.settings.snapToGrid ? project.settings.gridSpacingM * 0.5 : 0.05,
+          8 / Math.max(project.settings.pixelsPerMeter * viewport.zoom, 1),
+        );
+        if (
+          firstPoint &&
+          freeformSlabDraftPoints.length >= 3 &&
+          Math.hypot(nextPosition.x - firstPoint.x, nextPosition.y - firstPoint.y) <= closeDistanceM
+        ) {
+          onCreateSlabFromPolygon(freeformSlabDraftPoints);
+          setFreeformSlabDraftPoints([]);
+          return;
+        }
+
+        const previousPoint = freeformSlabDraftPoints[freeformSlabDraftPoints.length - 1];
+        if (!previousPoint || !hasSamePosition(previousPoint, nextPosition)) {
+          setFreeformSlabDraftPoints((points) => [...points, nextPosition]);
+        }
+        return;
+      }
+
+      if (activeTool === "Rooms" && roomToolMode === "Freeform" && event.button === 0) {
+        event.preventDefault();
+        event.stopPropagation();
+        suppressClickRef.current = true;
+
+        const firstPoint = freeformRoomDraftPoints[0];
+        const closeDistanceM = Math.max(
+          project.settings.snapToGrid ? project.settings.gridSpacingM * 0.5 : 0.05,
+          8 / Math.max(project.settings.pixelsPerMeter * viewport.zoom, 1),
+        );
+        if (
+          firstPoint &&
+          freeformRoomDraftPoints.length >= 3 &&
+          Math.hypot(nextPosition.x - firstPoint.x, nextPosition.y - firstPoint.y) <= closeDistanceM
+        ) {
+          onCreateRoomFromPolygon(freeformRoomDraftPoints);
+          setFreeformRoomDraftPoints([]);
+          return;
+        }
+
+        const previousPoint = freeformRoomDraftPoints[freeformRoomDraftPoints.length - 1];
+        if (!previousPoint || !hasSamePosition(previousPoint, nextPosition)) {
+          setFreeformRoomDraftPoints((points) => [...points, nextPosition]);
+        }
         return;
       }
 
@@ -1187,6 +1577,28 @@ export function ViewportScene({
         return;
       }
 
+      if (activeTool === "Ground") {
+        rootElement.setPointerCapture(event.pointerId);
+        setPlacementDraft({
+          kind: "groundSurface",
+          pointerId: event.pointerId,
+          startWorld: nextPosition,
+          currentWorld: nextPosition,
+        });
+        return;
+      }
+
+      if (activeTool === "Rooms" && roomToolMode === "Rectangle") {
+        rootElement.setPointerCapture(event.pointerId);
+        setPlacementDraft({
+          kind: "room",
+          pointerId: event.pointerId,
+          startWorld: nextPosition,
+          currentWorld: nextPosition,
+        });
+        return;
+      }
+
       if (activeTool === "Model") {
         onCreateExternalModelAt(nextPosition);
       }
@@ -1208,18 +1620,27 @@ export function ViewportScene({
     onCreateNodeAt,
     onCreateShapeAt,
     onCreateSlabAt,
+    onCreateSlabFromPolygon,
+    onCreateGroundSurfaceAt,
+    onCreateRoomFromPolygon,
     onCreateRoofLine,
     onCreateRoofOpening,
     onDeleteDoor,
     onDeleteWindow,
     onDeleteRoofOpening,
+    onDeleteRoofEdge,
     onDeleteMeasurement,
     onDeleteStair,
     onDeleteExternalModel,
     onDeleteNode,
     onDeleteShape,
     onDeleteSlab,
+    onDeleteGroundSurface,
+    onDeleteRoom,
     project,
+    readOnly,
+    roomToolMode,
+    slabMode,
     wallAuthoringMode,
     project.settings.gridSpacingM,
     project.settings.pixelsPerMeter,
@@ -1229,6 +1650,8 @@ export function ViewportScene({
     viewport.pan,
     viewport.zoom,
     stairDraftPoints,
+    freeformSlabDraftPoints,
+    freeformRoomDraftPoints,
   ]);
 
   useEffect(() => {
@@ -1299,7 +1722,9 @@ export function ViewportScene({
         ? getSquarePlacementBounds(placementDraft.startWorld, placementDraft.currentWorld)
         : placementDraft.kind === "slab" && slabMode === "Circle"
           ? null
-        : placementDraft.kind === "slab"
+        : placementDraft.kind === "slab" ||
+            placementDraft.kind === "groundSurface" ||
+            placementDraft.kind === "room"
             ? getPlacementBounds(placementDraft.startWorld, placementDraft.currentWorld)
             : null
       : null;
@@ -1434,6 +1859,8 @@ export function ViewportScene({
             ? [{ entityKind: "roofEdge" as const, entityId: selection.id, startPosition: position }]
             : [];
         }
+        case "roofVertex":
+          return [];
         case "roofOpening": {
           const position = getCurrentEntityPosition(project, "roofOpening", selection.id);
           return position
@@ -1447,6 +1874,8 @@ export function ViewportScene({
             : [];
         }
         case "roofFace":
+          return [];
+        case "solarPanelArray":
           return [];
         case "stair":
           return [];
@@ -1470,6 +1899,30 @@ export function ViewportScene({
                   entityKind: "slab" as const,
                   entityId: slab.id,
                   startPosition: slab.pose.position,
+                },
+              ]
+            : [];
+        }
+        case "groundSurface": {
+          const groundSurface = project.groundSurfaces.find((item) => item.id === selection.id);
+          return groundSurface
+            ? [
+                {
+                  entityKind: "groundSurface" as const,
+                  entityId: groundSurface.id,
+                  startPosition: groundSurface.pose.position,
+                },
+              ]
+            : [];
+        }
+        case "room": {
+          const room = project.rooms.find((item) => item.id === selection.id);
+          return room
+            ? [
+                {
+                  entityKind: "room" as const,
+                  entityId: room.id,
+                  startPosition: getPolygonCenter(room.polygon),
                 },
               ]
             : [];
@@ -1499,7 +1952,7 @@ export function ViewportScene({
     entityPosition: Vec2,
     interactive: boolean,
   ) {
-    if (activeTool !== "Move" || event.button !== 0 || !interactive) {
+    if (readOnly || activeTool !== "Move" || event.button !== 0 || !interactive) {
       return;
     }
 
@@ -1534,7 +1987,7 @@ export function ViewportScene({
     roofVertexId: string,
     vertexPosition: Vec2,
   ) {
-    if (activeTool !== "Move" || event.button !== 0) {
+    if (readOnly || activeTool !== "Move" || event.button !== 0) {
       return;
     }
 
@@ -1568,7 +2021,7 @@ export function ViewportScene({
     movingCornerSignY: -1 | 1,
     interactive: boolean,
   ) {
-    if (activeTool !== "Move" || event.button !== 0 || !interactive || slab.kind !== "Rectangle") {
+    if (readOnly || activeTool !== "Move" || event.button !== 0 || !interactive || slab.kind !== "Rectangle") {
       return;
     }
 
@@ -1599,7 +2052,36 @@ export function ViewportScene({
     });
   }
 
+  function startSlabVertexDrag(
+    event: React.PointerEvent<SVGElement>,
+    slab: Slab,
+    vertexIndex: number,
+    interactive: boolean,
+  ) {
+    if (readOnly || activeTool !== "Move" || event.button !== 0 || !interactive) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    rootRef.current?.setPointerCapture(event.pointerId);
+    if (!isIncludedInSelectionSet(selectionSet, "slab", slab.id)) {
+      onSelectionSetChange([{ kind: "slab", id: slab.id }], { kind: "slab", id: slab.id });
+    }
+    onMoveInteractionStart();
+    setDragState({
+      kind: "slabVertex",
+      pointerId: event.pointerId,
+      slabId: slab.id,
+      vertexIndex,
+    });
+  }
+
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (readOnly && event.button !== 1) {
+      return;
+    }
+
     if (activeTool === "Move" && event.button === 2) {
       const pointerWorld = updateCursor(event.clientX, event.clientY);
       if (!pointerWorld) {
@@ -1753,6 +2235,31 @@ export function ViewportScene({
       return;
     }
 
+    if (dragState.kind === "slabVertex") {
+      const slab = project.slabs.find((candidate) => candidate.id === dragState.slabId);
+      if (!slab || slab.kind !== "Freeform") {
+        return;
+      }
+
+      const target = project.settings.snapToGrid
+        ? snapPointToGrid(pointerWorld, project.settings.gridSpacingM)
+        : pointerWorld;
+      const localTarget = slabWorldToLocal(slab, target);
+      const currentVertex = slab.polygon[dragState.vertexIndex];
+      if (!currentVertex || hasSamePosition(currentVertex, localTarget)) {
+        return;
+      }
+
+      suppressClickRef.current = true;
+      onUpdateSlabPolygon(
+        slab.id,
+        slab.polygon.map((vertex, index) =>
+          index === dragState.vertexIndex ? localTarget : vertex,
+        ),
+      );
+      return;
+    }
+
     const rawDelta = createVec2(
       pointerWorld.x - dragState.startPointerWorld.x,
       pointerWorld.y - dragState.startPointerWorld.y,
@@ -1800,6 +2307,14 @@ export function ViewportScene({
           break;
         case "slab":
           onMoveSlab(item.entityId, nextPosition);
+          movedAny = true;
+          break;
+        case "groundSurface":
+          onMoveGroundSurface(item.entityId, nextPosition);
+          movedAny = true;
+          break;
+        case "room":
+          onMoveRoom(item.entityId, nextPosition);
           movedAny = true;
           break;
         case "roofEdge":
@@ -1909,6 +2424,25 @@ export function ViewportScene({
 
         if (distanceM >= 0.0001) {
           onCreateRoofLine(placementDraft.startWorld, placementDraft.currentWorld);
+        } else if (placementDraft.startRoofVertexId) {
+          const selection = { kind: "roofVertex" as const, id: placementDraft.startRoofVertexId };
+          const isAlreadySelected = isIncludedInSelectionSet(
+            selectionSet,
+            "roofVertex",
+            placementDraft.startRoofVertexId,
+          );
+          const nextSelectionSet = isAlreadySelected
+            ? selectionSet.filter(
+                (item) => !(item.kind === "roofVertex" && item.id === placementDraft.startRoofVertexId),
+              )
+            : [
+                ...selectionSet.filter(
+                  (item) => item.kind === "roofEdge" || item.kind === "roofVertex",
+                ),
+                selection,
+              ];
+          suppressClickRef.current = true;
+          onSelectionSetChange(nextSelectionSet, selection);
         }
 
         setPlacementDraft(null);
@@ -1929,6 +2463,34 @@ export function ViewportScene({
           y: bounds.centerWorld.y,
           sizeM: Math.max(bounds.widthM, bounds.depthM, minimumSizeM),
         });
+      } else if (placementDraft.kind === "groundSurface") {
+        const bounds = getPlacementBounds(
+          placementDraft.startWorld,
+          placementDraft.currentWorld,
+        );
+        onCreateGroundSurfaceAt({
+          x: bounds.centerWorld.x,
+          y: bounds.centerWorld.y,
+          widthM: Math.max(bounds.widthM, minimumSizeM),
+          depthM: Math.max(bounds.depthM, minimumSizeM),
+        });
+      } else if (placementDraft.kind === "room") {
+        const bounds = getPlacementBounds(
+          placementDraft.startWorld,
+          placementDraft.currentWorld,
+        );
+        const widthM = Math.max(bounds.widthM, minimumSizeM);
+        const depthM = Math.max(bounds.depthM, minimumSizeM);
+        const minX = bounds.centerWorld.x - widthM / 2;
+        const maxX = bounds.centerWorld.x + widthM / 2;
+        const minY = bounds.centerWorld.y - depthM / 2;
+        const maxY = bounds.centerWorld.y + depthM / 2;
+        onCreateRoomFromPolygon([
+          createVec2(minX, minY),
+          createVec2(maxX, minY),
+          createVec2(maxX, maxY),
+          createVec2(minX, maxY),
+        ]);
       } else if (activeTool !== "Roof" && slabMode === "Circle") {
         const circle = getCirclePlacement(
           placementDraft.startWorld,
@@ -1990,6 +2552,21 @@ export function ViewportScene({
           }
         }
 
+        for (const groundSurface of project.groundSurfaces) {
+          if (isPointInsideBounds(groundSurface.pose.position, selectionBounds)) {
+            nextSelectionSet.push({ kind: "groundSurface", id: groundSurface.id });
+          }
+        }
+
+        for (const room of project.rooms) {
+          if (
+            room.levelId === activeLevelId &&
+            isPointInsideBounds(getPolygonCenter(room.polygon), selectionBounds)
+          ) {
+            nextSelectionSet.push({ kind: "room", id: room.id });
+          }
+        }
+
         for (const model of project.externalModels) {
           if (
             model.levelId === activeLevelId &&
@@ -2007,7 +2584,8 @@ export function ViewportScene({
       if (
         dragState.kind === "move" ||
         dragState.kind === "roofVertex" ||
-        dragState.kind === "slabResize"
+        dragState.kind === "slabResize" ||
+        dragState.kind === "slabVertex"
       ) {
         onMoveInteractionCommit();
       }
@@ -2050,7 +2628,7 @@ export function ViewportScene({
     const selected =
       isSelected(currentSelection, "wall", wall.id) ||
       isIncludedInSelectionSet(selectionSet, "wall", wall.id);
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "wall");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "wall");
 
     return (
       <line
@@ -2112,7 +2690,7 @@ export function ViewportScene({
     const selected =
       isSelected(currentSelection, "door", door.id) ||
       isIncludedInSelectionSet(selectionSet, "door", door.id);
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "door");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "door");
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const lengthPx = Math.hypot(dx, dy);
@@ -2211,7 +2789,7 @@ export function ViewportScene({
     const selected =
       isSelected(currentSelection, "window", windowOpening.id) ||
       isIncludedInSelectionSet(selectionSet, "window", windowOpening.id);
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "window");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "window");
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const lengthPx = Math.hypot(dx, dy);
@@ -2297,7 +2875,7 @@ export function ViewportScene({
     const selected =
       isSelected(currentSelection, "measure", measurement.id) ||
       isIncludedInSelectionSet(selectionSet, "measure", measurement.id);
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "measure");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "measure");
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const lengthPx = Math.hypot(dx, dy);
@@ -2386,7 +2964,7 @@ export function ViewportScene({
     const selected =
       isSelected(currentSelection, "stair", stair.id) ||
       isIncludedInSelectionSet(selectionSet, "stair", stair.id);
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "stair");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "stair");
     const pathData = createSvgPathFromPoints(stair.pathNodes, metrics);
     const stairWidthPx = Math.max(10, stair.widthM * projectScale(metrics));
     const segments = buildStairPlanSegments(stair);
@@ -2550,7 +3128,7 @@ export function ViewportScene({
       isSelected(currentSelection, "node", node.id) ||
       isIncludedInSelectionSet(selectionSet, "node", node.id) ||
       pendingWallStartNodeId === node.id;
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "node");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "node");
 
     return (
       <circle
@@ -2634,7 +3212,7 @@ export function ViewportScene({
     const selected =
       isSelected(currentSelection, "shape", shape.id) ||
       isIncludedInSelectionSet(selectionSet, "shape", shape.id);
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "shape");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "shape");
 
     if (shape.kind === "Cylinder") {
       const center = worldToScreen(shape.pose.position, metrics);
@@ -2719,6 +3297,140 @@ export function ViewportScene({
     );
   }
 
+  function renderGroundSurface(groundSurface: GroundSurface) {
+    const selected =
+      isSelected(currentSelection, "groundSurface", groundSurface.id) ||
+      isIncludedInSelectionSet(selectionSet, "groundSurface", groundSurface.id);
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "groundSurface");
+    const center = worldToScreen(groundSurface.pose.position, metrics);
+    const widthPx = groundSurface.widthM * projectScale(metrics);
+    const heightPx = groundSurface.depthM * projectScale(metrics);
+    const fill =
+      groundSurface.kind === "Grass"
+        ? "rgba(74, 163, 90, 0.26)"
+        : "rgba(156, 163, 175, 0.24)";
+    const stroke = groundSurface.kind === "Grass" ? "#4aa35a" : "#9ca3af";
+
+    return (
+      <rect
+        key={groundSurface.id}
+        data-viewport-entity="groundSurface"
+        data-ground-surface-id={groundSurface.id}
+        x={center.x - widthPx / 2}
+        y={center.y - heightPx / 2}
+        width={widthPx}
+        height={heightPx}
+        fill={selected ? "rgba(255, 209, 102, 0.18)" : fill}
+        stroke={selected ? "#ffd166" : stroke}
+        strokeWidth={selected ? 3 : 2}
+        strokeDasharray={groundSurface.kind === "Grass" ? "none" : "8 5"}
+        pointerEvents={isToolInteractive ? "auto" : "none"}
+        onPointerDown={(event) =>
+          startMoveDrag(event, "groundSurface", groundSurface.id, groundSurface.pose.position, true)
+        }
+        onClick={(event) => {
+          if (consumeSuppressedClick()) {
+            event.stopPropagation();
+            return;
+          }
+
+          event.stopPropagation();
+          onSelectionChange({ kind: "groundSurface", id: groundSurface.id });
+        }}
+        onContextMenu={(event) => {
+          if (activeTool === "Ground") {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}
+      />
+    );
+  }
+
+  function renderRoom(room: Room) {
+    if (room.levelId !== activeLevelId || room.polygon.length < 3) {
+      return null;
+    }
+
+    const selected =
+      isSelected(currentSelection, "room", room.id) ||
+      isIncludedInSelectionSet(selectionSet, "room", room.id);
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "room");
+    const center = worldToScreen(getPolygonCenter(room.polygon), metrics);
+    const areaLabel = `${calculatePolygonAreaM2(room.polygon).toFixed(2)} m2`;
+    const label = room.name.trim().length > 0 ? room.name : "Room";
+    const labelWidth = Math.max(label.length, areaLabel.length) * 6.8 + 20;
+
+    return (
+      <g
+        key={room.id}
+        data-viewport-entity="room"
+        data-room-id={room.id}
+        pointerEvents={isToolInteractive ? "auto" : "none"}
+        onPointerDown={(event) =>
+          startMoveDrag(event, "room", room.id, getPolygonCenter(room.polygon), true)
+        }
+        onClick={(event) => {
+          if (consumeSuppressedClick()) {
+            event.stopPropagation();
+            return;
+          }
+
+          event.stopPropagation();
+          onSelectionChange({ kind: "room", id: room.id });
+        }}
+        onContextMenu={(event) => {
+          if (activeTool === "Rooms") {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}
+      >
+        <path
+          d={`${createSvgPathFromPoints(room.polygon, metrics)} Z`}
+          fill={selected ? "rgba(255, 209, 102, 0.20)" : "rgba(255, 209, 102, 0.10)"}
+          stroke={selected ? "#ffd166" : "rgba(255, 209, 102, 0.72)"}
+          strokeWidth={selected ? 3 : 2}
+          strokeDasharray={selected ? "none" : "8 5"}
+          strokeLinejoin="round"
+        />
+        <g pointerEvents="none" transform={`translate(${center.x - labelWidth / 2} ${center.y - 18})`}>
+          <rect
+            x={0}
+            y={0}
+            width={labelWidth}
+            height={36}
+            rx={12}
+            fill="rgba(8, 12, 22, 0.74)"
+            stroke={selected ? "rgba(255, 209, 102, 0.72)" : "rgba(255, 209, 102, 0.34)"}
+            strokeWidth={1}
+          />
+          <text
+            x={labelWidth / 2}
+            y={14}
+            fill="#fff3c4"
+            fontSize={12}
+            fontWeight={700}
+            fontFamily="Aptos, Segoe UI Variable, sans-serif"
+            textAnchor="middle"
+          >
+            {label}
+          </text>
+          <text
+            x={labelWidth / 2}
+            y={28}
+            fill="#f8f6f2"
+            fontSize={11}
+            fontFamily="Aptos, Segoe UI Variable, sans-serif"
+            textAnchor="middle"
+          >
+            {areaLabel}
+          </text>
+        </g>
+      </g>
+    );
+  }
+
   function renderSlab(slab: Slab) {
     const levelStyle = getLevelStyle(project, slab.levelId, activeLevelId);
     if (!levelStyle) {
@@ -2734,10 +3446,75 @@ export function ViewportScene({
     const isToolInteractive =
       activeTool === "Slab" || activeTool === "Roof"
         ? matchesSlabTool || matchesRoofTool
-        : isEntityInteractiveForTool(activeTool, "slab");
+        : !readOnly && isEntityInteractiveForTool(activeTool, "slab");
     const baseFill =
       slab.roofType === "Flat" ? "rgba(96, 181, 127, 0.12)" : "rgba(201, 129, 77, 0.14)";
     const baseStroke = slab.roofType === "Flat" ? "#60b57f" : "#c9814d";
+
+    if (outline.kind === "polygon") {
+      const vertexHandles =
+        selected && activeTool === "Move" && levelStyle.interactive
+          ? outline.points
+          : [];
+
+      return (
+        <g key={slab.id}>
+          <path
+            data-viewport-entity="slab"
+            data-slab-id={slab.id}
+            d={`${createSvgPathFromPoints(outline.points, metrics)} Z`}
+            fill={selected ? "rgba(255, 209, 102, 0.18)" : baseFill}
+            stroke={selected ? "#ffd166" : baseStroke}
+            strokeWidth={selected ? 3 : 2}
+            opacity={levelStyle.opacity}
+            pointerEvents={levelStyle.interactive && isToolInteractive ? "auto" : "none"}
+            onPointerDown={(event) =>
+              startMoveDrag(event, "slab", slab.id, slab.pose.position, levelStyle.interactive)
+            }
+            onClick={(event) => {
+              if (consumeSuppressedClick()) {
+                event.stopPropagation();
+                return;
+              }
+
+              event.stopPropagation();
+              if (!matchesSlabTool && !matchesRoofTool) {
+                onSelectionChange({ kind: "slab", id: slab.id });
+              }
+            }}
+            onContextMenu={(event) => {
+              if ((matchesSlabTool || matchesRoofTool) && levelStyle.interactive) {
+                event.preventDefault();
+                event.stopPropagation();
+              }
+            }}
+          />
+          {vertexHandles.map((position, vertexIndex) => {
+            const screenPosition = worldToScreen(position, metrics);
+            return (
+              <circle
+                key={`${slab.id}-vertex-${vertexIndex}`}
+                cx={screenPosition.x}
+                cy={screenPosition.y}
+                r={6}
+                fill="#111827"
+                stroke="#ffd166"
+                strokeWidth={2}
+                pointerEvents={readOnly ? "none" : "auto"}
+                style={{ cursor: "move" }}
+                onPointerDown={(event) =>
+                  startSlabVertexDrag(event, slab, vertexIndex, levelStyle.interactive)
+                }
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+              />
+            );
+          })}
+        </g>
+      );
+    }
 
     if (outline.kind === "circle") {
       return (
@@ -2848,7 +3625,7 @@ export function ViewportScene({
               stroke="#ffd166"
               strokeWidth={2}
               opacity={levelStyle.opacity}
-              pointerEvents="auto"
+              pointerEvents={readOnly ? "none" : "auto"}
               style={{ cursor: handle.cursor }}
               onPointerDown={(event) =>
                 startSlabResizeDrag(
@@ -2891,7 +3668,9 @@ export function ViewportScene({
             data-viewport-entity="roofFace"
             data-roof-face-id={face.id}
             pointerEvents={
-              activeTool === "Roof" || activeTool === "RoofOpening" ? "auto" : "none"
+              !readOnly && (activeTool === "Roof" || activeTool === "RoofOpening")
+                ? "auto"
+                : "none"
             }
             d={`${createSvgPathFromPoints(points, metrics)} Z`}
             fill={selected ? "rgba(255, 209, 102, 0.20)" : "rgba(201, 129, 77, 0.16)"}
@@ -2940,7 +3719,18 @@ export function ViewportScene({
         const selected =
           isSelected(currentSelection, "roofEdge", edge.id) ||
           isIncludedInSelectionSet(selectionSet, "roofEdge", edge.id);
-        const label = `${(((start.elevationM ?? sketch.baseElevationM) + (end.elevationM ?? sketch.baseElevationM)) / 2).toFixed(2)} m`;
+        const startVertexSelected =
+          isSelected(currentSelection, "roofVertex", edge.startVertexId) ||
+          isIncludedInSelectionSet(selectionSet, "roofVertex", edge.startVertexId);
+        const endVertexSelected =
+          isSelected(currentSelection, "roofVertex", edge.endVertexId) ||
+          isIncludedInSelectionSet(selectionSet, "roofVertex", edge.endVertexId);
+        const startElevationM = start.elevationM ?? sketch.baseElevationM;
+        const endElevationM = end.elevationM ?? sketch.baseElevationM;
+        const label =
+          Math.abs(startElevationM - endElevationM) < 0.001
+            ? `${startElevationM.toFixed(2)} m`
+            : `${startElevationM.toFixed(2)} -> ${endElevationM.toFixed(2)} m`;
         const midpoint = {
           x: (startScreen.x + endScreen.x) / 2,
           y: (startScreen.y + endScreen.y) / 2,
@@ -2956,7 +3746,7 @@ export function ViewportScene({
             key={edge.id}
             data-viewport-entity="roofEdge"
             data-roof-edge-id={edge.id}
-            pointerEvents={activeTool === "Roof" || activeTool === "Move" ? "auto" : "none"}
+            pointerEvents={!readOnly && (activeTool === "Roof" || activeTool === "Move") ? "auto" : "none"}
             onPointerDown={(event) =>
               startMoveDrag(event, "roofEdge", edge.id, worldMidpoint, true)
             }
@@ -2970,10 +3760,15 @@ export function ViewportScene({
               const selection = { kind: "roofEdge" as const, id: edge.id };
               const isAlreadySelected = isIncludedInSelectionSet(selectionSet, "roofEdge", edge.id);
               const nextSelectionSet = isAlreadySelected
-                ? selectionSet.filter(
-                    (item) => !(item.kind === "roofEdge" && item.id === edge.id),
-                  )
-                : [...selectionSet.filter((item) => item.kind === "roofEdge"), selection];
+                ? selectionSet.filter((item) => !(item.kind === "roofEdge" && item.id === edge.id))
+                : [
+                    ...selectionSet.filter(
+                      (item) =>
+                        (item.kind === "roofEdge" || item.kind === "roofVertex") &&
+                        !(item.kind === "roofEdge" && item.id === edge.id),
+                    ),
+                    selection,
+                  ];
               onSelectionSetChange(nextSelectionSet, selection);
             }}
           >
@@ -2996,48 +3791,60 @@ export function ViewportScene({
               strokeLinecap="round"
             />
             <circle
+              data-roof-sketch-id={sketch.id}
+              data-roof-vertex-id={edge.startVertexId}
               cx={startScreen.x}
               cy={startScreen.y}
               r={11}
               fill="transparent"
-              pointerEvents={activeTool === "Move" ? "auto" : "none"}
+              pointerEvents={!readOnly && (activeTool === "Move" || activeTool === "Roof") ? "auto" : "none"}
               onPointerDown={(event) =>
                 startRoofVertexDrag(event, sketch.id, edge.id, edge.startVertexId, start.position)
               }
+              onClick={(event) => event.stopPropagation()}
             />
             <circle
+              data-roof-sketch-id={sketch.id}
+              data-roof-vertex-id={edge.startVertexId}
               cx={startScreen.x}
               cy={startScreen.y}
-              r={selected ? 5 : 4}
-              fill={selected ? "#ffe0a1" : "#f1b879"}
-              stroke="#7f4a26"
-              strokeWidth={1.5}
-              pointerEvents={activeTool === "Move" ? "auto" : "none"}
+              r={selected || startVertexSelected ? 5.5 : 4}
+              fill={startVertexSelected ? "#ffd166" : selected ? "#ffe0a1" : "#f1b879"}
+              stroke={startVertexSelected ? "#fff2bd" : "#7f4a26"}
+              strokeWidth={startVertexSelected ? 2.5 : 1.5}
+              pointerEvents={!readOnly && (activeTool === "Move" || activeTool === "Roof") ? "auto" : "none"}
               onPointerDown={(event) =>
                 startRoofVertexDrag(event, sketch.id, edge.id, edge.startVertexId, start.position)
               }
+              onClick={(event) => event.stopPropagation()}
             />
             <circle
+              data-roof-sketch-id={sketch.id}
+              data-roof-vertex-id={edge.endVertexId}
               cx={endScreen.x}
               cy={endScreen.y}
               r={11}
               fill="transparent"
-              pointerEvents={activeTool === "Move" ? "auto" : "none"}
+              pointerEvents={!readOnly && (activeTool === "Move" || activeTool === "Roof") ? "auto" : "none"}
               onPointerDown={(event) =>
                 startRoofVertexDrag(event, sketch.id, edge.id, edge.endVertexId, end.position)
               }
+              onClick={(event) => event.stopPropagation()}
             />
             <circle
+              data-roof-sketch-id={sketch.id}
+              data-roof-vertex-id={edge.endVertexId}
               cx={endScreen.x}
               cy={endScreen.y}
-              r={selected ? 5 : 4}
-              fill={selected ? "#ffe0a1" : "#f1b879"}
-              stroke="#7f4a26"
-              strokeWidth={1.5}
-              pointerEvents={activeTool === "Move" ? "auto" : "none"}
+              r={selected || endVertexSelected ? 5.5 : 4}
+              fill={endVertexSelected ? "#ffd166" : selected ? "#ffe0a1" : "#f1b879"}
+              stroke={endVertexSelected ? "#fff2bd" : "#7f4a26"}
+              strokeWidth={endVertexSelected ? 2.5 : 1.5}
+              pointerEvents={!readOnly && (activeTool === "Move" || activeTool === "Roof") ? "auto" : "none"}
               onPointerDown={(event) =>
                 startRoofVertexDrag(event, sketch.id, edge.id, edge.endVertexId, end.position)
               }
+              onClick={(event) => event.stopPropagation()}
             />
             <g transform={`translate(${midpoint.x + 8} ${midpoint.y - 8})`}>
               <rect
@@ -3076,7 +3883,7 @@ export function ViewportScene({
       const selected =
         isSelected(currentSelection, "roofOpening", opening.id) ||
         isIncludedInSelectionSet(selectionSet, "roofOpening", opening.id);
-      const isToolInteractive = isEntityInteractiveForTool(activeTool, "roofOpening");
+      const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "roofOpening");
       return (
         <g
           key={opening.id}
@@ -3129,6 +3936,52 @@ export function ViewportScene({
     });
   }
 
+  function renderSolarPanels2D() {
+    if (!project.settings.showSolarPanels2D) {
+      return null;
+    }
+
+    const solvedRoofs = solveProjectRoofs(project);
+    return project.solarPanelArrays.flatMap((array) => {
+      const roof = solvedRoofs.find(
+        (candidate) =>
+          candidate.sourceKind === "Sketch" && candidate.sketchId === array.roofSketchId,
+      );
+      const face = roof?.faces.find((candidate) => candidate.id === array.roofFaceId);
+      if (!face) {
+        return [];
+      }
+
+      const frame = createRoofSurfaceFrame(face);
+      const moduleSize = getSolarPanelModuleSize(array);
+      const selected =
+        currentSelection?.kind === "solarPanelArray" && currentSelection.id === array.id;
+
+      return [
+        <g key={`solar-array-2d-${array.id}`} pointerEvents="none" opacity={0.78}>
+          {getSolarPanelModuleOffsets(array).map((offset, index) => {
+            const corners = getSolarPanelRectPlanCorners(
+              frame,
+              array.center,
+              moduleSize.widthM,
+              moduleSize.heightM,
+              offset,
+            ).map((point) => worldToScreen(point, metrics));
+            return (
+              <polygon
+                key={`${array.id}-module-${index}`}
+                points={corners.map((point) => `${point.x},${point.y}`).join(" ")}
+                fill="rgba(27, 67, 104, 0.35)"
+                stroke={selected ? "#ffd166" : "#6b8ca8"}
+                strokeWidth={selected ? 2 : 1}
+              />
+            );
+          })}
+        </g>,
+      ];
+    });
+  }
+
   function renderExternalModel(model: ExternalModel) {
     const levelStyle = getLevelStyle(project, model.levelId, activeLevelId);
     if (!levelStyle) {
@@ -3139,7 +3992,7 @@ export function ViewportScene({
     const selected =
       isSelected(currentSelection, "externalModel", model.id) ||
       isIncludedInSelectionSet(selectionSet, "externalModel", model.id);
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "externalModel");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "externalModel");
 
     return (
       <g
@@ -3495,6 +4348,19 @@ export function ViewportScene({
           );
         }
 
+        if (outline.kind === "polygon") {
+          return (
+            <path
+              pointerEvents="none"
+              d={`${createSvgPathFromPoints(outline.points, metrics)} Z`}
+              fill="none"
+              stroke="#ffd166"
+              strokeWidth={3}
+              strokeDasharray="10 6"
+            />
+          );
+        }
+
         return (
           <rect
             pointerEvents="none"
@@ -3506,6 +4372,49 @@ export function ViewportScene({
             stroke="#ffd166"
             strokeWidth={3}
             strokeDasharray="10 6"
+          />
+        );
+      }
+      case "groundSurface": {
+        const groundSurface = project.groundSurfaces.find(
+          (item) => item.id === currentSelection.id,
+        );
+        if (!groundSurface) {
+          return null;
+        }
+
+        const center = worldToScreen(groundSurface.pose.position, metrics);
+        const widthPx = groundSurface.widthM * projectScale(metrics);
+        const heightPx = groundSurface.depthM * projectScale(metrics);
+        return (
+          <rect
+            pointerEvents="none"
+            x={center.x - widthPx / 2 - 8}
+            y={center.y - heightPx / 2 - 8}
+            width={widthPx + 16}
+            height={heightPx + 16}
+            fill="none"
+            stroke="#ffd166"
+            strokeWidth={3}
+            strokeDasharray="10 6"
+          />
+        );
+      }
+      case "room": {
+        const room = project.rooms.find((item) => item.id === currentSelection.id);
+        if (!room || room.polygon.length < 3) {
+          return null;
+        }
+
+        return (
+          <path
+            pointerEvents="none"
+            d={`${createSvgPathFromPoints(room.polygon, metrics)} Z`}
+            fill="none"
+            stroke="#ffd166"
+            strokeWidth={4}
+            strokeDasharray="10 6"
+            strokeLinejoin="round"
           />
         );
       }
@@ -3537,6 +4446,38 @@ export function ViewportScene({
             strokeWidth={14}
             strokeLinecap="round"
           />
+        );
+      }
+      case "roofVertex": {
+        const sketch = project.roofSketches.find((candidate) =>
+          candidate.vertices.some((vertex) => vertex.id === currentSelection.id),
+        );
+        const vertex = sketch?.vertices.find((candidate) => candidate.id === currentSelection.id);
+        if (!vertex) {
+          return null;
+        }
+
+        const point = worldToScreen(vertex.position, metrics);
+        return (
+          <g pointerEvents="none">
+            <circle
+              cx={point.x}
+              cy={point.y}
+              r={14}
+              fill="rgba(255, 209, 102, 0.16)"
+              stroke="#ffd166"
+              strokeWidth={3}
+            />
+            <circle
+              cx={point.x}
+              cy={point.y}
+              r={20}
+              fill="none"
+              stroke="rgba(255, 209, 102, 0.45)"
+              strokeWidth={2}
+              strokeDasharray="7 5"
+            />
+          </g>
         );
       }
       case "roofFace": {
@@ -3604,7 +4545,7 @@ export function ViewportScene({
   return (
     <div
       ref={rootRef}
-      className="viewport-scene"
+      className={readOnly ? "viewport-scene is-read-only" : "viewport-scene"}
       onPointerDownCapture={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -3626,6 +4567,21 @@ export function ViewportScene({
     >
       {size.width > 0 && size.height > 0 ? (
         <svg className="viewport-svg" width={size.width} height={size.height}>
+          {project.site.visible2D ? (
+            <polygon
+              className="site-surface-2d"
+              points={project.site.boundary
+                .map((point) => {
+                  const screenPoint = worldToScreen(point, metrics);
+                  return `${screenPoint.x},${screenPoint.y}`;
+                })
+                .join(" ")}
+              fill={readOnly ? "rgba(79, 135, 73, 0.34)" : "rgba(79, 135, 73, 0.2)"}
+              stroke="rgba(122, 169, 100, 0.72)"
+              strokeWidth={1.5}
+              pointerEvents="none"
+            />
+          ) : null}
           {gridLines !== null
             ? gridLines.vertical.map((x) => {
                 const start = worldToScreen(createVec2(x, bounds!.minY), metrics);
@@ -3666,10 +4622,13 @@ export function ViewportScene({
               })
             : null}
 
+          {project.groundSurfaces.map(renderGroundSurface)}
+          {project.rooms.map(renderRoom)}
           {project.walls.map(renderWall)}
           {renderRoofSketchFaces()}
           {project.slabs.map(renderSlab)}
           {renderRoofOpenings()}
+          {renderSolarPanels2D()}
           {renderRoofSketchEdges()}
           {project.shapes.map(renderShape)}
           {project.externalModels.map(renderExternalModel)}
@@ -4080,7 +5039,89 @@ export function ViewportScene({
             
           ) : null}
 
-          {activeTool === "Slab" && activeLevelId ? (
+          {activeTool === "Slab" &&
+          slabMode === "Freeform" &&
+          activeLevelId &&
+          freeformSlabDraftPoints.length > 0 ? (
+            <g pointerEvents="none">
+              {freeformSlabDraftPoints.length >= 3 ? (
+                <path
+                  d={`${createSvgPathFromPoints(freeformSlabDraftPoints, metrics)} Z`}
+                  fill="rgba(96, 181, 127, 0.08)"
+                  stroke="none"
+                />
+              ) : null}
+              <path
+                d={createSvgPathFromPoints(
+                  snappedCursor
+                    ? [...freeformSlabDraftPoints, snappedCursor]
+                    : freeformSlabDraftPoints,
+                  metrics,
+                )}
+                fill="none"
+                stroke="#60b57f"
+                strokeDasharray="8 6"
+                strokeWidth={2}
+              />
+              {freeformSlabDraftPoints.map((point, index) => {
+                const screenPoint = worldToScreen(point, metrics);
+                return (
+                  <circle
+                    key={`freeform-slab-draft-${index}`}
+                    cx={screenPoint.x}
+                    cy={screenPoint.y}
+                    r={index === 0 ? 7 : 4}
+                    fill={index === 0 ? "#ffd166" : "#111827"}
+                    stroke="#60b57f"
+                    strokeWidth={2}
+                  />
+                );
+              })}
+            </g>
+          ) : null}
+
+          {activeTool === "Rooms" &&
+          roomToolMode === "Freeform" &&
+          activeLevelId &&
+          freeformRoomDraftPoints.length > 0 ? (
+            <g pointerEvents="none">
+              {freeformRoomDraftPoints.length >= 3 ? (
+                <path
+                  d={`${createSvgPathFromPoints(freeformRoomDraftPoints, metrics)} Z`}
+                  fill="rgba(255, 209, 102, 0.08)"
+                  stroke="none"
+                />
+              ) : null}
+              <path
+                d={createSvgPathFromPoints(
+                  snappedCursor
+                    ? [...freeformRoomDraftPoints, snappedCursor]
+                    : freeformRoomDraftPoints,
+                  metrics,
+                )}
+                fill="none"
+                stroke="#ffd166"
+                strokeDasharray="8 6"
+                strokeWidth={2}
+              />
+              {freeformRoomDraftPoints.map((point, index) => {
+                const screenPoint = worldToScreen(point, metrics);
+                return (
+                  <circle
+                    key={`freeform-room-draft-${index}`}
+                    cx={screenPoint.x}
+                    cy={screenPoint.y}
+                    r={index === 0 ? 7 : 4}
+                    fill={index === 0 ? "#ffd166" : "#111827"}
+                    stroke="#ffd166"
+                    strokeWidth={2}
+                  />
+                );
+              })}
+            </g>
+          ) : null}
+
+          {activeTool === "Slab" && activeLevelId && slabMode !== "Freeform" ? (
             placementDraftCircle ? (
               <circle
                 pointerEvents="none"
@@ -4159,6 +5200,90 @@ export function ViewportScene({
             ) : null
           ) : null}
 
+          {activeTool === "Ground" && activeLevelId && placementDraftBounds ? (
+            <rect
+              pointerEvents="none"
+              x={
+                worldToScreen(placementDraftBounds.centerWorld, metrics).x -
+                (Math.max(
+                  placementDraftBounds.widthM,
+                  project.settings.snapToGrid ? project.settings.gridSpacingM : 0.2,
+                ) *
+                  projectScale(metrics)) /
+                  2
+              }
+              y={
+                worldToScreen(placementDraftBounds.centerWorld, metrics).y -
+                (Math.max(
+                  placementDraftBounds.depthM,
+                  project.settings.snapToGrid ? project.settings.gridSpacingM : 0.2,
+                ) *
+                  projectScale(metrics)) /
+                  2
+              }
+              width={
+                Math.max(
+                  placementDraftBounds.widthM,
+                  project.settings.snapToGrid ? project.settings.gridSpacingM : 0.2,
+                ) * projectScale(metrics)
+              }
+              height={
+                Math.max(
+                  placementDraftBounds.depthM,
+                  project.settings.snapToGrid ? project.settings.gridSpacingM : 0.2,
+                ) * projectScale(metrics)
+              }
+              fill={
+                groundToolKind === "Grass"
+                  ? "rgba(74, 163, 90, 0.18)"
+                  : "rgba(156, 163, 175, 0.18)"
+              }
+              stroke={groundToolKind === "Grass" ? "#4aa35a" : "#9ca3af"}
+              strokeDasharray="8 6"
+              strokeWidth={2}
+            />
+          ) : null}
+
+          {activeTool === "Rooms" && activeLevelId && roomToolMode === "Rectangle" && placementDraftBounds ? (
+            <rect
+              pointerEvents="none"
+              x={
+                worldToScreen(placementDraftBounds.centerWorld, metrics).x -
+                (Math.max(
+                  placementDraftBounds.widthM,
+                  project.settings.snapToGrid ? project.settings.gridSpacingM : 0.2,
+                ) *
+                  projectScale(metrics)) /
+                  2
+              }
+              y={
+                worldToScreen(placementDraftBounds.centerWorld, metrics).y -
+                (Math.max(
+                  placementDraftBounds.depthM,
+                  project.settings.snapToGrid ? project.settings.gridSpacingM : 0.2,
+                ) *
+                  projectScale(metrics)) /
+                  2
+              }
+              width={
+                Math.max(
+                  placementDraftBounds.widthM,
+                  project.settings.snapToGrid ? project.settings.gridSpacingM : 0.2,
+                ) * projectScale(metrics)
+              }
+              height={
+                Math.max(
+                  placementDraftBounds.depthM,
+                  project.settings.snapToGrid ? project.settings.gridSpacingM : 0.2,
+                ) * projectScale(metrics)
+              }
+              fill="rgba(255, 209, 102, 0.12)"
+              stroke="#ffd166"
+              strokeDasharray="8 6"
+              strokeWidth={2}
+            />
+          ) : null}
+
           {activeTool === "Model" && activeLevelId && snappedCursor ? (
             <g pointerEvents="none">
               <circle
@@ -4189,6 +5314,31 @@ export function ViewportScene({
             </g>
           ) : null}
         </svg>
+      ) : null}
+      {entityPicker ? (
+        <div
+          className="viewport-entity-picker"
+          style={{ left: entityPicker.x, top: entityPicker.y }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <strong>Select object</strong>
+          {entityPicker.candidates.map((candidate) => (
+            <button
+              key={`${candidate.kind}:${candidate.id}`}
+              type="button"
+              onClick={() => {
+                onSelectionChange({ kind: candidate.kind, id: candidate.id });
+                setEntityPicker(null);
+              }}
+            >
+              {candidate.label}
+            </button>
+          ))}
+          <button type="button" onClick={() => setEntityPicker(null)}>
+            Cancel
+          </button>
+        </div>
       ) : null}
     </div>
   );

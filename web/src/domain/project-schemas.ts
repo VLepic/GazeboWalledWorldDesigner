@@ -1,7 +1,11 @@
 import { z } from "zod";
 import type {
   DoorOpening,
+  ExternalBlindsDesign3D,
+  ExternalRollerShutterDesign3D,
   ExternalModel,
+  GroundSurface,
+  GroundSurfaceKind,
   Level,
   Measurement,
   MeasurementUnit,
@@ -17,12 +21,17 @@ import type {
   RoofOpening,
   RoofOpeningCutMode,
   RoofOpeningRotationDeg,
+  SolarPanelArray,
+  SolarPanelOrientation,
   RoofSketch,
   RoofType,
   RoofVertex,
   RoofVertexElevationMode,
+  Room,
   Shape,
   ShapeKind,
+  Site,
+  SiteSurfaceKind,
   Slab,
   SlabKind,
   Stair,
@@ -39,7 +48,9 @@ const positiveNumberSchema = finiteNumberSchema.positive();
 const nonEmptyStringSchema = z.string().trim().min(1);
 
 export const shapeKindSchema = z.enum(["Square", "Cylinder"]) satisfies z.ZodType<ShapeKind>;
-export const slabKindSchema = z.enum(["Rectangle", "Circle"]) satisfies z.ZodType<SlabKind>;
+export const slabKindSchema = z.enum(["Rectangle", "Circle", "Freeform"]) satisfies z.ZodType<SlabKind>;
+export const groundSurfaceKindSchema = z.enum(["Floor", "Grass"]) satisfies z.ZodType<GroundSurfaceKind>;
+export const siteSurfaceKindSchema = z.enum(["Grass"]) satisfies z.ZodType<SiteSurfaceKind>;
 export const roofTypeSchema = z.enum(["Flat", "Gable", "Shed", "Hip"]) satisfies z.ZodType<RoofType>;
 export const wallTopModeSchema = z.enum(["FixedHeight", "FollowRoof"]) satisfies z.ZodType<WallTopMode>;
 export const measurementUnitSchema = z.enum(["cm", "dm", "m"]) satisfies z.ZodType<MeasurementUnit>;
@@ -47,10 +58,32 @@ export const roofVertexElevationModeSchema = z.enum(["Explicit", "Computed"]) sa
 export const roofEdgeRoleSchema = z.enum(["Generic", "LowerEave", "UpperEave", "Ridge", "Hip", "Valley"]) satisfies z.ZodType<RoofEdgeRole>;
 export const roofOpeningCutModeSchema = z.enum(["NormalToRoof", "Vertical"]) satisfies z.ZodType<RoofOpeningCutMode>;
 export const roofOpeningRotationDegSchema = z.union([z.literal(0), z.literal(90)]) satisfies z.ZodType<RoofOpeningRotationDeg>;
+export const solarPanelOrientationSchema = z.enum(["Portrait", "Landscape"]) satisfies z.ZodType<SolarPanelOrientation>;
 export const doorDesign3DKindSchema = z.enum(["Normal", "Garage", "Glass", "HSPortal"]);
 export const door3DOpenStateSchema = z.enum(["Closed", "Open"]);
 export const door3DHingeSideSchema = z.enum(["Left", "Right"]);
 export const door3DSwingDirectionSchema = z.enum(["Inward", "Outward"]);
+export const garageDoorStyleSchema = z.enum(["SinglePanel", "Sectional"]);
+export const externalBlindsDesign3DSchema = z.object({
+  colorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  coveragePercent: finiteNumberSchema.min(0).max(100),
+  slatAngleDeg: finiteNumberSchema.min(-80).max(80),
+  slatCount: z.number().int().min(1).max(200),
+  slatDepthM: positiveNumberSchema,
+  blindWidthM: positiveNumberSchema,
+  boxWidthM: positiveNumberSchema,
+  side: z.enum(["Front", "Back"]),
+}) satisfies z.ZodType<ExternalBlindsDesign3D>;
+
+export const externalRollerShutterDesign3DSchema = z.object({
+  colorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  coveragePercent: finiteNumberSchema.min(0).max(100),
+  slatHeightM: positiveNumberSchema,
+  shutterDepthM: positiveNumberSchema,
+  shutterWidthM: positiveNumberSchema,
+  boxWidthM: positiveNumberSchema,
+  side: z.enum(["Front", "Back"]),
+}) satisfies z.ZodType<ExternalRollerShutterDesign3D>;
 
 export const vec2Schema = z.object({
   x: finiteNumberSchema,
@@ -70,6 +103,7 @@ export const projectSettingsSchema = z.object({
   axisLineWidthPx: nonNegativeNumberSchema,
   pixelsPerMeter: positiveNumberSchema,
   snapToGrid: z.boolean(),
+  showSolarPanels2D: z.boolean(),
 }) satisfies z.ZodType<ProjectSettings>;
 
 export const levelSchema = z.object({
@@ -104,6 +138,7 @@ export const roofEdgeSchema = z.object({
   startVertexId: nonEmptyStringSchema,
   endVertexId: nonEmptyStringSchema,
   role: roofEdgeRoleSchema,
+  chainId: nonEmptyStringSchema.optional(),
 }) satisfies z.ZodType<RoofEdge>;
 
 export const roofConstraintSchema = z.discriminatedUnion("kind", [
@@ -171,6 +206,23 @@ export const roofOpeningSchema = z.object({
     .optional(),
 }) satisfies z.ZodType<RoofOpening>;
 
+export const solarPanelArraySchema = z.object({
+  id: nonEmptyStringSchema,
+  roofSketchId: nonEmptyStringSchema,
+  roofFaceId: nonEmptyStringSchema,
+  center: vec2Schema,
+  rows: z.number().int().min(1).max(40),
+  columns: z.number().int().min(1).max(40),
+  panelWidthM: positiveNumberSchema,
+  panelHeightM: positiveNumberSchema,
+  gapM: nonNegativeNumberSchema,
+  orientation: solarPanelOrientationSchema,
+  mountingOffsetM: nonNegativeNumberSchema,
+  panelThicknessM: positiveNumberSchema,
+  panelColorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  frameColorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+}) satisfies z.ZodType<SolarPanelArray>;
+
 export const nodeDataSchema = z.object({
   id: nonEmptyStringSchema,
   levelId: nonEmptyStringSchema,
@@ -203,6 +255,9 @@ export const doorOpeningSchema = z.object({
       openPercent: z.number().finite().min(0).max(100),
       hingeSide: door3DHingeSideSchema,
       swingDirection: door3DSwingDirectionSchema,
+      garageDoorStyle: garageDoorStyleSchema.optional(),
+      externalBlinds: externalBlindsDesign3DSchema.nullable().optional(),
+      externalRollerShutter: externalRollerShutterDesign3DSchema.nullable().optional(),
     })
     .nullable()
     .optional(),
@@ -223,6 +278,8 @@ export const windowOpeningSchema = z.object({
       horizontalDivisions: z.number().int().nonnegative(),
       wallDepthOffsetM: z.number().finite(),
       frameColorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+      externalBlinds: externalBlindsDesign3DSchema.nullable().optional(),
+      externalRollerShutter: externalRollerShutterDesign3DSchema.nullable().optional(),
     })
     .nullable()
     .optional(),
@@ -263,7 +320,35 @@ export const slabSchema = z.object({
   thicknessM: positiveNumberSchema,
   roofRiseM: nonNegativeNumberSchema,
   zOffsetM: finiteNumberSchema,
+  polygon: z.array(vec2Schema),
+  connectWithOtherSlabs: z.boolean(),
 }) satisfies z.ZodType<Slab>;
+
+export const groundSurfaceSchema = z.object({
+  id: nonEmptyStringSchema,
+  name: nonEmptyStringSchema,
+  kind: groundSurfaceKindSchema,
+  pose: pose2DSchema,
+  widthM: positiveNumberSchema,
+  depthM: positiveNumberSchema,
+}) satisfies z.ZodType<GroundSurface>;
+
+export const siteSchema = z.object({
+  id: nonEmptyStringSchema,
+  name: nonEmptyStringSchema,
+  surfaceKind: siteSurfaceKindSchema,
+  boundary: z.array(vec2Schema).min(3),
+  elevationM: finiteNumberSchema,
+  visible2D: z.boolean(),
+  visible3D: z.boolean(),
+}) satisfies z.ZodType<Site>;
+
+export const roomSchema = z.object({
+  id: nonEmptyStringSchema,
+  levelId: nonEmptyStringSchema,
+  name: nonEmptyStringSchema,
+  polygon: z.array(vec2Schema).min(3),
+}) satisfies z.ZodType<Room>;
 
 export const externalModelSchema = z.object({
   id: nonEmptyStringSchema,
@@ -288,11 +373,13 @@ export const measurementSchema = z.object({
 export const projectSchema = z.object({
   projectName: nonEmptyStringSchema,
   settings: projectSettingsSchema,
+  site: siteSchema,
   levels: z.array(levelSchema).min(1),
   wallTypes: z.array(wallTypeSchema).min(1),
   roofLayers: z.array(roofLayerSchema).min(1),
   roofSketches: z.array(roofSketchSchema),
   roofOpenings: z.array(roofOpeningSchema),
+  solarPanelArrays: z.array(solarPanelArraySchema),
   nodes: z.array(nodeDataSchema),
   walls: z.array(wallSchema),
   doors: z.array(doorOpeningSchema),
@@ -300,6 +387,8 @@ export const projectSchema = z.object({
   stairs: z.array(stairSchema),
   shapes: z.array(shapeSchema),
   slabs: z.array(slabSchema),
+  groundSurfaces: z.array(groundSurfaceSchema),
+  rooms: z.array(roomSchema),
   externalModels: z.array(externalModelSchema),
   measurements: z.array(measurementSchema),
 }) satisfies z.ZodType<Project>;

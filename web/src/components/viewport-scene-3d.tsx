@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, events as createPointerEvents, useFrame, useThree } from "@react-three/fiber";
 import { Edges, OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import { buildPreview3DScene } from "../domain/preview-3d-geometry";
 import { solveProjectRoofs } from "../domain/roof-solver";
+import { createRoofSurfaceFrame } from "../domain/roof-surface-geometry";
+import {
+  getSolarPanelArraySize,
+  getSolarPanelModuleOffsets,
+  getSolarPanelModuleSize,
+} from "../domain/solar-panel-geometry";
 import type {
   Preview3DBoxPrimitive,
   Preview3DCylinderPrimitive,
@@ -14,14 +20,26 @@ import type { EditorTool, Preview3DState } from "../store/editor-ui-store";
 import type {
   DoorDesign3D,
   DoorOpening,
+  ExternalBlindsDesign3D,
+  ExternalRollerShutterDesign3D,
   Project,
   RoofOpening,
+  SolarPanelArray,
   WindowDesign3D,
   WindowOpening,
 } from "../domain/project-model";
 
 const WINDOW_GLASS_COLOR = "#93d1e7";
 const SELECTED_WINDOW_GLASS_COLOR = "#8ecfe0";
+
+export type ExternalShadingToolDesign =
+  | { kind: "ExternalBlinds"; design: ExternalBlindsDesign3D }
+  | { kind: "RollerShutter"; design: ExternalRollerShutterDesign3D };
+
+export type SolarPanelToolDesign = Omit<
+  SolarPanelArray,
+  "id" | "roofSketchId" | "roofFaceId" | "center"
+>;
 
 interface ViewportScene3DProps {
   project: Project;
@@ -31,15 +49,28 @@ interface ViewportScene3DProps {
   selectedDoorId?: string | null;
   onSelectDoor?: (doorId: string) => void;
   onInsertDoor3D?: (doorId: string) => void;
+  onApplyExternalShadingToDoor?: (doorId: string) => void;
   selectedWindowId?: string | null;
   onSelectWindow?: (windowId: string) => void;
   onClearOpeningSelection?: () => void;
   onInsertWindow3D?: (windowId: string) => void;
+  onApplyExternalShadingToWindow?: (windowId: string) => void;
   selectedRoofOpeningId?: string | null;
   onSelectRoofOpening?: (roofOpeningId: string) => void;
   onInsertRoofWindow3D?: (roofOpeningId: string) => void;
+  selectedSolarPanelArrayId?: string | null;
+  onSelectSolarPanelArray?: (solarPanelArrayId: string) => void;
+  onCreateSolarPanelArray?: (input: {
+    roofSketchId: string;
+    roofFaceId: string;
+    center: { x: number; y: number };
+  }) => void;
+  onMoveSolarPanelArray?: (solarPanelArrayId: string, center: { x: number; y: number }) => void;
+  solarPanelToolDesign?: SolarPanelToolDesign;
   door3DToolDesign?: DoorDesign3D;
   window3DToolDesign?: WindowDesign3D;
+  externalShadingToolDesign?: ExternalShadingToolDesign;
+  externalShadingFitOpeningWidth?: boolean;
   hiddenRoofLayerIds?: string[];
 }
 
@@ -241,7 +272,7 @@ function MeshPrimitive({
   useEffect(() => () => geometry.dispose(), [geometry]);
 
   return (
-    <mesh geometry={geometry} castShadow receiveShadow>
+    <mesh geometry={geometry} castShadow={primitive.castShadow ?? true} receiveShadow>
       <meshStandardMaterial
         color={primitive.color}
         roughness={grayMode ? 0.88 : 0.76}
@@ -277,6 +308,90 @@ interface RoofOpening3DDescriptor {
   normal: Vec3Tuple;
   widthM: number;
   heightM: number;
+}
+
+interface RoofSurface3DDescriptor {
+  roofSketchId: string;
+  roofFaceId: string;
+  polygon: Vec3Tuple[];
+  centerPlan: { x: number; y: number };
+  widthAxis: Vec3Tuple;
+  heightAxis: Vec3Tuple;
+  normal: Vec3Tuple;
+}
+
+interface SolarPanelArray3DDescriptor {
+  array: SolarPanelArray;
+  center: Vec3Tuple;
+  widthAxis: Vec3Tuple;
+  heightAxis: Vec3Tuple;
+  normal: Vec3Tuple;
+}
+
+function buildRoofSurface3DDescriptors(
+  project: Project,
+  hiddenRoofLayerIds: readonly string[],
+): RoofSurface3DDescriptor[] {
+  const hiddenRoofLayerIdSet = new Set(hiddenRoofLayerIds);
+
+  return solveProjectRoofs(project).flatMap((roof) => {
+    if (
+      roof.sourceKind !== "Sketch" ||
+      !roof.sketchId ||
+      (roof.layerId && hiddenRoofLayerIdSet.has(roof.layerId))
+    ) {
+      return [];
+    }
+
+    return roof.faces.map((face) => {
+      const frame = createRoofSurfaceFrame(face);
+      return {
+        roofSketchId: roof.sketchId!,
+        roofFaceId: face.id,
+        polygon: face.polygonLocal.map((point) => frame.toWorld(point)),
+        centerPlan: face.polygonLocal.reduce(
+          (sum, point) => ({
+            x: sum.x + point.x / face.polygonLocal.length,
+            y: sum.y + point.y / face.polygonLocal.length,
+          }),
+          { x: 0, y: 0 },
+        ),
+        widthAxis: frame.widthAxis,
+        heightAxis: frame.heightAxis,
+        normal: frame.normal,
+      };
+    });
+  });
+}
+
+function buildSolarPanelArray3DDescriptors(
+  project: Project,
+  hiddenRoofLayerIds: readonly string[],
+): SolarPanelArray3DDescriptor[] {
+  const hiddenRoofLayerIdSet = new Set(hiddenRoofLayerIds);
+  const solvedRoofs = solveProjectRoofs(project);
+
+  return project.solarPanelArrays.flatMap((array) => {
+    const roof = solvedRoofs.find(
+      (candidate) =>
+        candidate.sourceKind === "Sketch" &&
+        candidate.sketchId === array.roofSketchId &&
+        !(candidate.layerId && hiddenRoofLayerIdSet.has(candidate.layerId)),
+    );
+    const face = roof?.faces.find((candidate) => candidate.id === array.roofFaceId);
+    if (!face) {
+      return [];
+    }
+
+    const frame = createRoofSurfaceFrame(face);
+    return [{
+      array,
+      center: frame.fromUv(frame.toUv(array.center)),
+      widthAxis: frame.widthAxis,
+      heightAxis: frame.heightAxis,
+      normal: frame.normal,
+    }];
+  });
 }
 
 function buildWindowOpening3DDescriptors(project: Project): WindowOpening3DDescriptor[] {
@@ -492,6 +607,212 @@ function GlassDoorPanel({
   );
 }
 
+function ExternalBlindsMesh({
+  widthM,
+  heightM,
+  wallThicknessM,
+  design,
+  preview,
+  selected,
+}: {
+  widthM: number;
+  heightM: number;
+  wallThicknessM: number;
+  design: ExternalBlindsDesign3D;
+  preview: boolean;
+  selected: boolean;
+}) {
+  const coverageRatio = clamp(design.coveragePercent / 100, 0, 1);
+  const coverageM = heightM * coverageRatio;
+  const configuredSlatCount = Math.max(1, Math.min(200, Math.round(design.slatCount)));
+  const visibleSlatCount =
+    coverageM > 0.01 ? Math.max(1, Math.round(configuredSlatCount * coverageRatio)) : 0;
+  const actualSpacingM = visibleSlatCount > 0 ? coverageM / visibleSlatCount : 0;
+  const blindWidthM = Math.max(0.05, design.blindWidthM);
+  const boxWidthM = Math.max(0.05, design.boxWidthM);
+  const sideSign = design.side === "Back" ? -1 : 1;
+  const slatDepthM = clamp(design.slatDepthM, 0.01, 0.5);
+  const slatHeightM = 0.012;
+  const housingHeightM = Math.min(0.12, Math.max(0.07, heightM * 0.065));
+  const guideWidthM = Math.min(0.025, Math.max(0.014, widthM * 0.015));
+  const surfaceGapM = 0.012;
+  const centerX = sideSign * (wallThicknessM / 2 + slatDepthM / 2 + surfaceGapM);
+  const slatAngleRad = sideSign * (clamp(design.slatAngleDeg, -80, 80) * Math.PI) / 180;
+  const color = selected ? "#d2a45a" : design.colorHex;
+  const opacity = preview ? 0.38 : 1;
+
+  return (
+    <group position={[centerX, 0, 0]}>
+      <mesh position={[0, heightM / 2 - housingHeightM / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[slatDepthM * 1.45, housingHeightM, boxWidthM]} />
+        <meshStandardMaterial
+          color={color}
+          roughness={0.48}
+          metalness={0.38}
+          transparent={preview}
+          opacity={opacity}
+        />
+      </mesh>
+      <mesh position={[0, 0, -blindWidthM / 2 - guideWidthM / 2]} castShadow receiveShadow>
+        <boxGeometry args={[slatDepthM * 0.72, heightM, guideWidthM]} />
+        <meshStandardMaterial color={color} roughness={0.48} metalness={0.38} transparent={preview} opacity={opacity} />
+      </mesh>
+      <mesh position={[0, 0, blindWidthM / 2 + guideWidthM / 2]} castShadow receiveShadow>
+        <boxGeometry args={[slatDepthM * 0.72, heightM, guideWidthM]} />
+        <meshStandardMaterial color={color} roughness={0.48} metalness={0.38} transparent={preview} opacity={opacity} />
+      </mesh>
+      {Array.from({ length: visibleSlatCount }, (_, index) => (
+        <mesh
+          key={`external-blind-slat-${index}`}
+          position={[0, heightM / 2 - housingHeightM - (index + 0.5) * actualSpacingM, 0]}
+          rotation={[0, 0, slatAngleRad]}
+          castShadow
+          receiveShadow
+        >
+          <boxGeometry args={[slatDepthM, slatHeightM, blindWidthM]} />
+          <meshStandardMaterial
+            color={color}
+            roughness={0.42}
+            metalness={0.45}
+            transparent={preview}
+            opacity={opacity}
+          />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function ExternalRollerShutterMesh({
+  widthM,
+  heightM,
+  wallThicknessM,
+  design,
+  preview,
+  selected,
+}: {
+  widthM: number;
+  heightM: number;
+  wallThicknessM: number;
+  design: ExternalRollerShutterDesign3D;
+  preview: boolean;
+  selected: boolean;
+}) {
+  const coverageRatio = clamp(design.coveragePercent / 100, 0, 1);
+  const shutterWidthM = Math.max(0.05, design.shutterWidthM);
+  const boxWidthM = Math.max(0.05, design.boxWidthM);
+  const shutterDepthM = clamp(design.shutterDepthM, 0.01, 0.5);
+  const slatHeightM = clamp(design.slatHeightM, 0.01, 0.25);
+  const housingHeightM = Math.min(0.22, Math.max(0.1, heightM * 0.1));
+  const availableCurtainHeightM = Math.max(0, heightM - housingHeightM);
+  const curtainHeightM = availableCurtainHeightM * coverageRatio;
+  const slatCount = curtainHeightM > 0.005 ? Math.max(1, Math.ceil(curtainHeightM / slatHeightM)) : 0;
+  const actualSlatHeightM = slatCount > 0 ? curtainHeightM / slatCount : 0;
+  const sideSign = design.side === "Back" ? -1 : 1;
+  const surfaceGapM = 0.014;
+  const centerX = sideSign * (wallThicknessM / 2 + shutterDepthM / 2 + surfaceGapM);
+  const guideWidthM = Math.min(0.035, Math.max(0.018, widthM * 0.018));
+  const color = selected ? "#d2a45a" : design.colorHex;
+  const opacity = preview ? 0.4 : 1;
+
+  return (
+    <group position={[centerX, 0, 0]}>
+      <mesh position={[0, heightM / 2 - housingHeightM / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[shutterDepthM * 1.8, housingHeightM, boxWidthM]} />
+        <meshStandardMaterial color={color} roughness={0.5} metalness={0.34} transparent={preview} opacity={opacity} />
+      </mesh>
+      <mesh position={[0, -housingHeightM / 2, -shutterWidthM / 2 - guideWidthM / 2]} castShadow receiveShadow>
+        <boxGeometry args={[shutterDepthM * 1.15, availableCurtainHeightM, guideWidthM]} />
+        <meshStandardMaterial color={color} roughness={0.5} metalness={0.34} transparent={preview} opacity={opacity} />
+      </mesh>
+      <mesh position={[0, -housingHeightM / 2, shutterWidthM / 2 + guideWidthM / 2]} castShadow receiveShadow>
+        <boxGeometry args={[shutterDepthM * 1.15, availableCurtainHeightM, guideWidthM]} />
+        <meshStandardMaterial color={color} roughness={0.5} metalness={0.34} transparent={preview} opacity={opacity} />
+      </mesh>
+      {Array.from({ length: slatCount }, (_, index) => (
+        <mesh
+          key={`roller-shutter-slat-${index}`}
+          position={[
+            0,
+            heightM / 2 - housingHeightM - (index + 0.5) * actualSlatHeightM,
+            0,
+          ]}
+          castShadow
+          receiveShadow
+        >
+          <boxGeometry
+            args={[
+              shutterDepthM,
+              Math.max(0.006, actualSlatHeightM - 0.002),
+              shutterWidthM,
+            ]}
+          />
+          <meshStandardMaterial color={color} roughness={0.47} metalness={0.38} transparent={preview} opacity={opacity} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function ExternalShadingMesh({
+  widthM,
+  heightM,
+  wallThicknessM,
+  shading,
+  preview,
+  selected,
+}: {
+  widthM: number;
+  heightM: number;
+  wallThicknessM: number;
+  shading: ExternalShadingToolDesign;
+  preview: boolean;
+  selected: boolean;
+}) {
+  return shading.kind === "ExternalBlinds" ? (
+    <ExternalBlindsMesh
+      widthM={widthM}
+      heightM={heightM}
+      wallThicknessM={wallThicknessM}
+      design={shading.design}
+      preview={preview}
+      selected={selected}
+    />
+  ) : (
+    <ExternalRollerShutterMesh
+      widthM={widthM}
+      heightM={heightM}
+      wallThicknessM={wallThicknessM}
+      design={shading.design}
+      preview={preview}
+      selected={selected}
+    />
+  );
+}
+
+function fitExternalShadingToOpening(
+  shading: ExternalShadingToolDesign,
+  openingWidthM: number,
+): ExternalShadingToolDesign {
+  return shading.kind === "ExternalBlinds"
+    ? {
+        kind: "ExternalBlinds",
+        design: {
+          ...shading.design,
+          blindWidthM: openingWidthM,
+          boxWidthM: openingWidthM,
+        },
+      }
+    : {
+        kind: "RollerShutter",
+        design: {
+          ...shading.design,
+          shutterWidthM: openingWidthM,
+          boxWidthM: openingWidthM,
+        },
+      };
+}
+
 function DoorInsertMesh({
   opening,
   design3D,
@@ -540,28 +861,43 @@ function DoorInsertMesh({
     1,
   );
   const topCenterY = opening.door.heightM / 2 - frameThicknessM / 2;
-  const sideCenterY = frameThicknessM / 2;
-  const sideHeightM = Math.max(opening.door.heightM - frameThicknessM, 0.08);
+  const thresholdHeightM = clamp(frameThicknessM * 0.35, 0.018, 0.035);
+  const thresholdCenterY = -opening.door.heightM / 2 + thresholdHeightM / 2;
+  const sideCenterY = thresholdHeightM / 2;
+  const sideHeightM = Math.max(opening.door.heightM - thresholdHeightM, 0.08);
 
-  const leafHeightM = Math.max(innerHeightM - frameThicknessM, 0.12);
+  const leafHeightM = Math.max(innerHeightM - thresholdHeightM, 0.12);
+  const leafCenterY =
+    -opening.door.heightM / 2 + thresholdHeightM + leafHeightM / 2;
   const leafWidthM = innerWidthM;
   const swingBaseSign = design3D.swingDirection === "Outward" ? 1 : -1;
   const hingeSign = design3D.hingeSide === "Left" ? 1 : -1;
   const swingAngleRad = swingBaseSign * hingeSign * Math.PI * 0.48 * openProgress;
   const hingeZ = design3D.hingeSide === "Left" ? -leafWidthM / 2 : leafWidthM / 2;
-  const garageAngleRad = -Math.PI * 0.48 * openProgress;
+  const garageAngleRad = swingBaseSign * Math.PI * 0.48 * openProgress;
   const glassThicknessM = Math.min(Math.max(0.008, frameThicknessM * 0.25), doorThicknessM * 0.7);
   const glassColor = selected ? SELECTED_WINDOW_GLASS_COLOR : WINDOW_GLASS_COLOR;
   const glassOpacity = preview ? 0.18 : 0.42;
   const portalPanelWidthM = Math.max(0.08, innerWidthM / 2);
   const portalPanelHeightM = leafHeightM;
-  const portalPanelCenterY = -opening.door.heightM / 2 + frameThicknessM + portalPanelHeightM / 2;
+  const portalPanelCenterY = leafCenterY;
   const fixedPortalZ = design3D.hingeSide === "Left" ? portalPanelWidthM / 2 : -portalPanelWidthM / 2;
   const slidingPortalClosedZ = -fixedPortalZ;
   const slidingPortalOpenZ = fixedPortalZ - Math.sign(fixedPortalZ || 1) * portalPanelWidthM * 0.08;
   const slidingPortalZ =
     slidingPortalClosedZ + (slidingPortalOpenZ - slidingPortalClosedZ) * openProgress;
   const portalLayerOffsetM = Math.min(0.02, Math.max(0.004, doorThicknessM * 0.22));
+  const garagePanelHeightM = Math.max(innerHeightM - thresholdHeightM, 0.12);
+  const garageSectionCount = 5;
+  const garageSectionHeightM = garagePanelHeightM / garageSectionCount;
+  const garageBottomY = -opening.door.heightM / 2 + thresholdHeightM;
+  const garageCurveRadiusM = clamp(garagePanelHeightM * 0.16, 0.16, 0.4);
+  const garageVerticalTrackM = Math.max(
+    garageSectionHeightM / 2,
+    garagePanelHeightM - garageCurveRadiusM,
+  );
+  const garageCurveTrackM = (Math.PI / 2) * garageCurveRadiusM;
+  const garageTravelM = openProgress * (garagePanelHeightM + garageCurveTrackM);
 
   return (
     <group position={opening.center} rotation={[0, opening.rotationY, 0]}>
@@ -577,11 +913,15 @@ function DoorInsertMesh({
         <boxGeometry args={[frameDepthM, sideHeightM, frameThicknessM]} />
         <meshStandardMaterial color={frameColor} roughness={0.7} metalness={0.08} transparent={preview} opacity={frameOpacity} />
       </mesh>
+      <mesh position={[frameDepthCenter, thresholdCenterY, 0]} castShadow receiveShadow>
+        <boxGeometry args={[frameDepthM, thresholdHeightM, opening.door.widthM]} />
+        <meshStandardMaterial color={frameColor} roughness={0.62} metalness={0.16} transparent={preview} opacity={frameOpacity} />
+      </mesh>
 
       {design3D.kind === "Normal" ? (
         <group position={[doorDepthCenter, 0, hingeZ]} rotation={[0, swingAngleRad, 0]}>
           <mesh
-            position={[0, -opening.door.heightM / 2 + frameThicknessM + leafHeightM / 2, design3D.hingeSide === "Left" ? leafWidthM / 2 : -leafWidthM / 2]}
+            position={[0, leafCenterY, design3D.hingeSide === "Left" ? leafWidthM / 2 : -leafWidthM / 2]}
             castShadow
             receiveShadow
           >
@@ -594,7 +934,7 @@ function DoorInsertMesh({
           <group
             position={[
               0,
-              -opening.door.heightM / 2 + frameThicknessM + leafHeightM / 2,
+              leafCenterY,
               design3D.hingeSide === "Left" ? leafWidthM / 2 : -leafWidthM / 2,
             ]}
           >
@@ -643,15 +983,70 @@ function DoorInsertMesh({
             />
           </group>
         </group>
+      ) : design3D.garageDoorStyle === "Sectional" ? (
+        <group>
+          {Array.from({ length: garageSectionCount }, (_, index) => {
+            const trackDistanceM =
+              (index + 0.5) * garageSectionHeightM + garageTravelM;
+            const curveStartM = garageVerticalTrackM;
+            const curveEndM = curveStartM + garageCurveTrackM;
+            let sectionX = doorDepthCenter;
+            let sectionY = garageBottomY + trackDistanceM;
+            let sectionRotationZ = 0;
+
+            if (trackDistanceM > curveStartM && trackDistanceM <= curveEndM) {
+              const curveAngle = (trackDistanceM - curveStartM) / garageCurveRadiusM;
+              sectionX +=
+                swingBaseSign * garageCurveRadiusM * (1 - Math.cos(curveAngle));
+              sectionY =
+                garageBottomY +
+                curveStartM +
+                garageCurveRadiusM * Math.sin(curveAngle);
+              sectionRotationZ = -swingBaseSign * curveAngle;
+            } else if (trackDistanceM > curveEndM) {
+              sectionX +=
+                swingBaseSign *
+                (garageCurveRadiusM + (trackDistanceM - curveEndM));
+              sectionY = garageBottomY + curveStartM + garageCurveRadiusM;
+              sectionRotationZ = -swingBaseSign * Math.PI / 2;
+            }
+
+            return (
+              <mesh
+                key={`garage-section-${index}`}
+                position={[sectionX, sectionY, 0]}
+                rotation={[0, 0, sectionRotationZ]}
+                castShadow
+                receiveShadow
+              >
+                <boxGeometry
+                  args={[
+                    doorThicknessM,
+                    Math.max(0.04, garageSectionHeightM - 0.008),
+                    innerWidthM,
+                  ]}
+                />
+                <meshStandardMaterial
+                  color={doorColor}
+                  roughness={0.76}
+                  metalness={0.1}
+                  transparent={preview}
+                  opacity={doorOpacity}
+                />
+              </mesh>
+            );
+          })}
+        </group>
       ) : (
         <group position={[doorDepthCenter, opening.door.heightM / 2 - frameThicknessM, 0]} rotation={[0, 0, garageAngleRad]}>
-          <mesh position={[0, -innerHeightM / 2, 0]} castShadow receiveShadow>
-            <boxGeometry args={[doorThicknessM, innerHeightM, innerWidthM]} />
+          <mesh position={[0, -garagePanelHeightM / 2, 0]} castShadow receiveShadow>
+            <boxGeometry args={[doorThicknessM, garagePanelHeightM, innerWidthM]} />
             <meshStandardMaterial color={doorColor} roughness={0.82} metalness={0.04} transparent={preview} opacity={doorOpacity} />
           </mesh>
           {Array.from({ length: 4 }, (_, index) => {
-            const slatHeightM = innerHeightM / 4;
-            const positionY = -innerHeightM / 2 + slatHeightM * index + slatHeightM / 2;
+            const slatHeightM = garagePanelHeightM / 4;
+            const positionY =
+              -garagePanelHeightM + slatHeightM * index + slatHeightM / 2;
             return (
               <mesh key={`garage-slat-${index}`} position={[doorThicknessM / 2 + 0.001, positionY, 0]}>
                 <boxGeometry args={[0.004, 0.01, innerWidthM]} />
@@ -661,6 +1056,26 @@ function DoorInsertMesh({
           })}
         </group>
       )}
+      {design3D.externalBlinds ? (
+        <ExternalBlindsMesh
+          widthM={opening.door.widthM}
+          heightM={opening.door.heightM}
+          wallThicknessM={opening.wallThicknessM}
+          design={design3D.externalBlinds}
+          preview={preview}
+          selected={selected}
+        />
+      ) : null}
+      {design3D.externalRollerShutter ? (
+        <ExternalRollerShutterMesh
+          widthM={opening.door.widthM}
+          heightM={opening.door.heightM}
+          wallThicknessM={opening.wallThicknessM}
+          design={design3D.externalRollerShutter}
+          preview={preview}
+          selected={selected}
+        />
+      ) : null}
     </group>
   );
 }
@@ -783,6 +1198,26 @@ function WindowInsertMesh({
           side={THREE.DoubleSide}
         />
       </mesh>
+      {design3D.externalBlinds ? (
+        <ExternalBlindsMesh
+          widthM={opening.window.widthM}
+          heightM={opening.window.heightM}
+          wallThicknessM={opening.wallThicknessM}
+          design={design3D.externalBlinds}
+          preview={preview}
+          selected={selected}
+        />
+      ) : null}
+      {design3D.externalRollerShutter ? (
+        <ExternalRollerShutterMesh
+          widthM={opening.window.widthM}
+          heightM={opening.window.heightM}
+          wallThicknessM={opening.wallThicknessM}
+          design={design3D.externalRollerShutter}
+          preview={preview}
+          selected={selected}
+        />
+      ) : null}
     </group>
   );
 }
@@ -802,6 +1237,9 @@ function RoofPlaneRectMesh({
   depthTest = true,
   onPointerOver,
   onPointerOut,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
   onClick,
   onContextMenu,
 }: {
@@ -819,6 +1257,9 @@ function RoofPlaneRectMesh({
   depthTest?: boolean;
   onPointerOver?: (event: any) => void;
   onPointerOut?: (event: any) => void;
+  onPointerDown?: (event: any) => void;
+  onPointerMove?: (event: any) => void;
+  onPointerUp?: (event: any) => void;
   onClick?: (event: any) => void;
   onContextMenu?: (event: any) => void;
 }) {
@@ -848,6 +1289,9 @@ function RoofPlaneRectMesh({
       receiveShadow
       onPointerOver={onPointerOver}
       onPointerOut={onPointerOut}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
       onClick={onClick}
       onContextMenu={onContextMenu}
     >
@@ -941,6 +1385,248 @@ function RoofPlaneBoxMesh({
         side={THREE.DoubleSide}
       />
     </mesh>
+  );
+}
+
+function RoofFaceInteractionMesh({
+  surface,
+  onHover,
+  onLeave,
+  onPlace,
+}: {
+  surface: RoofSurface3DDescriptor;
+  onHover: (center: { x: number; y: number }, worldCenter: Vec3Tuple) => void;
+  onLeave: () => void;
+  onPlace: (center: { x: number; y: number }) => void;
+}) {
+  const geometry = useMemo(() => {
+    const contour = surface.polygon.map((point) => new THREE.Vector2(point[0], -point[2]));
+    const triangles = THREE.ShapeUtils.triangulateShape(contour, []);
+    const vertices = surface.polygon.map((point) =>
+      addVec3(point, scaleVec3(surface.normal, 0.018)),
+    );
+    const meshGeometry = new THREE.BufferGeometry();
+    meshGeometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices.flat(), 3));
+    meshGeometry.setIndex(triangles.flat());
+    meshGeometry.computeVertexNormals();
+    return meshGeometry;
+  }, [surface.normal, surface.polygon]);
+
+  useEffect(() => () => geometry.dispose(), [geometry]);
+
+  return (
+    <mesh
+      geometry={geometry}
+      onPointerOver={(event) => {
+        event.stopPropagation();
+        onHover(
+          { x: event.point.x, y: -event.point.z },
+          [event.point.x, event.point.y, event.point.z],
+        );
+      }}
+      onPointerMove={(event) => {
+        event.stopPropagation();
+        onHover(
+          { x: event.point.x, y: -event.point.z },
+          [event.point.x, event.point.y, event.point.z],
+        );
+      }}
+      onPointerOut={(event) => {
+        event.stopPropagation();
+        onLeave();
+      }}
+      onClick={(event) => {
+        event.stopPropagation();
+        onPlace({ x: event.point.x, y: -event.point.z });
+      }}
+    >
+      <meshBasicMaterial
+        transparent
+        opacity={0}
+        colorWrite={false}
+        depthWrite={false}
+        depthTest={false}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
+  );
+}
+
+function SolarPanelArrayVisual({
+  descriptor,
+  selected = false,
+  preview = false,
+}: {
+  descriptor: SolarPanelArray3DDescriptor;
+  selected?: boolean;
+  preview?: boolean;
+}) {
+  const moduleSize = getSolarPanelModuleSize(descriptor.array);
+  const moduleOffsets = getSolarPanelModuleOffsets(descriptor.array);
+  const borderM = Math.min(0.025, moduleSize.widthM * 0.035, moduleSize.heightM * 0.035);
+  const panelColor = selected ? "#2f7397" : descriptor.array.panelColorHex;
+  const frameColor = selected ? "#e0a85b" : descriptor.array.frameColorHex;
+  const opacity = preview ? 0.48 : 1;
+
+  return (
+    <group>
+      {moduleOffsets.map((offset, index) => {
+        const center = addVec3(
+          descriptor.center,
+          addVec3(
+            scaleVec3(descriptor.widthAxis, offset.x),
+            scaleVec3(descriptor.heightAxis, offset.y),
+          ),
+        );
+        return (
+          <group key={`${descriptor.array.id}-module-${index}`}>
+            <RoofPlaneBoxMesh
+              center={center}
+              widthAxis={descriptor.widthAxis}
+              heightAxis={descriptor.heightAxis}
+              normal={descriptor.normal}
+              widthM={moduleSize.widthM}
+              heightM={moduleSize.heightM}
+              depthM={descriptor.array.panelThicknessM}
+              offsetM={descriptor.array.mountingOffsetM}
+              color={frameColor}
+              opacity={opacity}
+            />
+            <RoofPlaneRectMesh
+              center={center}
+              widthAxis={descriptor.widthAxis}
+              heightAxis={descriptor.heightAxis}
+              normal={descriptor.normal}
+              widthM={Math.max(0.02, moduleSize.widthM - borderM * 2)}
+              heightM={Math.max(0.02, moduleSize.heightM - borderM * 2)}
+              offsetM={
+                descriptor.array.mountingOffsetM + descriptor.array.panelThicknessM + 0.001
+              }
+              color={panelColor}
+              opacity={opacity}
+            />
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+function InteractiveSolarPanelArray({
+  descriptor,
+  selected,
+  canMove,
+  onSelect,
+  onMove,
+  onDraggingChange,
+}: {
+  descriptor: SolarPanelArray3DDescriptor;
+  selected: boolean;
+  canMove: boolean;
+  onSelect?: (solarPanelArrayId: string) => void;
+  onMove?: (solarPanelArrayId: string, center: { x: number; y: number }) => void;
+  onDraggingChange: (isDragging: boolean) => void;
+}) {
+  const [draftCenter, setDraftCenter] = useState<Vec3Tuple | null>(null);
+  const draftCenterRef = useRef<Vec3Tuple | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    plane: THREE.Plane;
+    offset: THREE.Vector3;
+  } | null>(null);
+  const arraySize = getSolarPanelArraySize(descriptor.array);
+  const displayDescriptor = draftCenter ? { ...descriptor, center: draftCenter } : descriptor;
+
+  useEffect(() => {
+    if (!dragRef.current) {
+      draftCenterRef.current = null;
+      setDraftCenter(null);
+    }
+  }, [descriptor.center]);
+
+  function finishDrag(event: any, commit: boolean) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    event.stopPropagation();
+    event.target.releasePointerCapture?.(event.pointerId);
+    dragRef.current = null;
+    onDraggingChange(false);
+    if (commit && draftCenterRef.current && onMove) {
+      onMove(descriptor.array.id, {
+        x: draftCenterRef.current[0],
+        y: -draftCenterRef.current[2],
+      });
+    }
+    draftCenterRef.current = null;
+    setDraftCenter(null);
+  }
+
+  return (
+    <group>
+      <SolarPanelArrayVisual descriptor={displayDescriptor} selected={selected} />
+      <RoofPlaneRectMesh
+        center={displayDescriptor.center}
+        widthAxis={descriptor.widthAxis}
+        heightAxis={descriptor.heightAxis}
+        normal={descriptor.normal}
+        widthM={arraySize.widthM}
+        heightM={arraySize.heightM}
+        offsetM={descriptor.array.mountingOffsetM + descriptor.array.panelThicknessM + 0.015}
+        color="#ffffff"
+        opacity={0}
+        colorWrite={false}
+        depthWrite={false}
+        depthTest={false}
+        onPointerDown={(event) => {
+          if (!canMove || event.button !== 0) {
+            return;
+          }
+
+          event.stopPropagation();
+          const normal = new THREE.Vector3(...descriptor.normal);
+          const center = new THREE.Vector3(...descriptor.center);
+          const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, center);
+          const hit = event.ray.intersectPlane(plane, new THREE.Vector3());
+          if (!hit) {
+            return;
+          }
+
+          dragRef.current = {
+            pointerId: event.pointerId,
+            plane,
+            offset: center.clone().sub(hit),
+          };
+          event.target.setPointerCapture?.(event.pointerId);
+          onDraggingChange(true);
+        }}
+        onPointerMove={(event) => {
+          const drag = dragRef.current;
+          if (!drag || drag.pointerId !== event.pointerId) {
+            return;
+          }
+
+          event.stopPropagation();
+          const hit = event.ray.intersectPlane(drag.plane, new THREE.Vector3());
+          if (!hit) {
+            return;
+          }
+          const next = hit.add(drag.offset);
+          const nextCenter: Vec3Tuple = [next.x, next.y, next.z];
+          draftCenterRef.current = nextCenter;
+          setDraftCenter(nextCenter);
+        }}
+        onPointerUp={(event) => finishDrag(event, true)}
+        onClick={(event) => event.stopPropagation()}
+        onContextMenu={(event) => {
+          event.stopPropagation();
+          event.nativeEvent.preventDefault();
+          onSelect?.(descriptor.array.id);
+        }}
+      />
+    </group>
   );
 }
 
@@ -1080,20 +1766,27 @@ function PreviewCameraController({
   radius,
   onPreview3DChange,
   onOrbitingChange,
+  enabled = true,
 }: {
   preview3D: Preview3DState;
   target: [number, number, number];
   radius: number;
   onPreview3DChange: (patch: Partial<Preview3DState>) => void;
   onOrbitingChange: (isOrbiting: boolean) => void;
+  enabled?: boolean;
 }) {
   const controlsRef = useRef<any>(null);
+  const isControlActiveRef = useRef(false);
   const lastSignatureRef = useRef("");
   const { camera } = useThree();
   const activeTarget = getPreview3DTarget(preview3D, target);
   const cameraMode = getPreview3DCameraMode(preview3D);
 
   useEffect(() => {
+    if (isControlActiveRef.current) {
+      return;
+    }
+
     const [x, y, z] = getCameraPosition(preview3D, activeTarget, radius);
     camera.position.set(x, y, z);
     camera.up.set(0, 1, 0);
@@ -1105,10 +1798,16 @@ function PreviewCameraController({
     }
   }, [activeTarget, camera, preview3D, radius]);
 
+  function handleOrbitStart() {
+    isControlActiveRef.current = true;
+    onOrbitingChange(true);
+  }
+
   function handleOrbitEnd() {
-    onOrbitingChange(false);
     const controls = controlsRef.current;
     if (!controls) {
+      isControlActiveRef.current = false;
+      onOrbitingChange(false);
       return;
     }
 
@@ -1119,6 +1818,8 @@ function PreviewCameraController({
     const deltaZ = position.z - controlTarget.z;
     const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ);
     if (distance < 0.0001) {
+      isControlActiveRef.current = false;
+      onOrbitingChange(false);
       return;
     }
 
@@ -1134,18 +1835,19 @@ function PreviewCameraController({
           ]
         : [0, 0, 0];
     const signature = `${cameraMode}|${yawDeg.toFixed(2)}|${pitchDeg.toFixed(2)}|${distanceMultiplier.toFixed(3)}|${targetOffset.join("|")}`;
-    if (signature === lastSignatureRef.current) {
-      return;
+    if (signature !== lastSignatureRef.current) {
+      lastSignatureRef.current = signature;
+      onPreview3DChange({
+        yawDeg: Number(yawDeg.toFixed(2)),
+        pitchDeg: Number(pitchDeg.toFixed(2)),
+        distanceMultiplier: Number(distanceMultiplier.toFixed(3)),
+        targetOffset,
+        cameraPositionOffset: null,
+      });
     }
 
-    lastSignatureRef.current = signature;
-    onPreview3DChange({
-      yawDeg: Number(yawDeg.toFixed(2)),
-      pitchDeg: Number(pitchDeg.toFixed(2)),
-      distanceMultiplier: Number(distanceMultiplier.toFixed(3)),
-      targetOffset,
-      cameraPositionOffset: null,
-    });
+    isControlActiveRef.current = false;
+    onOrbitingChange(false);
   }
 
   return (
@@ -1156,7 +1858,8 @@ function PreviewCameraController({
       makeDefault
       enablePan={cameraMode === "FreeOrbit"}
       screenSpacePanning
-      onStart={() => onOrbitingChange(true)}
+      enabled={enabled}
+      onStart={handleOrbitStart}
       onEnd={handleOrbitEnd}
     />
   );
@@ -1406,22 +2109,44 @@ export function ViewportScene3D({
   selectedDoorId = null,
   onSelectDoor,
   onInsertDoor3D,
+  onApplyExternalShadingToDoor,
   selectedWindowId = null,
   onSelectWindow,
   onClearOpeningSelection,
   onInsertWindow3D,
+  onApplyExternalShadingToWindow,
   selectedRoofOpeningId = null,
   onSelectRoofOpening,
   onInsertRoofWindow3D,
+  selectedSolarPanelArrayId = null,
+  onSelectSolarPanelArray,
+  onCreateSolarPanelArray,
+  onMoveSolarPanelArray,
+  solarPanelToolDesign,
   door3DToolDesign,
   window3DToolDesign,
+  externalShadingToolDesign,
+  externalShadingFitOpeningWidth = false,
   hiddenRoofLayerIds = [],
 }: ViewportScene3DProps) {
   const [isOrbiting, setIsOrbiting] = useState(false);
+  const [isObjectDragging, setIsObjectDragging] = useState(false);
   const [hoveredDoorId, setHoveredDoorId] = useState<string | null>(null);
   const [hoveredWindowId, setHoveredWindowId] = useState<string | null>(null);
   const [hoveredRoofOpeningId, setHoveredRoofOpeningId] = useState<string | null>(null);
+  const [hoveredSolarPlacement, setHoveredSolarPlacement] = useState<{
+    surface: RoofSurface3DDescriptor;
+    center: { x: number; y: number };
+    worldCenter: Vec3Tuple;
+  } | null>(null);
   const suppressNextContextClearRef = useRef(false);
+  const canvasEvents = useMemo(
+    () => (store: Parameters<typeof createPointerEvents>[0]) => ({
+      ...createPointerEvents(store),
+      enabled: !isOrbiting,
+    }),
+    [isOrbiting],
+  );
   const scene = useMemo(
     () =>
       buildPreview3DScene(
@@ -1438,12 +2163,31 @@ export function ViewportScene3D({
     () => buildRoofOpening3DDescriptors(project, hiddenRoofLayerIds),
     [hiddenRoofLayerIds, project],
   );
+  const roofSurfaces3D = useMemo(
+    () => buildRoofSurface3DDescriptors(project, hiddenRoofLayerIds),
+    [hiddenRoofLayerIds, project],
+  );
+  const solarPanelArrays3D = useMemo(
+    () => buildSolarPanelArray3DDescriptors(project, hiddenRoofLayerIds),
+    [hiddenRoofLayerIds, project],
+  );
   const grayMode = preview3D.surfaceMode === "GrayOpaque";
   const cameraMode = getPreview3DCameraMode(preview3D);
 
+  useEffect(() => {
+    if (!isOrbiting) {
+      return;
+    }
+
+    setHoveredDoorId(null);
+    setHoveredWindowId(null);
+    setHoveredRoofOpeningId(null);
+    setHoveredSolarPlacement(null);
+  }, [isOrbiting]);
+
   return (
     <div
-      className={isOrbiting ? "viewport-scene-3d is-orbiting" : "viewport-scene-3d"}
+      className={isOrbiting || isObjectDragging ? "viewport-scene-3d is-orbiting" : "viewport-scene-3d"}
       onContextMenu={(event) => {
         event.preventDefault();
         if (suppressNextContextClearRef.current) {
@@ -1459,6 +2203,7 @@ export function ViewportScene3D({
         dpr={[1, 2]}
         gl={{ antialias: true, alpha: true }}
         camera={{ fov: 42, near: 0.1, far: 2000 }}
+        events={canvasEvents}
       >
         <color attach="background" args={["#0a1122"]} />
         <fog attach="fog" args={["#0a1122", scene.radius * 4, scene.radius * 12]} />
@@ -1497,6 +2242,65 @@ export function ViewportScene3D({
           {scene.meshes.map((primitive, index) => (
             <MeshPrimitive key={`mesh-${index}`} primitive={primitive} grayMode={grayMode} />
           ))}
+          {solarPanelArrays3D.map((descriptor) => (
+            <InteractiveSolarPanelArray
+              key={descriptor.array.id}
+              descriptor={descriptor}
+              selected={selectedSolarPanelArrayId === descriptor.array.id}
+              canMove={activeTool === "SolarPanels"}
+              onSelect={(solarPanelArrayId) => {
+                suppressNextContextClearRef.current = true;
+                onSelectSolarPanelArray?.(solarPanelArrayId);
+              }}
+              onMove={onMoveSolarPanelArray}
+              onDraggingChange={setIsObjectDragging}
+            />
+          ))}
+          {activeTool === "SolarPanels"
+            ? roofSurfaces3D.map((surface) => (
+                <RoofFaceInteractionMesh
+                  key={`solar-surface-${surface.roofSketchId}-${surface.roofFaceId}`}
+                  surface={surface}
+                  onHover={(center, worldCenter) =>
+                    setHoveredSolarPlacement({ surface, center, worldCenter })
+                  }
+                  onLeave={() =>
+                    setHoveredSolarPlacement((current) =>
+                      current?.surface.roofSketchId === surface.roofSketchId &&
+                      current.surface.roofFaceId === surface.roofFaceId
+                        ? null
+                        : current,
+                    )
+                  }
+                  onPlace={(center) => {
+                    setHoveredSolarPlacement(null);
+                    onCreateSolarPanelArray?.({
+                      roofSketchId: surface.roofSketchId,
+                      roofFaceId: surface.roofFaceId,
+                      center,
+                    });
+                  }}
+                />
+              ))
+            : null}
+          {activeTool === "SolarPanels" && hoveredSolarPlacement && solarPanelToolDesign ? (
+            <SolarPanelArrayVisual
+              preview
+              descriptor={{
+                array: {
+                  id: "solar_array_preview",
+                  roofSketchId: hoveredSolarPlacement.surface.roofSketchId,
+                  roofFaceId: hoveredSolarPlacement.surface.roofFaceId,
+                  center: hoveredSolarPlacement.center,
+                  ...solarPanelToolDesign,
+                },
+                center: hoveredSolarPlacement.worldCenter,
+                widthAxis: hoveredSolarPlacement.surface.widthAxis,
+                heightAxis: hoveredSolarPlacement.surface.heightAxis,
+                normal: hoveredSolarPlacement.surface.normal,
+              }}
+            />
+          ) : null}
           {doorOpenings3D.map((opening) => {
             const isHovered = hoveredDoorId === opening.door.id;
             const isSelected = selectedDoorId === opening.door.id;
@@ -1516,12 +2320,16 @@ export function ViewportScene3D({
                     setHoveredDoorId((current) => (current === opening.door.id ? null : current));
                   }}
                   onClick={(event) => {
-                    if (activeTool !== "Door") {
+                    if (activeTool !== "Door" && activeTool !== "ExternalShading") {
                       return;
                     }
 
                     event.stopPropagation();
-                    onInsertDoor3D?.(opening.door.id);
+                    if (activeTool === "ExternalShading") {
+                      onApplyExternalShadingToDoor?.(opening.door.id);
+                    } else {
+                      onInsertDoor3D?.(opening.door.id);
+                    }
                   }}
                   onContextMenu={(event) => {
                     event.stopPropagation();
@@ -1574,6 +2382,25 @@ export function ViewportScene3D({
                     selected={isSelected}
                   />
                 ) : null}
+                {activeTool === "ExternalShading" && isHovered && externalShadingToolDesign ? (
+                  <group position={opening.center} rotation={[0, opening.rotationY, 0]}>
+                    <ExternalShadingMesh
+                      widthM={opening.door.widthM}
+                      heightM={opening.door.heightM}
+                      wallThicknessM={opening.wallThicknessM}
+                      shading={
+                        externalShadingFitOpeningWidth
+                          ? fitExternalShadingToOpening(
+                              externalShadingToolDesign,
+                              opening.door.widthM,
+                            )
+                          : externalShadingToolDesign
+                      }
+                      preview
+                      selected={isSelected}
+                    />
+                  </group>
+                ) : null}
               </group>
             );
           })}
@@ -1596,12 +2423,16 @@ export function ViewportScene3D({
                     setHoveredWindowId((current) => (current === opening.window.id ? null : current));
                   }}
                   onClick={(event) => {
-                    if (activeTool !== "Window") {
+                    if (activeTool !== "Window" && activeTool !== "ExternalShading") {
                       return;
                     }
 
                     event.stopPropagation();
-                    onInsertWindow3D?.(opening.window.id);
+                    if (activeTool === "ExternalShading") {
+                      onApplyExternalShadingToWindow?.(opening.window.id);
+                    } else {
+                      onInsertWindow3D?.(opening.window.id);
+                    }
                   }}
                   onContextMenu={(event) => {
                     event.stopPropagation();
@@ -1647,6 +2478,25 @@ export function ViewportScene3D({
                     preview
                     selected={isSelected}
                   />
+                ) : null}
+                {activeTool === "ExternalShading" && isHovered && externalShadingToolDesign ? (
+                  <group position={opening.center} rotation={[0, opening.rotationY, 0]}>
+                    <ExternalShadingMesh
+                      widthM={opening.window.widthM}
+                      heightM={opening.window.heightM}
+                      wallThicknessM={opening.wallThicknessM}
+                      shading={
+                        externalShadingFitOpeningWidth
+                          ? fitExternalShadingToOpening(
+                              externalShadingToolDesign,
+                              opening.window.widthM,
+                            )
+                          : externalShadingToolDesign
+                      }
+                      preview
+                      selected={isSelected}
+                    />
+                  </group>
                 ) : null}
               </group>
             );
@@ -1727,7 +2577,7 @@ export function ViewportScene3D({
         </group>
         <gridHelper
           args={[Math.max(scene.radius * 4, 24), 48, "#87603a", "#31415f"]}
-          position={[scene.target[0], 0, scene.target[2]]}
+          position={[scene.target[0], project.site.elevationM + 0.03, scene.target[2]]}
         />
         {cameraMode === "FreeCamera" ? (
           <FreeCameraController
@@ -1744,6 +2594,7 @@ export function ViewportScene3D({
             radius={scene.radius}
             onPreview3DChange={onPreview3DChange}
             onOrbitingChange={setIsOrbiting}
+            enabled={!isObjectDragging}
           />
         )}
       </Canvas>

@@ -4,7 +4,11 @@ import {
   type FloatingWindowPosition,
 } from "./components/floating-window";
 import { ViewportScene } from "./components/viewport-scene";
-import { ViewportScene3D } from "./components/viewport-scene-3d";
+import {
+  ViewportScene3D,
+  type ExternalShadingToolDesign,
+  type SolarPanelToolDesign,
+} from "./components/viewport-scene-3d";
 import {
   createDoor,
   createMeasurement,
@@ -12,11 +16,14 @@ import {
   addLevel,
   addWallType,
   createExternalModel,
+  createGroundSurface,
   createNode,
   createShape,
   createSlab,
   createRoofOpening,
   createRoofSketch,
+  createSolarPanelArray,
+  createRoom,
   createStair,
   createWall,
   deleteWallType,
@@ -25,7 +32,10 @@ import {
   deleteDoor,
   deleteWindow,
   deleteRoofOpening,
+  deleteSolarPanelArray,
+  deleteRoom,
   deleteExternalModel,
+  deleteGroundSurface,
   deleteNode,
   deleteShape,
   deleteSlab,
@@ -37,10 +47,13 @@ import {
   updateDoor,
   updateWindow,
   updateExternalModel,
+  updateGroundSurface,
   updateLevel,
   updateProjectSettings,
   updateRoofSketch,
   updateRoofOpening,
+  updateSolarPanelArray,
+  updateRoom,
   updateStair,
   updateWall,
   updateWallType,
@@ -53,27 +66,36 @@ import {
   type Door3DSwingDirection,
   type DoorDesign3D,
   type DoorOpening,
+  type ExternalBlindsDesign3D,
+  type ExternalRollerShutterDesign3D,
+  type GarageDoorStyle,
   type WindowOpening,
   type WindowDesign3D,
+  calculatePolygonAreaM2,
   DEFAULT_ROOF_LAYER_ID,
   createExternalModel as buildExternalModel,
+  createGroundSurface as buildGroundSurface,
   createId,
   createNodeData,
   createPose2D,
+  createRoom as buildRoom,
   createShape as buildShape,
   createSlab as buildSlab,
   createVec2,
   createWall as buildWall,
   describeProject,
   type ExternalModel,
+  type GroundSurface,
   type MeasurementUnit,
   type NodeData,
   type Project,
   type RoofSketch,
   type RoofOpeningCutMode,
   type RoofOpeningRotationDeg,
+  type SolarPanelArray,
   type WallTopMode,
   type RoofType,
+  type Room,
   type Shape,
   type Slab,
   type Stair,
@@ -93,6 +115,12 @@ import {
   type PreviewWindowMessage,
 } from "./domain/preview-window-sync";
 import {
+  createLocalPolygonFromWorld,
+  getPolygonDimensions,
+  getSlabWorldPolygon,
+  unionConnectedPolygons,
+} from "./domain/slab-geometry";
+import {
   createViewportBoundsFromPoints,
   expandViewportBounds,
   getViewportFit,
@@ -101,8 +129,10 @@ import {
   type ViewportBounds,
 } from "./domain/viewport";
 import {
+  type EditorMode,
   type EditorSelection,
   type EditorTool,
+  type RoomToolMode,
   type WallAuthoringMode,
   useEditorUiStore,
 } from "./store/editor-ui-store";
@@ -119,18 +149,64 @@ const editorTools: EditorTool[] = [
   "Shape",
   "Slab",
   "Model",
+  "Ground",
+  "Rooms",
 ];
+const otherEditorTools: EditorTool[] = ["Model", "Ground", "Rooms"];
 
 const roofLayerEditorTools: EditorTool[] = ["Move", "Measure", "Roof", "RoofOpening", "RoofWindow"];
-const editorTools3D: EditorTool[] = ["Measure", "Door", "Window", "RoofWindow"];
+const editorTools3D: EditorTool[] = [
+  "Measure",
+  "Door",
+  "Window",
+  "ExternalShading",
+  "RoofWindow",
+  "SolarPanels",
+];
+const editorModes: EditorMode[] = ["Building", "Design", "Terrain"];
 const BUILT_IN_SAMPLE_URL = `${import.meta.env.BASE_URL}samples/default.wawod`;
 
+function getEditorModeDescription(mode: EditorMode) {
+  if (mode === "Design") {
+    return "Furniture, materials, colors and interior details will be authored here.";
+  }
+
+  if (mode === "Terrain") {
+    return "Terrain, gardens, slopes, paths and water features will be authored here.";
+  }
+
+  return "Structural plans, walls, openings, roofs, slabs and rooms are authored here.";
+}
+
 function getEditorToolLabel(tool: EditorTool) {
+  if (tool === "ExternalShading") {
+    return "External Shading";
+  }
+
   if (tool === "RoofOpening") {
     return "Roof Opening";
   }
 
+  if (tool === "SolarPanels") {
+    return "Solar Panels";
+  }
+
   return tool === "RoofWindow" ? "Roof Window" : tool;
+}
+
+function getSolarPanelToolDesign(array: SolarPanelArray): SolarPanelToolDesign {
+  return {
+    rows: array.rows,
+    columns: array.columns,
+    panelWidthM: array.panelWidthM,
+    panelHeightM: array.panelHeightM,
+    gapM: array.gapM,
+    orientation: array.orientation,
+    mountingOffsetM: array.mountingOffsetM,
+    panelThicknessM: array.panelThicknessM,
+    panelColorHex: array.panelColorHex,
+    frameColorHex: array.frameColorHex,
+  };
 }
 
 function toCentimeters(valueM: number) {
@@ -149,11 +225,154 @@ function getWindowDepthOffsetLimitM(wallThicknessM: number, glassThicknessM: num
   return Math.max((wallThicknessM - Math.max(glassThicknessM, 0)) / 2, 0);
 }
 
+function getPolygonSignedArea(points: readonly Vec2[]) {
+  let doubleArea = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    doubleArea += current.x * next.y - next.x * current.y;
+  }
+
+  return doubleArea / 2;
+}
+
+function getPolygonCenter(points: readonly Vec2[]) {
+  if (points.length === 0) {
+    return createVec2();
+  }
+
+  const total = points.reduce(
+    (sum, point) => createVec2(sum.x + point.x, sum.y + point.y),
+    createVec2(),
+  );
+  return createVec2(total.x / points.length, total.y / points.length);
+}
+
+function getRoomPolygonKey(points: readonly Vec2[]) {
+  return points
+    .map((point) => `${point.x.toFixed(3)},${point.y.toFixed(3)}`)
+    .sort()
+    .join("|");
+}
+
+function discoverRoomPolygonsFromWalls(project: Project, levelId: string) {
+  const levelNodes = project.nodes.filter((node) => node.levelId === levelId);
+  const nodeById = new Map(levelNodes.map((node) => [node.id, node] as const));
+  const adjacency = new Map<string, string[]>();
+  const edgeKeys = new Set<string>();
+
+  for (const wall of project.walls.filter((item) => item.levelId === levelId)) {
+    const startNode = nodeById.get(wall.startNodeId);
+    const endNode = nodeById.get(wall.endNodeId);
+    if (!startNode || !endNode || startNode.id === endNode.id) {
+      continue;
+    }
+
+    const undirectedKey = [startNode.id, endNode.id].sort().join(":");
+    if (edgeKeys.has(undirectedKey)) {
+      continue;
+    }
+
+    edgeKeys.add(undirectedKey);
+    adjacency.set(startNode.id, [...(adjacency.get(startNode.id) ?? []), endNode.id]);
+    adjacency.set(endNode.id, [...(adjacency.get(endNode.id) ?? []), startNode.id]);
+  }
+
+  for (const [nodeId, neighbors] of adjacency) {
+    const node = nodeById.get(nodeId);
+    if (!node) {
+      continue;
+    }
+
+    neighbors.sort((leftId, rightId) => {
+      const left = nodeById.get(leftId);
+      const right = nodeById.get(rightId);
+      if (!left || !right) {
+        return 0;
+      }
+
+      return (
+        Math.atan2(left.position.y - node.position.y, left.position.x - node.position.x) -
+        Math.atan2(right.position.y - node.position.y, right.position.x - node.position.x)
+      );
+    });
+  }
+
+  const visitedDirectedEdges = new Set<string>();
+  const polygons: Vec2[][] = [];
+  const polygonKeys = new Set<string>();
+
+  for (const [startId, neighbors] of adjacency) {
+    for (const nextId of neighbors) {
+      const initialKey = `${startId}->${nextId}`;
+      if (visitedDirectedEdges.has(initialKey)) {
+        continue;
+      }
+
+      const cycleNodeIds: string[] = [];
+      let currentStartId = startId;
+      let currentEndId = nextId;
+      let isClosed = false;
+
+      for (let guard = 0; guard < edgeKeys.size * 4 + 4; guard += 1) {
+        const directedKey = `${currentStartId}->${currentEndId}`;
+        if (visitedDirectedEdges.has(directedKey)) {
+          isClosed = currentStartId === startId && currentEndId === nextId;
+          break;
+        }
+
+        visitedDirectedEdges.add(directedKey);
+        cycleNodeIds.push(currentStartId);
+
+        const endNeighbors = adjacency.get(currentEndId) ?? [];
+        const reverseIndex = endNeighbors.indexOf(currentStartId);
+        if (reverseIndex < 0 || endNeighbors.length === 0) {
+          break;
+        }
+
+        const nextNeighborIndex = (reverseIndex - 1 + endNeighbors.length) % endNeighbors.length;
+        const nextNeighborId = endNeighbors[nextNeighborIndex];
+        currentStartId = currentEndId;
+        currentEndId = nextNeighborId;
+
+        if (currentStartId === startId && currentEndId === nextId) {
+          isClosed = true;
+          break;
+        }
+      }
+
+      if (!isClosed || cycleNodeIds.length < 3) {
+        continue;
+      }
+
+      const polygon = cycleNodeIds
+        .map((nodeId) => nodeById.get(nodeId)?.position ?? null)
+        .filter((point): point is Vec2 => point !== null);
+      const areaM2 = getPolygonSignedArea(polygon);
+      if (areaM2 <= 0.05) {
+        continue;
+      }
+
+      const key = getRoomPolygonKey(polygon);
+      if (polygonKeys.has(key)) {
+        continue;
+      }
+
+      polygonKeys.add(key);
+      polygons.push(polygon);
+    }
+  }
+
+  return polygons;
+}
+
 interface SelectionClipboardPayload {
   nodes: NodeData[];
   walls: Wall[];
   shapes: Shape[];
   slabs: Slab[];
+  groundSurfaces: GroundSurface[];
+  rooms: Room[];
   models: ExternalModel[];
 }
 
@@ -295,6 +514,300 @@ function DraftNumberInput({
         }
       }}
     />
+  );
+}
+
+function createDefaultExternalBlindsDesign3D(openingWidthM = 1.2): ExternalBlindsDesign3D {
+  return {
+    colorHex: "#8f949c",
+    coveragePercent: 100,
+    slatAngleDeg: 35,
+    slatCount: 16,
+    slatDepthM: 0.055,
+    blindWidthM: openingWidthM,
+    boxWidthM: openingWidthM,
+    side: "Front",
+  };
+}
+
+function createDefaultExternalRollerShutterDesign3D(
+  openingWidthM = 1.2,
+): ExternalRollerShutterDesign3D {
+  return {
+    colorHex: "#8b929b",
+    coveragePercent: 100,
+    slatHeightM: 0.045,
+    shutterDepthM: 0.025,
+    shutterWidthM: openingWidthM,
+    boxWidthM: openingWidthM,
+    side: "Front",
+  };
+}
+
+function ExternalBlindsControls({
+  blinds,
+  onAdd,
+  onChange,
+  onRemove,
+  subtitle = "Fixed to this opening",
+}: {
+  blinds?: ExternalBlindsDesign3D | null;
+  onAdd?: () => void;
+  onChange: (patch: Partial<ExternalBlindsDesign3D>) => void;
+  onRemove?: () => void;
+  subtitle?: string;
+}) {
+  if (!blinds) {
+    if (!onAdd) {
+      return null;
+    }
+
+    return (
+      <button
+        type="button"
+        className="toolbar-button field-grid-wide"
+        onClick={onAdd}
+      >
+        Add External Blinds
+      </button>
+    );
+  }
+
+  return (
+    <>
+      <div className="field-grid-section-label">
+        <strong>External Blinds</strong>
+        <span>{subtitle}</span>
+      </div>
+      <label className="field-label">
+        <span>Lowered ({Math.round(blinds.coveragePercent)}%)</span>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value={blinds.coveragePercent}
+          onChange={(event) => onChange({ coveragePercent: Number(event.target.value) })}
+        />
+      </label>
+      <label className="field-label">
+        <span>Slat Angle ({Math.round(blinds.slatAngleDeg)}°)</span>
+        <input
+          type="range"
+          min="-80"
+          max="80"
+          step="1"
+          value={blinds.slatAngleDeg}
+          onChange={(event) => onChange({ slatAngleDeg: Number(event.target.value) })}
+        />
+      </label>
+      <label className="field-label">
+        <span>Slat Count</span>
+        <DraftNumberInput
+          min="1"
+          max="200"
+          step="1"
+          value={blinds.slatCount}
+          onCommit={(nextValue) =>
+            onChange({ slatCount: Math.max(1, Math.min(200, Math.round(nextValue))) })
+          }
+        />
+      </label>
+      <label className="field-label">
+        <span>Blind Width (m)</span>
+        <DraftNumberInput
+          min="0.05"
+          step="0.05"
+          value={blinds.blindWidthM}
+          onCommit={(nextValue) => {
+            if (nextValue > 0) {
+              onChange({ blindWidthM: nextValue });
+            }
+          }}
+        />
+      </label>
+      <label className="field-label">
+        <span>Slat Depth (cm)</span>
+        <DraftNumberInput
+          min="1"
+          max="50"
+          step="0.5"
+          value={toCentimeters(blinds.slatDepthM)}
+          onCommit={(nextValue) => {
+            if (nextValue > 0) {
+              onChange({ slatDepthM: toMetersFromCentimeters(nextValue) });
+            }
+          }}
+        />
+      </label>
+      <label className="field-label">
+        <span>Box Width (m)</span>
+        <DraftNumberInput
+          min="0.05"
+          step="0.05"
+          value={blinds.boxWidthM}
+          onCommit={(nextValue) => {
+            if (nextValue > 0) {
+              onChange({ boxWidthM: nextValue });
+            }
+          }}
+        />
+      </label>
+      <label className="field-label">
+        <span>Slat Color</span>
+        <input
+          type="color"
+          value={blinds.colorHex}
+          onChange={(event) => onChange({ colorHex: event.target.value })}
+        />
+      </label>
+      <label className="field-label">
+        <span>Wall Side</span>
+        <select
+          value={blinds.side}
+          onChange={(event) =>
+            onChange({ side: event.target.value as ExternalBlindsDesign3D["side"] })
+          }
+        >
+          <option value="Front">Front</option>
+          <option value="Back">Back</option>
+        </select>
+      </label>
+      {onRemove ? (
+        <button
+          type="button"
+          className="toolbar-button field-grid-wide"
+          onClick={onRemove}
+        >
+          Remove External Blinds
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+function ExternalRollerShutterControls({
+  shutter,
+  onAdd,
+  onChange,
+  onRemove,
+  subtitle = "Fixed to this opening",
+}: {
+  shutter?: ExternalRollerShutterDesign3D | null;
+  onAdd?: () => void;
+  onChange: (patch: Partial<ExternalRollerShutterDesign3D>) => void;
+  onRemove?: () => void;
+  subtitle?: string;
+}) {
+  if (!shutter) {
+    if (!onAdd) {
+      return null;
+    }
+
+    return (
+      <button type="button" className="toolbar-button field-grid-wide" onClick={onAdd}>
+        Add Roller Shutter
+      </button>
+    );
+  }
+
+  return (
+    <>
+      <div className="field-grid-section-label">
+        <strong>Roller Shutter</strong>
+        <span>{subtitle}</span>
+      </div>
+      <label className="field-label">
+        <span>Lowered ({Math.round(shutter.coveragePercent)}%)</span>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value={shutter.coveragePercent}
+          onChange={(event) => onChange({ coveragePercent: Number(event.target.value) })}
+        />
+      </label>
+      <label className="field-label">
+        <span>Shutter Width (m)</span>
+        <DraftNumberInput
+          min="0.05"
+          step="0.05"
+          value={shutter.shutterWidthM}
+          onCommit={(nextValue) => {
+            if (nextValue > 0) {
+              onChange({ shutterWidthM: nextValue });
+            }
+          }}
+        />
+      </label>
+      <label className="field-label">
+        <span>Slat Height (cm)</span>
+        <DraftNumberInput
+          min="1"
+          max="25"
+          step="0.5"
+          value={toCentimeters(shutter.slatHeightM)}
+          onCommit={(nextValue) => {
+            if (nextValue > 0) {
+              onChange({ slatHeightM: toMetersFromCentimeters(nextValue) });
+            }
+          }}
+        />
+      </label>
+      <label className="field-label">
+        <span>Shutter Depth (cm)</span>
+        <DraftNumberInput
+          min="1"
+          max="50"
+          step="0.5"
+          value={toCentimeters(shutter.shutterDepthM)}
+          onCommit={(nextValue) => {
+            if (nextValue > 0) {
+              onChange({ shutterDepthM: toMetersFromCentimeters(nextValue) });
+            }
+          }}
+        />
+      </label>
+      <label className="field-label">
+        <span>Box Width (m)</span>
+        <DraftNumberInput
+          min="0.05"
+          step="0.05"
+          value={shutter.boxWidthM}
+          onCommit={(nextValue) => {
+            if (nextValue > 0) {
+              onChange({ boxWidthM: nextValue });
+            }
+          }}
+        />
+      </label>
+      <label className="field-label">
+        <span>Shutter Color</span>
+        <input
+          type="color"
+          value={shutter.colorHex}
+          onChange={(event) => onChange({ colorHex: event.target.value })}
+        />
+      </label>
+      <label className="field-label">
+        <span>Wall Side</span>
+        <select
+          value={shutter.side}
+          onChange={(event) =>
+            onChange({ side: event.target.value as ExternalRollerShutterDesign3D["side"] })
+          }
+        >
+          <option value="Front">Front</option>
+          <option value="Back">Back</option>
+        </select>
+      </label>
+      {onRemove ? (
+        <button type="button" className="toolbar-button field-grid-wide" onClick={onRemove}>
+          Remove Roller Shutter
+        </button>
+      ) : null}
+    </>
   );
 }
 
@@ -444,6 +957,155 @@ function distanceSquared(left: Vec2, right: Vec2) {
   return (left.x - right.x) * (left.x - right.x) + (left.y - right.y) * (left.y - right.y);
 }
 
+function getRoofEdgeChainId(edge: RoofSketch["edges"][number]) {
+  return edge.chainId ?? edge.id;
+}
+
+function findRoofVertexNear(sketch: RoofSketch, position: Vec2, toleranceM: number) {
+  let nearest: RoofSketch["vertices"][number] | null = null;
+  let nearestDistanceSquared = toleranceM * toleranceM;
+
+  for (const vertex of sketch.vertices) {
+    const currentDistanceSquared = distanceSquared(vertex.position, position);
+    if (currentDistanceSquared <= nearestDistanceSquared) {
+      nearest = vertex;
+      nearestDistanceSquared = currentDistanceSquared;
+    }
+  }
+
+  return nearest;
+}
+
+function getRoofChainVertexIds(sketch: RoofSketch, chainEdgeIds: readonly string[]) {
+  const selectedEdgeIdSet = new Set(chainEdgeIds);
+  const chainEdges = sketch.edges.filter((edge) => selectedEdgeIdSet.has(edge.id));
+  if (chainEdges.length === 0) {
+    return [];
+  }
+
+  const adjacency = new Map<string, Array<{ edgeId: string; neighborId: string }>>();
+  for (const edge of chainEdges) {
+    adjacency.set(edge.startVertexId, [
+      ...(adjacency.get(edge.startVertexId) ?? []),
+      { edgeId: edge.id, neighborId: edge.endVertexId },
+    ]);
+    adjacency.set(edge.endVertexId, [
+      ...(adjacency.get(edge.endVertexId) ?? []),
+      { edgeId: edge.id, neighborId: edge.startVertexId },
+    ]);
+  }
+
+  const endpoints = [...adjacency.entries()]
+    .filter(([, neighbors]) => neighbors.length === 1)
+    .map(([vertexId]) => vertexId);
+  const startVertexId = endpoints[0] ?? chainEdges[0].startVertexId;
+  const orderedVertexIds = [startVertexId];
+  const usedEdgeIds = new Set<string>();
+  let currentVertexId = startVertexId;
+
+  while (usedEdgeIds.size < chainEdges.length) {
+    const next = (adjacency.get(currentVertexId) ?? []).find(
+      (candidate) => !usedEdgeIds.has(candidate.edgeId),
+    );
+    if (!next) {
+      break;
+    }
+
+    usedEdgeIds.add(next.edgeId);
+    currentVertexId = next.neighborId;
+    if (currentVertexId === startVertexId) {
+      break;
+    }
+    orderedVertexIds.push(currentVertexId);
+  }
+
+  return orderedVertexIds;
+}
+
+function compactRoofFaceVertexIds(vertexIds: readonly string[]) {
+  const compacted: string[] = [];
+  for (const vertexId of vertexIds) {
+    if (compacted[compacted.length - 1] !== vertexId) {
+      compacted.push(vertexId);
+    }
+  }
+
+  if (compacted.length > 1 && compacted[0] === compacted[compacted.length - 1]) {
+    compacted.pop();
+  }
+
+  return compacted;
+}
+
+function splitDisconnectedRoofChainEdges(edges: RoofSketch["edges"]) {
+  const edgesByChainId = new Map<string, RoofSketch["edges"]>();
+  for (const edge of edges) {
+    const chainId = getRoofEdgeChainId(edge);
+    edgesByChainId.set(chainId, [...(edgesByChainId.get(chainId) ?? []), edge]);
+  }
+
+  return [...edgesByChainId.values()].flatMap((chainEdges) => {
+    if (chainEdges.length <= 1) {
+      return chainEdges;
+    }
+
+    const edgeById = new Map(chainEdges.map((edge) => [edge.id, edge] as const));
+    const edgeIdsByVertexId = new Map<string, string[]>();
+    for (const edge of chainEdges) {
+      edgeIdsByVertexId.set(edge.startVertexId, [
+        ...(edgeIdsByVertexId.get(edge.startVertexId) ?? []),
+        edge.id,
+      ]);
+      edgeIdsByVertexId.set(edge.endVertexId, [
+        ...(edgeIdsByVertexId.get(edge.endVertexId) ?? []),
+        edge.id,
+      ]);
+    }
+
+    const visitedEdgeIds = new Set<string>();
+    const nextEdges: RoofSketch["edges"] = [];
+    for (const edge of chainEdges) {
+      if (visitedEdgeIds.has(edge.id)) {
+        continue;
+      }
+
+      const componentEdgeIds = new Set<string>();
+      const stack = [edge.id];
+      while (stack.length > 0) {
+        const edgeId = stack.pop();
+        if (!edgeId || visitedEdgeIds.has(edgeId)) {
+          continue;
+        }
+
+        const currentEdge = edgeById.get(edgeId);
+        if (!currentEdge) {
+          continue;
+        }
+
+        visitedEdgeIds.add(edgeId);
+        componentEdgeIds.add(edgeId);
+        for (const vertexId of [currentEdge.startVertexId, currentEdge.endVertexId]) {
+          for (const neighborEdgeId of edgeIdsByVertexId.get(vertexId) ?? []) {
+            if (!visitedEdgeIds.has(neighborEdgeId)) {
+              stack.push(neighborEdgeId);
+            }
+          }
+        }
+      }
+
+      const componentChainId = edge.id;
+      for (const componentEdgeId of componentEdgeIds) {
+        const componentEdge = edgeById.get(componentEdgeId);
+        if (componentEdge) {
+          nextEdges.push({ ...componentEdge, chainId: componentChainId });
+        }
+      }
+    }
+
+    return nextEdges;
+  });
+}
+
 function findWallAtPoint(project: Project, levelId: string, position: Vec2, preferredWallId?: string | null) {
   const candidates = preferredWallId
     ? [
@@ -475,6 +1137,10 @@ function findWallAtPoint(project: Project, levelId: string, position: Vec2, pref
 export default function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const viewportCanvasRef = useRef<HTMLDivElement | null>(null);
+  const otherToolsMenuRef = useRef<HTMLDivElement | null>(null);
+  const editorMenuRef = useRef<HTMLDivElement | null>(null);
+  const doorToolsMenuRef = useRef<HTMLDivElement | null>(null);
+  const windowToolsMenuRef = useRef<HTMLDivElement | null>(null);
   const previewMenuRef = useRef<HTMLDivElement | null>(null);
   const settingsMenuRef = useRef<HTMLDivElement | null>(null);
   const previewWindowSourceIdRef = useRef(createId("preview_source"));
@@ -498,6 +1164,7 @@ export default function App() {
   const importProjectJson = useProjectStore((state) => state.importProjectJson);
   const markSaved = useProjectStore((state) => state.markSaved);
 
+  const editorMode = useEditorUiStore((state) => state.editorMode);
   const activeTool = useEditorUiStore((state) => state.activeTool);
   const viewportMode = useEditorUiStore((state) => state.viewportMode);
   const wallAuthoringMode = useEditorUiStore((state) => state.wallAuthoringMode);
@@ -516,6 +1183,7 @@ export default function App() {
   const viewport = useEditorUiStore((state) => state.viewport);
   const preview3D = useEditorUiStore((state) => state.preview3D);
   const viewportPresets = useEditorUiStore((state) => state.viewportPresets);
+  const setEditorMode = useEditorUiStore((state) => state.setEditorMode);
   const setViewportMode = useEditorUiStore((state) => state.setViewportMode);
   const setWallAuthoringMode = useEditorUiStore((state) => state.setWallAuthoringMode);
   const setActiveTool = useEditorUiStore((state) => state.setActiveTool);
@@ -548,10 +1216,16 @@ export default function App() {
     "History transactions now collapse drag edits into single undo and redo steps.",
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [slabConnectEnabled, setSlabConnectEnabled] = useState(false);
   const [viewportFrame, setViewportFrame] = useState({ widthPx: 0, heightPx: 0 });
   const [clipboardPayload, setClipboardPayload] = useState<SelectionClipboardPayload | null>(null);
   const [clipboardPasteCount, setClipboardPasteCount] = useState(0);
   const [projectNameDraft, setProjectNameDraft] = useState(project.projectName);
+  const [isOtherToolsMenuOpen, setIsOtherToolsMenuOpen] = useState(false);
+  const [isEditorMenuOpen, setIsEditorMenuOpen] = useState(false);
+  const [openingToolsMenuOpen, setOpeningToolsMenuOpen] = useState<"Door" | "Window" | null>(null);
+  const [externalShadingToolbarAnchor, setExternalShadingToolbarAnchor] =
+    useState<"Door" | "Window">("Window");
   const [isPreviewMenuOpen, setIsPreviewMenuOpen] = useState(false);
   const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
   const [editingLevelId, setEditingLevelId] = useState<string | null>(null);
@@ -581,6 +1255,8 @@ export default function App() {
   const [doorToolWidthM, setDoorToolWidthM] = useState(0.9);
   const [doorToolHeightM, setDoorToolHeightM] = useState(2.1);
   const [door3DKind, setDoor3DKind] = useState<DoorDesign3D["kind"]>("Normal");
+  const [door3DGarageDoorStyle, setDoor3DGarageDoorStyle] =
+    useState<GarageDoorStyle>("SinglePanel");
   const [door3DFrameThicknessM, setDoor3DFrameThicknessM] = useState(0.08);
   const [door3DFrameColorHex, setDoor3DFrameColorHex] = useState("#c4cbd6");
   const [door3DDoorColorHex, setDoor3DDoorColorHex] = useState("#8a5b3d");
@@ -598,18 +1274,43 @@ export default function App() {
   const [window3DVerticalDivisions, setWindow3DVerticalDivisions] = useState(0);
   const [window3DHorizontalDivisions, setWindow3DHorizontalDivisions] = useState(0);
   const [window3DWallDepthOffsetM, setWindow3DWallDepthOffsetM] = useState(0);
+  const [externalShadingKind, setExternalShadingKind] =
+    useState<ExternalShadingToolDesign["kind"]>("ExternalBlinds");
+  const [externalBlindsToolDesign, setExternalBlindsToolDesign] =
+    useState<ExternalBlindsDesign3D>(() => createDefaultExternalBlindsDesign3D());
+  const [externalRollerShutterToolDesign, setExternalRollerShutterToolDesign] =
+    useState<ExternalRollerShutterDesign3D>(() => createDefaultExternalRollerShutterDesign3D());
+  const [externalShadingFitOpeningWidth, setExternalShadingFitOpeningWidth] = useState(true);
   const [measureToolUnit, setMeasureToolUnit] = useState<MeasurementUnit>("m");
   const [measureToolPermanent, setMeasureToolPermanent] = useState(false);
   const [shapeToolKind, setShapeToolKind] = useState<Shape["kind"]>("Square");
   const [shapeToolBottomM, setShapeToolBottomM] = useState(0);
   const [shapeToolTopM, setShapeToolTopM] = useState(2.5);
-  const [roofToolLineElevationM, setRoofToolLineElevationM] = useState(3);
+  const [groundToolKind, setGroundToolKind] = useState<GroundSurface["kind"]>("Floor");
+  const [roomToolMode, setRoomToolMode] = useState<RoomToolMode>("Rectangle");
+  const [roomConnectEnabled, setRoomConnectEnabled] = useState(false);
+  const [roomToolName, setRoomToolName] = useState("Room");
+  const [roofToolStartElevationM, setRoofToolStartElevationM] = useState(3);
+  const [roofToolEndElevationM, setRoofToolEndElevationM] = useState(3);
+  const [roofToolEndElevationLocked, setRoofToolEndElevationLocked] = useState(true);
   const [roofWindowToolWidthM, setRoofWindowToolWidthM] = useState(0.8);
   const [roofWindowToolHeightM, setRoofWindowToolHeightM] = useState(1.0);
   const [roofWindowToolCutMode, setRoofWindowToolCutMode] =
     useState<RoofOpeningCutMode>("NormalToRoof");
   const [roofWindowToolRotationDeg, setRoofWindowToolRotationDeg] =
     useState<RoofOpeningRotationDeg>(0);
+  const [solarPanelToolDesign, setSolarPanelToolDesign] = useState<SolarPanelToolDesign>({
+    rows: 2,
+    columns: 4,
+    panelWidthM: 1.134,
+    panelHeightM: 1.722,
+    gapM: 0.03,
+    orientation: "Portrait",
+    mountingOffsetM: 0.08,
+    panelThicknessM: 0.04,
+    panelColorHex: "#173f68",
+    frameColorHex: "#b8c1ca",
+  });
   const [stairToolWidthM, setStairToolWidthM] = useState(1.1);
   const [stairToolEndElevationOffsetM, setStairToolEndElevationOffsetM] = useState(3);
   const [stairToolRiserHeightM, setStairToolRiserHeightM] = useState(0.17);
@@ -623,6 +1324,10 @@ export default function App() {
   const projectValidation = validateProject(project);
   const availableEditorTools = useMemo(
     () => {
+      if (editorMode !== "Building") {
+        return [];
+      }
+
       if (viewportMode === "3d") {
         return editorTools3D;
       }
@@ -635,7 +1340,7 @@ export default function App() {
         ? editorTools.filter((tool) => tool !== "Node")
         : editorTools;
     },
-    [activeRoofLayerId, viewportMode, wallAuthoringMode],
+    [activeRoofLayerId, editorMode, viewportMode, wallAuthoringMode],
   );
   const hiddenLevelIdSet2D = useMemo(() => new Set(hiddenLevelIds2D), [hiddenLevelIds2D]);
   const hiddenLevelIdSet3D = useMemo(() => new Set(hiddenLevelIds3D), [hiddenLevelIds3D]);
@@ -669,6 +1374,7 @@ export default function App() {
           stairs: project.stairs.filter((stair) => !hiddenLevelIdSet.has(stair.levelId)),
           shapes: project.shapes.filter((shape) => !hiddenLevelIdSet.has(shape.levelId)),
           slabs: project.slabs.filter((slab) => !hiddenLevelIdSet.has(slab.levelId)),
+          rooms: project.rooms.filter((room) => !hiddenLevelIdSet.has(room.levelId)),
           externalModels: project.externalModels.filter(
             (model) => !hiddenLevelIdSet.has(model.levelId),
           ),
@@ -691,6 +1397,13 @@ export default function App() {
           baseProject.roofSketches.some(
             (sketch) =>
               sketch.id === opening.roofSketchId &&
+              !hiddenRoofLayerIdSet2D.has(sketch.layerId),
+          ),
+        ),
+        solarPanelArrays: baseProject.solarPanelArrays.filter((array) =>
+          baseProject.roofSketches.some(
+            (sketch) =>
+              sketch.id === array.roofSketchId &&
               !hiddenRoofLayerIdSet2D.has(sketch.layerId),
           ),
         ),
@@ -760,6 +1473,14 @@ export default function App() {
     currentSelection?.kind === "slab"
       ? (project.slabs.find((slab) => slab.id === currentSelection.id) ?? null)
       : null;
+  const selectedGroundSurface =
+    currentSelection?.kind === "groundSurface"
+      ? (project.groundSurfaces.find((groundSurface) => groundSurface.id === currentSelection.id) ?? null)
+      : null;
+  const selectedRoom =
+    currentSelection?.kind === "room"
+      ? (project.rooms.find((room) => room.id === currentSelection.id) ?? null)
+      : null;
   const selectedRoofSketch =
     currentSelection?.kind === "roofEdge"
       ? (project.roofSketches.find((sketch) =>
@@ -782,6 +1503,16 @@ export default function App() {
           (vertex) => vertex.id === selectedRoofEdge.endVertexId,
         ) ?? null)
       : null;
+  const selectedRoofVertexSketch =
+    currentSelection?.kind === "roofVertex"
+      ? (project.roofSketches.find((sketch) =>
+          sketch.vertices.some((vertex) => vertex.id === currentSelection.id),
+        ) ?? null)
+      : null;
+  const selectedRoofVertex =
+    currentSelection?.kind === "roofVertex" && selectedRoofVertexSketch
+      ? (selectedRoofVertexSketch.vertices.find((vertex) => vertex.id === currentSelection.id) ?? null)
+      : null;
   const selectedRoofFaceSketch =
     currentSelection?.kind === "roofFace"
       ? (project.roofSketches.find((sketch) =>
@@ -795,6 +1526,10 @@ export default function App() {
   const selectedRoofOpening =
     currentSelection?.kind === "roofOpening"
       ? (project.roofOpenings.find((opening) => opening.id === currentSelection.id) ?? null)
+      : null;
+  const selectedSolarPanelArray =
+    currentSelection?.kind === "solarPanelArray"
+      ? (project.solarPanelArrays.find((array) => array.id === currentSelection.id) ?? null)
       : null;
   const selectedExternalModel =
     currentSelection?.kind === "externalModel"
@@ -845,9 +1580,31 @@ export default function App() {
   const selectedSlabIds = selectionSet
     .filter((selection) => selection.kind === "slab")
     .map((selection) => selection.id);
+  const selectedGroundSurfaceIds = selectionSet
+    .filter((selection) => selection.kind === "groundSurface")
+    .map((selection) => selection.id);
+  const selectedRoomIds = selectionSet
+    .filter((selection) => selection.kind === "room")
+    .map((selection) => selection.id);
   const selectedRoofEdgeIds = selectionSet
     .filter((selection) => selection.kind === "roofEdge")
     .map((selection) => selection.id);
+  const selectedRoofVertexIds = selectionSet
+    .filter((selection) => selection.kind === "roofVertex")
+    .map((selection) => selection.id);
+  const selectedRoofChainIds = useMemo(() => {
+    const chainIds = new Set<string>();
+    for (const edgeId of selectedRoofEdgeIds) {
+      const edge = project.roofSketches
+        .flatMap((sketch) => sketch.edges)
+        .find((candidate) => candidate.id === edgeId);
+      if (edge) {
+        chainIds.add(getRoofEdgeChainId(edge));
+      }
+    }
+
+    return [...chainIds];
+  }, [project.roofSketches, selectedRoofEdgeIds]);
   const selectedModelIds = selectionSet
     .filter((selection) => selection.kind === "externalModel")
     .map((selection) => selection.id);
@@ -871,6 +1628,10 @@ export default function App() {
   }, [setCursorWorld, viewportMode]);
 
   useEffect(() => {
+    if (editorMode !== "Building") {
+      return;
+    }
+
     if (viewportMode === "2d" && !editorTools3D.includes(activeTool)) {
       last2DToolRef.current = activeTool;
     }
@@ -878,10 +1639,15 @@ export default function App() {
     if (viewportMode === "3d" && editorTools3D.includes(activeTool)) {
       last3DToolRef.current = activeTool;
     }
-  }, [activeTool, viewportMode]);
+  }, [activeTool, editorMode, viewportMode]);
 
   const previousViewportModeRef = useRef(viewportMode);
   useEffect(() => {
+    if (editorMode !== "Building") {
+      previousViewportModeRef.current = viewportMode;
+      return;
+    }
+
     const previousMode = previousViewportModeRef.current;
     previousViewportModeRef.current = viewportMode;
 
@@ -899,15 +1665,23 @@ export default function App() {
     if (editorTools3D.includes(activeTool)) {
       setActiveTool(last2DToolRef.current);
     }
-  }, [activeTool, setActiveTool, viewportMode]);
+  }, [activeTool, editorMode, setActiveTool, viewportMode]);
 
   useEffect(() => {
+    if (editorMode !== "Building") {
+      return;
+    }
+
     if (wallAuthoringMode === "AutoWall" && activeTool === "Node") {
       setActiveTool("Wall");
     }
-  }, [activeTool, setActiveTool, wallAuthoringMode]);
+  }, [activeTool, editorMode, setActiveTool, wallAuthoringMode]);
 
   useEffect(() => {
+    if (editorMode !== "Building" || availableEditorTools.length === 0) {
+      return;
+    }
+
     if (availableEditorTools.includes(activeTool)) {
       return;
     }
@@ -917,7 +1691,16 @@ export default function App() {
         ? "Roof"
         : availableEditorTools[0],
     );
-  }, [activeRoofLayerId, activeTool, availableEditorTools, setActiveTool]);
+  }, [activeRoofLayerId, activeTool, availableEditorTools, editorMode, setActiveTool]);
+
+  useEffect(() => {
+    setIsOtherToolsMenuOpen(false);
+    setOpeningToolsMenuOpen(null);
+    setIsPreviewMenuOpen(false);
+    setIsSettingsMenuOpen(false);
+    setEditingLevelId(null);
+    setEditingWallTypeId(null);
+  }, [editorMode]);
 
   useEffect(() => {
     setProjectNameDraft(project.projectName);
@@ -942,6 +1725,18 @@ export default function App() {
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
       const target = event.target as Node;
+      if (!otherToolsMenuRef.current?.contains(target)) {
+        setIsOtherToolsMenuOpen(false);
+      }
+      if (!editorMenuRef.current?.contains(target)) {
+        setIsEditorMenuOpen(false);
+      }
+      if (
+        !doorToolsMenuRef.current?.contains(target) &&
+        !windowToolsMenuRef.current?.contains(target)
+      ) {
+        setOpeningToolsMenuOpen(null);
+      }
       if (!previewMenuRef.current?.contains(target)) {
         setIsPreviewMenuOpen(false);
       }
@@ -1054,6 +1849,10 @@ export default function App() {
       }
 
       if (key === "c") {
+        if (editorMode !== "Building") {
+          return;
+        }
+
         if (selectionSet.length === 0) {
           return;
         }
@@ -1064,6 +1863,10 @@ export default function App() {
       }
 
       if (key === "v") {
+        if (editorMode !== "Building") {
+          return;
+        }
+
         if (!clipboardPayload) {
           return;
         }
@@ -1087,7 +1890,7 @@ export default function App() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [canRedo, canUndo, clipboardPayload, isHistoryTransactionOpen, redo, selectionSet, undo]);
+  }, [canRedo, canUndo, clipboardPayload, editorMode, isHistoryTransactionOpen, redo, selectionSet, undo]);
 
   useEffect(() => {
     const element = viewportCanvasRef.current;
@@ -1159,6 +1962,10 @@ export default function App() {
     );
     const shapes = project.shapes.filter((shape) => selectedShapeIds.includes(shape.id));
     const slabs = project.slabs.filter((slab) => selectedSlabIds.includes(slab.id));
+    const groundSurfaces = project.groundSurfaces.filter((groundSurface) =>
+      selectedGroundSurfaceIds.includes(groundSurface.id),
+    );
+    const rooms = project.rooms.filter((room) => selectedRoomIds.includes(room.id));
     const models = project.externalModels.filter((model) => selectedModelIds.includes(model.id));
 
     if (
@@ -1166,12 +1973,14 @@ export default function App() {
       walls.length === 0 &&
       shapes.length === 0 &&
       slabs.length === 0 &&
+      groundSurfaces.length === 0 &&
+      rooms.length === 0 &&
       models.length === 0
     ) {
       return null;
     }
 
-    return { nodes, walls, shapes, slabs, models };
+    return { nodes, walls, shapes, slabs, groundSurfaces, rooms, models };
   }
 
   function handleCopySelection() {
@@ -1184,7 +1993,7 @@ export default function App() {
     setClipboardPayload(payload);
     setClipboardPasteCount(0);
     reportSuccess(
-      `Copied ${payload.nodes.length} node(s), ${payload.shapes.length} shape(s), ${payload.slabs.length} slab(s), ${payload.models.length} model marker(s) and ${payload.walls.length} wall(s).`,
+      `Copied ${payload.nodes.length} node(s), ${payload.shapes.length} shape(s), ${payload.slabs.length} slab(s), ${payload.groundSurfaces.length} ground surface(s), ${payload.rooms.length} room(s), ${payload.models.length} model marker(s) and ${payload.walls.length} wall(s).`,
     );
   }
 
@@ -1261,9 +2070,39 @@ export default function App() {
           thicknessM: slab.thicknessM,
           roofRiseM: slab.roofRiseM,
           zOffsetM: slab.zOffsetM,
+          polygon: slab.polygon,
+          connectWithOtherSlabs: slab.connectWithOtherSlabs,
         });
         newSelections.push({ kind: "slab", id: nextSlab.id });
         return nextSlab;
+      });
+
+      const nextGroundSurfaces = clipboardPayload.groundSurfaces.map((groundSurface) => {
+        const nextGroundSurface = buildGroundSurface({
+          name: groundSurface.name,
+          kind: groundSurface.kind,
+          pose: createPose2D(
+            createVec2(
+              groundSurface.pose.position.x + delta.x,
+              groundSurface.pose.position.y + delta.y,
+            ),
+            groundSurface.pose.yawDeg,
+          ),
+          widthM: groundSurface.widthM,
+          depthM: groundSurface.depthM,
+        });
+        newSelections.push({ kind: "groundSurface", id: nextGroundSurface.id });
+        return nextGroundSurface;
+      });
+
+      const nextRooms = clipboardPayload.rooms.map((room) => {
+        const nextRoom = buildRoom({
+          levelId: room.levelId,
+          name: room.name,
+          polygon: room.polygon.map((point) => createVec2(point.x + delta.x, point.y + delta.y)),
+        });
+        newSelections.push({ kind: "room", id: nextRoom.id });
+        return nextRoom;
       });
 
       const nextModels = clipboardPayload.models.map((model) => {
@@ -1287,6 +2126,8 @@ export default function App() {
         walls: [...current.walls, ...nextWalls],
         shapes: [...current.shapes, ...nextShapes],
         slabs: [...current.slabs, ...nextSlabs],
+        groundSurfaces: [...current.groundSurfaces, ...nextGroundSurfaces],
+        rooms: [...current.rooms, ...nextRooms],
         externalModels: [...current.externalModels, ...nextModels],
       };
     });
@@ -1377,11 +2218,25 @@ export default function App() {
           return null;
         }
 
+        return selectedSlab.kind === "Freeform"
+          ? createViewportBoundsFromPoints(getSlabWorldPolygon(selectedSlab))
+          : createRectBounds(
+              selectedSlab.pose.position,
+              selectedSlab.widthM,
+              selectedSlab.depthM,
+            );
+      case "groundSurface":
+        if (!selectedGroundSurface) {
+          return null;
+        }
+
         return createRectBounds(
-          selectedSlab.pose.position,
-          selectedSlab.widthM,
-          selectedSlab.depthM,
+          selectedGroundSurface.pose.position,
+          selectedGroundSurface.widthM,
+          selectedGroundSurface.depthM,
         );
+      case "room":
+        return selectedRoom ? createViewportBoundsFromPoints(selectedRoom.polygon) : null;
       case "roofEdge": {
         const sketch = project.roofSketches.find((candidate) =>
           candidate.edges.some((edge) => edge.id === currentSelection.id),
@@ -1399,6 +2254,8 @@ export default function App() {
           ? createViewportBoundsFromPoints([startVertex.position, endVertex.position])
           : null;
       }
+      case "roofVertex":
+        return selectedRoofVertex ? createCircularBounds(selectedRoofVertex.position, 0.45) : null;
       case "roofFace": {
         const sketch = project.roofSketches.find((candidate) =>
           candidate.faces.some((face) => face.id === currentSelection.id),
@@ -1424,6 +2281,10 @@ export default function App() {
         const heightM = opening.rotationDeg === 90 ? opening.heightM : opening.widthM;
         return createRectBounds(opening.center, widthM, heightM);
       }
+      case "solarPanelArray":
+        return selectedSolarPanelArray
+          ? createCircularBounds(selectedSolarPanelArray.center, 1)
+          : null;
       case "externalModel":
         return selectedExternalModel
           ? createCircularBounds(selectedExternalModel.position, 0.8)
@@ -1470,8 +2331,21 @@ export default function App() {
     for (const slab of project.slabs.filter((item) => item.levelId === activeLevelId)) {
       bounds = mergeViewportBounds(
         bounds,
-        createRectBounds(slab.pose.position, slab.widthM, slab.depthM),
+        slab.kind === "Freeform"
+          ? createViewportBoundsFromPoints(getSlabWorldPolygon(slab))
+          : createRectBounds(slab.pose.position, slab.widthM, slab.depthM),
       );
+    }
+
+    for (const groundSurface of project.groundSurfaces) {
+      bounds = mergeViewportBounds(
+        bounds,
+        createRectBounds(groundSurface.pose.position, groundSurface.widthM, groundSurface.depthM),
+      );
+    }
+
+    for (const room of project.rooms.filter((item) => item.levelId === activeLevelId)) {
+      bounds = mergeViewportBounds(bounds, createViewportBoundsFromPoints(room.polygon));
     }
 
     for (const model of project.externalModels.filter((item) => item.levelId === activeLevelId)) {
@@ -1686,6 +2560,33 @@ export default function App() {
       ...current,
       [id]: !current[id],
     }));
+  }
+
+  function handleSetRoofToolStartElevation(nextValue: number) {
+    if (!Number.isFinite(nextValue)) {
+      return;
+    }
+
+    setRoofToolStartElevationM(nextValue);
+    if (roofToolEndElevationLocked) {
+      setRoofToolEndElevationM(nextValue);
+    }
+  }
+
+  function handleSetRoofToolEndElevation(nextValue: number) {
+    if (Number.isFinite(nextValue)) {
+      setRoofToolEndElevationM(nextValue);
+    }
+  }
+
+  function handleToggleRoofToolEndElevationLock() {
+    setRoofToolEndElevationLocked((current) => {
+      const nextLocked = !current;
+      if (nextLocked) {
+        setRoofToolEndElevationM(roofToolStartElevationM);
+      }
+      return nextLocked;
+    });
   }
 
   function handleCreateNode() {
@@ -2003,6 +2904,7 @@ export default function App() {
   function createCurrentDoor3DDesign(): DoorDesign3D {
     return {
       kind: door3DKind,
+      garageDoorStyle: door3DGarageDoorStyle,
       frameThicknessM: door3DFrameThicknessM,
       frameColorHex: door3DFrameColorHex,
       doorColorHex: door3DDoorColorHex,
@@ -2014,10 +2916,48 @@ export default function App() {
     };
   }
 
+  function createCurrentExternalShadingDesign(openingWidthM: number): ExternalShadingToolDesign {
+    if (externalShadingKind === "ExternalBlinds") {
+      return {
+        kind: "ExternalBlinds",
+        design: {
+          ...externalBlindsToolDesign,
+          blindWidthM: externalShadingFitOpeningWidth
+            ? openingWidthM
+            : externalBlindsToolDesign.blindWidthM,
+          boxWidthM: externalShadingFitOpeningWidth
+            ? openingWidthM
+            : externalBlindsToolDesign.boxWidthM,
+        },
+      };
+    }
+
+    return {
+      kind: "RollerShutter",
+      design: {
+        ...externalRollerShutterToolDesign,
+        shutterWidthM: externalShadingFitOpeningWidth
+          ? openingWidthM
+          : externalRollerShutterToolDesign.shutterWidthM,
+        boxWidthM: externalShadingFitOpeningWidth
+          ? openingWidthM
+          : externalRollerShutterToolDesign.boxWidthM,
+      },
+    };
+  }
+
   function handleApplyDoor3DInsert(doorId: string) {
     try {
-      const design3D = createCurrentDoor3DDesign();
-      applyCommand((current) => updateDoor(current, doorId, { design3D }));
+      const toolDesign = createCurrentDoor3DDesign();
+      applyCommand((current) => {
+        const currentDoor = current.doors.find((door) => door.id === doorId);
+        const design3D: DoorDesign3D = {
+          ...toolDesign,
+          externalBlinds: currentDoor?.design3D?.externalBlinds ?? null,
+          externalRollerShutter: currentDoor?.design3D?.externalRollerShutter ?? null,
+        };
+        return updateDoor(current, doorId, { design3D });
+      });
       setSingleSelection({ kind: "door", id: doorId });
       reportSuccess("Inserted 3D door into the selected opening.");
     } catch (error) {
@@ -2036,6 +2976,127 @@ export default function App() {
     }
   }
 
+  function handleApplyExternalShadingToDoor(doorId: string) {
+    try {
+      applyCommand((current) => {
+        const door = current.doors.find((candidate) => candidate.id === doorId);
+        if (!door) {
+          throw new Error(`Door opening "${doorId}" does not exist.`);
+        }
+
+        const shading = createCurrentExternalShadingDesign(door.widthM);
+        const baseDesign = door.design3D ?? createCurrentDoor3DDesign();
+        return updateDoor(current, doorId, {
+          design3D:
+            shading.kind === "ExternalBlinds"
+              ? {
+                  ...baseDesign,
+                  externalBlinds: shading.design,
+                  externalRollerShutter: null,
+                }
+              : {
+                  ...baseDesign,
+                  externalBlinds: null,
+                  externalRollerShutter: shading.design,
+                },
+        });
+      });
+      reportSuccess(
+        externalShadingKind === "ExternalBlinds"
+          ? "Applied external blinds to the door."
+          : "Applied a roller shutter to the door.",
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "External shading failed.";
+      reportError(message);
+    }
+  }
+
+  function handleDeleteRoofEdge(roofEdgeId: string) {
+    try {
+      let removedFaceCount = 0;
+      applyCommand((current) => {
+        const sketch = current.roofSketches.find((candidate) =>
+          candidate.edges.some((edge) => edge.id === roofEdgeId),
+        );
+        const edge = sketch?.edges.find((candidate) => candidate.id === roofEdgeId);
+        if (!sketch || !edge) {
+          throw new Error(`Roof line segment "${roofEdgeId}" does not exist.`);
+        }
+
+        const removedFaceIds = new Set(
+          sketch.faces
+            .filter(
+              (face) =>
+                face.edgeIds.includes(roofEdgeId) ||
+                face.vertexIds.includes(edge.startVertexId) ||
+                face.vertexIds.includes(edge.endVertexId),
+            )
+            .map((face) => face.id),
+        );
+        removedFaceCount = removedFaceIds.size;
+        const remainingEdges = splitDisconnectedRoofChainEdges(
+          sketch.edges.filter((candidate) => candidate.id !== roofEdgeId),
+        );
+        const remainingFaces = sketch.faces.filter((face) => !removedFaceIds.has(face.id));
+        const referencedVertexIds = new Set([
+          ...remainingEdges.flatMap((candidate) => [
+            candidate.startVertexId,
+            candidate.endVertexId,
+          ]),
+          ...remainingFaces.flatMap((face) => face.vertexIds),
+        ]);
+        const prunedVertices = sketch.vertices.filter((vertex) =>
+          referencedVertexIds.has(vertex.id),
+        );
+        const remainingVertices = prunedVertices.length >= 2 ? prunedVertices : sketch.vertices;
+        const remainingConstraints = sketch.constraints.filter((constraint) => {
+          if (constraint.kind === "EdgeHeight") {
+            return constraint.edgeId !== roofEdgeId;
+          }
+          if (constraint.kind === "FaceSlope") {
+            return !removedFaceIds.has(constraint.faceId);
+          }
+          return referencedVertexIds.has(constraint.vertexId);
+        });
+
+        const updatedProject = updateRoofSketch(current, sketch.id, {
+          vertices: remainingVertices,
+          edges: remainingEdges,
+          faces: remainingFaces,
+          constraints: remainingConstraints,
+        });
+
+        return {
+          ...updatedProject,
+          roofOpenings: updatedProject.roofOpenings.filter(
+            (opening) =>
+              opening.roofSketchId !== sketch.id || !removedFaceIds.has(opening.roofFaceId),
+          ),
+        };
+      });
+
+      const nextSelectionSet = selectionSet.filter((selection) => {
+        if (selection.kind === "roofEdge" && selection.id === roofEdgeId) {
+          return false;
+        }
+        if (selection.kind === "roofFace" && currentSelection?.kind === "roofFace") {
+          return false;
+        }
+        return true;
+      });
+      setSelectionSet(nextSelectionSet, nextSelectionSet[0] ?? null);
+      reportSuccess(
+        removedFaceCount > 0
+          ? `Deleted roof line segment and ${removedFaceCount} dependent roof face(s).`
+          : "Deleted roof line segment.",
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Roof line segment delete failed.";
+      reportError(message);
+    }
+  }
+
   function handleSelectDoor3D(doorId: string) {
     const targetDoor = project.doors.find((doorOpening) => doorOpening.id === doorId);
     if (!targetDoor) {
@@ -2049,8 +3110,16 @@ export default function App() {
 
   function handleApplyWindow3DInsert(windowId: string) {
     try {
-      const design3D = createCurrentWindow3DDesign();
-      applyCommand((current) => updateWindow(current, windowId, { design3D }));
+      const toolDesign = createCurrentWindow3DDesign();
+      applyCommand((current) => {
+        const currentWindow = current.windows.find((windowOpening) => windowOpening.id === windowId);
+        const design3D: WindowDesign3D = {
+          ...toolDesign,
+          externalBlinds: currentWindow?.design3D?.externalBlinds ?? null,
+          externalRollerShutter: currentWindow?.design3D?.externalRollerShutter ?? null,
+        };
+        return updateWindow(current, windowId, { design3D });
+      });
       setSingleSelection({ kind: "window", id: windowId });
       reportSuccess("Inserted 3D window into the selected opening.");
     } catch (error) {
@@ -2065,6 +3134,42 @@ export default function App() {
       reportSuccess("Removed 3D window from the selected opening.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "3D window removal failed.";
+      reportError(message);
+    }
+  }
+
+  function handleApplyExternalShadingToWindow(windowId: string) {
+    try {
+      applyCommand((current) => {
+        const windowOpening = current.windows.find((candidate) => candidate.id === windowId);
+        if (!windowOpening) {
+          throw new Error(`Window opening "${windowId}" does not exist.`);
+        }
+
+        const shading = createCurrentExternalShadingDesign(windowOpening.widthM);
+        const baseDesign = windowOpening.design3D ?? createCurrentWindow3DDesign();
+        return updateWindow(current, windowId, {
+          design3D:
+            shading.kind === "ExternalBlinds"
+              ? {
+                  ...baseDesign,
+                  externalBlinds: shading.design,
+                  externalRollerShutter: null,
+                }
+              : {
+                  ...baseDesign,
+                  externalBlinds: null,
+                  externalRollerShutter: shading.design,
+                },
+        });
+      });
+      reportSuccess(
+        externalShadingKind === "ExternalBlinds"
+          ? "Applied external blinds to the window."
+          : "Applied a roller shutter to the window.",
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "External shading failed.";
       reportError(message);
     }
   }
@@ -2115,11 +3220,104 @@ export default function App() {
     }
   }
 
+  function handleCreateSolarPanelArray(input: {
+    roofSketchId: string;
+    roofFaceId: string;
+    center: Vec2;
+  }) {
+    try {
+      const id = createId("solar_array");
+      applyCommand((current) =>
+        createSolarPanelArray(current, {
+          id,
+          ...input,
+          ...solarPanelToolDesign,
+        }),
+      );
+      setSingleSelection({ kind: "solarPanelArray", id });
+      reportSuccess(
+        `Placed ${solarPanelToolDesign.rows} x ${solarPanelToolDesign.columns} solar panel array.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Solar panel placement failed.";
+      reportError(message);
+    }
+  }
+
+  function handleSelectSolarPanelArray(solarPanelArrayId: string) {
+    if (!project.solarPanelArrays.some((array) => array.id === solarPanelArrayId)) {
+      return;
+    }
+
+    setActiveTool("SolarPanels");
+    setSingleSelection({ kind: "solarPanelArray", id: solarPanelArrayId });
+    reportSuccess(`Selected solar panel array "${solarPanelArrayId}".`);
+  }
+
+  function handleMoveSolarPanelArray(solarPanelArrayId: string, center: Vec2) {
+    try {
+      applyCommand((current) => updateSolarPanelArray(current, solarPanelArrayId, { center }));
+      reportSuccess("Moved solar panel array on its roof plane.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Solar panel move failed.";
+      reportError(message);
+    }
+  }
+
+  function handleCommitSolarPanelToolDesign(
+    patch: Partial<SolarPanelToolDesign>,
+    message: string,
+  ) {
+    try {
+      if (selectedSolarPanelArray) {
+        applyCommand((current) =>
+          updateSolarPanelArray(current, selectedSolarPanelArray.id, patch),
+        );
+      } else {
+        setSolarPanelToolDesign((current) => ({ ...current, ...patch }));
+      }
+      reportSuccess(message);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Solar panel update failed.";
+      reportError(errorMessage);
+    }
+  }
+
+  function handleDeleteSolarPanelArray(solarPanelArrayId: string) {
+    try {
+      applyCommand((current) => deleteSolarPanelArray(current, solarPanelArrayId));
+      if (
+        currentSelection?.kind === "solarPanelArray" &&
+        currentSelection.id === solarPanelArrayId
+      ) {
+        clearSelection();
+      }
+      reportSuccess("Deleted solar panel array.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Solar panel delete failed.";
+      reportError(message);
+    }
+  }
+
+  function handleToggleSolarPanels2D() {
+    applyCommand((current) =>
+      updateProjectSettings(current, {
+        showSolarPanels2D: !current.settings.showSolarPanels2D,
+      }),
+    );
+    reportSuccess(
+      project.settings.showSolarPanels2D
+        ? "Solar panels hidden from the 2D plan."
+        : "Solar panels shown in the 2D plan.",
+    );
+  }
+
   function handleClear3DOpeningSelection() {
     if (
       currentSelection?.kind !== "window" &&
       currentSelection?.kind !== "door" &&
-      currentSelection?.kind !== "roofOpening"
+      currentSelection?.kind !== "roofOpening" &&
+      currentSelection?.kind !== "solarPanelArray"
     ) {
       return;
     }
@@ -2233,6 +3431,49 @@ export default function App() {
     }
   }
 
+  function handleMoveGroundSurface(groundSurfaceId: string, position: Vec2) {
+    try {
+      applyCommand((current) => {
+        const groundSurface = current.groundSurfaces.find((item) => item.id === groundSurfaceId);
+        if (!groundSurface) {
+          throw new Error(`Ground surface "${groundSurfaceId}" does not exist.`);
+        }
+
+        return updateGroundSurface(current, groundSurfaceId, {
+          pose: {
+            ...groundSurface.pose,
+            position: createVec2(position.x, position.y),
+          },
+        });
+      });
+      setErrorMessage(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Ground surface move failed.";
+      reportError(message);
+    }
+  }
+
+  function handleMoveRoom(roomId: string, position: Vec2) {
+    try {
+      applyCommand((current) => {
+        const room = current.rooms.find((item) => item.id === roomId);
+        if (!room) {
+          throw new Error(`Room "${roomId}" does not exist.`);
+        }
+
+        const center = getPolygonCenter(room.polygon);
+        const delta = createVec2(position.x - center.x, position.y - center.y);
+        return updateRoom(current, roomId, {
+          polygon: room.polygon.map((point) => createVec2(point.x + delta.x, point.y + delta.y)),
+        });
+      });
+      setErrorMessage(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Room move failed.";
+      reportError(message);
+    }
+  }
+
   function handleResizeSlab(
     slabId: string,
     patch: { position: Vec2; widthM: number; depthM: number },
@@ -2256,6 +3497,23 @@ export default function App() {
       setErrorMessage(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Slab resize failed.";
+      reportError(message);
+    }
+  }
+
+  function handleUpdateSlabPolygon(slabId: string, polygon: Vec2[]) {
+    try {
+      const dimensions = getPolygonDimensions(polygon);
+      applyCommand((current) =>
+        updateSlab(current, slabId, {
+          polygon,
+          widthM: Math.max(dimensions.widthM, 0.01),
+          depthM: Math.max(dimensions.depthM, 0.01),
+        }),
+      );
+      setErrorMessage(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Slab vertex move failed.";
       reportError(message);
     }
   }
@@ -2353,7 +3611,11 @@ export default function App() {
     }
   }
 
-  function handleUpdateSelectedRoofEdgeElevation(elevationM: number) {
+  function handleUpdateSelectedRoofEdgeEndpointElevations(
+    startElevationM: number,
+    endElevationM: number,
+    message = "Updated roof line endpoint elevations.",
+  ) {
     if (
       !selectedRoofSketch ||
       !selectedRoofEdge ||
@@ -2365,28 +3627,38 @@ export default function App() {
     }
 
     try {
-      const vertexIds = new Set([
-        selectedRoofEdge.startVertexId,
-        selectedRoofEdge.endVertexId,
-      ]);
       applyCommand((current) =>
         updateRoofSketch(current, selectedRoofSketch.id, {
           vertices: selectedRoofSketch.vertices.map((vertex) =>
-            vertexIds.has(vertex.id)
+            vertex.id === selectedRoofEdge.startVertexId
               ? {
                   ...vertex,
                   elevationMode: "Explicit",
-                  elevationM,
+                  elevationM: startElevationM,
                 }
+              : vertex.id === selectedRoofEdge.endVertexId
+                ? {
+                    ...vertex,
+                    elevationMode: "Explicit",
+                    elevationM: endElevationM,
+                  }
               : vertex,
           ),
         }),
       );
-      reportSuccess(`Updated roof line elevation to ${formatNumber(elevationM)} m.`);
+      reportSuccess(message);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Roof line elevation update failed.";
       reportError(message);
     }
+  }
+
+  function handleUpdateSelectedRoofEdgeElevation(elevationM: number) {
+    handleUpdateSelectedRoofEdgeEndpointElevations(
+      elevationM,
+      elevationM,
+      `Updated roof line elevation to ${formatNumber(elevationM)} m.`,
+    );
   }
 
   function handleUpdateSelectedRoofFaceThickness(thicknessM: number) {
@@ -2500,6 +3772,32 @@ export default function App() {
       reportSuccess("Deleted slab.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Slab delete failed.";
+      reportError(message);
+    }
+  }
+
+  function handleDeleteGroundSurface(groundSurfaceId: string) {
+    try {
+      applyCommand((current) => deleteGroundSurface(current, groundSurfaceId));
+      if (currentSelection?.kind === "groundSurface" && currentSelection.id === groundSurfaceId) {
+        removeSelectionEntry("groundSurface", groundSurfaceId);
+      }
+      reportSuccess("Deleted ground surface.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Ground surface delete failed.";
+      reportError(message);
+    }
+  }
+
+  function handleDeleteRoom(roomId: string) {
+    try {
+      applyCommand((current) => deleteRoom(current, roomId));
+      if (currentSelection?.kind === "room" && currentSelection.id === roomId) {
+        removeSelectionEntry("room", roomId);
+      }
+      reportSuccess("Deleted room.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Room delete failed.";
       reportError(message);
     }
   }
@@ -2621,6 +3919,7 @@ export default function App() {
       };
 
       setDoor3DKind(nextDesign.kind);
+      setDoor3DGarageDoorStyle(nextDesign.garageDoorStyle ?? "SinglePanel");
       setDoor3DFrameThicknessM(nextDesign.frameThicknessM);
       setDoor3DFrameColorHex(nextDesign.frameColorHex);
       setDoor3DDoorColorHex(nextDesign.doorColorHex);
@@ -2686,6 +3985,42 @@ export default function App() {
       setActivityMessage(message);
     } catch (error) {
       const text = error instanceof Error ? error.message : "Slab update failed.";
+      reportError(text);
+    }
+  }
+
+  function handleUpdateSelectedGroundSurface(
+    patch: Parameters<typeof updateGroundSurface>[2],
+    message = "Updated ground surface values.",
+  ) {
+    if (!selectedGroundSurface) {
+      return;
+    }
+
+    try {
+      applyCommand((current) => updateGroundSurface(current, selectedGroundSurface.id, patch));
+      setErrorMessage(null);
+      setActivityMessage(message);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Ground surface update failed.";
+      reportError(text);
+    }
+  }
+
+  function handleUpdateSelectedRoom(
+    patch: Parameters<typeof updateRoom>[2],
+    message = "Updated room values.",
+  ) {
+    if (!selectedRoom) {
+      return;
+    }
+
+    try {
+      applyCommand((current) => updateRoom(current, selectedRoom.id, patch));
+      setErrorMessage(null);
+      setActivityMessage(message);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Room update failed.";
       reportError(text);
     }
   }
@@ -2886,9 +4221,94 @@ export default function App() {
     reportSuccess("Created a slab through the command layer.");
   }
 
+  function handleCreateSlabFromPolygon(worldPolygon: Vec2[]) {
+    if (!activeLevelId || worldPolygon.length < 3) {
+      reportError("Select an active level and close a slab outline with at least three points.");
+      return;
+    }
+
+    let mergedSlabCount = 0;
+    applyCommand((current) => {
+      let mergedPolygon = worldPolygon;
+      const mergedSlabIds = new Set<string>();
+
+      if (slabConnectEnabled) {
+        let mergedAnotherSlab = true;
+        while (mergedAnotherSlab) {
+          mergedAnotherSlab = false;
+          for (const candidate of current.slabs) {
+            if (
+              mergedSlabIds.has(candidate.id) ||
+              candidate.levelId !== activeLevelId ||
+              candidate.kind === "Circle" ||
+              candidate.roofType !== "Flat" ||
+              Math.abs(candidate.thicknessM - 0.2) > 0.0001 ||
+              Math.abs(candidate.zOffsetM) > 0.0001
+            ) {
+              continue;
+            }
+
+            const union = unionConnectedPolygons(
+              mergedPolygon,
+              getSlabWorldPolygon(candidate),
+            );
+            if (!union) {
+              continue;
+            }
+
+            mergedPolygon = union;
+            mergedSlabIds.add(candidate.id);
+            mergedAnotherSlab = true;
+          }
+        }
+      }
+
+      mergedSlabCount = mergedSlabIds.size;
+      const localized = createLocalPolygonFromWorld(mergedPolygon);
+      const dimensions = getPolygonDimensions(mergedPolygon);
+      const withoutMergedSlabs = {
+        ...current,
+        slabs: current.slabs.filter((slab) => !mergedSlabIds.has(slab.id)),
+      };
+
+      return createSlab(withoutMergedSlabs, {
+        levelId: activeLevelId,
+        name: `slab_${current.slabs.length + 1}`,
+        kind: "Freeform",
+        roofType: "Flat",
+        pose: createPose2D(localized.center, 0),
+        widthM: Math.max(dimensions.widthM, 0.01),
+        depthM: Math.max(dimensions.depthM, 0.01),
+        thicknessM: 0.2,
+        roofRiseM: 1.2,
+        zOffsetM: 0,
+        polygon: localized.polygon,
+        connectWithOtherSlabs: slabConnectEnabled,
+      });
+    });
+
+    reportSuccess(
+      mergedSlabCount > 0
+        ? `Created a freeform slab and joined ${mergedSlabCount} connected slab(s).`
+        : "Created a freeform slab.",
+    );
+  }
+
   function handleCreateSlabAt(position: Vec2 & { widthM?: number; depthM?: number }) {
     if (!activeLevelId) {
       reportError("Select an active level before creating a slab.");
+      return;
+    }
+
+    if (slabMode === "Rectangle" && slabConnectEnabled) {
+      const widthM = position.widthM ?? 2.4;
+      const depthM = position.depthM ?? 1.8;
+      handleCreateSlabFromPolygon([
+        createVec2(position.x - widthM / 2, position.y - depthM / 2),
+        createVec2(position.x + widthM / 2, position.y - depthM / 2),
+        createVec2(position.x + widthM / 2, position.y + depthM / 2),
+        createVec2(position.x - widthM / 2, position.y + depthM / 2),
+      ]);
       return;
     }
 
@@ -2907,6 +4327,7 @@ export default function App() {
         thicknessM: 0.2,
         roofRiseM: 1.2,
         zOffsetM: 0,
+        connectWithOtherSlabs: slabConnectEnabled,
       }),
     );
     reportSuccess(
@@ -2916,6 +4337,140 @@ export default function App() {
           : position.depthM ?? 1.8,
       )}m.`,
     );
+  }
+
+  function handleCreateGroundSurfaceAt(position: Vec2 & { widthM?: number; depthM?: number }) {
+    applyCommand((current) =>
+      createGroundSurface(current, {
+        name: `ground_${current.groundSurfaces.length + 1}`,
+        kind: groundToolKind,
+        pose: createPose2D(createVec2(position.x, position.y), 0),
+        widthM: position.widthM ?? 2.4,
+        depthM: position.depthM ?? 1.8,
+      }),
+    );
+    reportSuccess(
+      `Painted ${groundToolKind.toLowerCase()} ground at ${formatNumber(position.x)}, ${formatNumber(position.y)} with size ${formatNumber(position.widthM ?? 2.4)} x ${formatNumber(position.depthM ?? 1.8)}m.`,
+    );
+  }
+
+  function handleCreateRoomFromPolygon(polygon: Vec2[]) {
+    if (!activeLevelId) {
+      reportError("Select an active level before creating a room.");
+      return;
+    }
+
+    const areaM2 = calculatePolygonAreaM2(polygon);
+    if (areaM2 < 0.05) {
+      reportError("Room area is too small.");
+      return;
+    }
+
+    let createdRoomId: string | null = null;
+    let mergedRoomCount = 0;
+    let finalAreaM2 = areaM2;
+    applyCommand((current) => {
+      let mergedPolygon = polygon;
+      const mergedRoomIds = new Set<string>();
+
+      if (roomConnectEnabled) {
+        let mergedAnotherRoom = true;
+        while (mergedAnotherRoom) {
+          mergedAnotherRoom = false;
+          for (const candidate of current.rooms) {
+            if (
+              mergedRoomIds.has(candidate.id) ||
+              candidate.levelId !== activeLevelId
+            ) {
+              continue;
+            }
+
+            const union = unionConnectedPolygons(mergedPolygon, candidate.polygon);
+            if (!union) {
+              continue;
+            }
+
+            mergedPolygon = union;
+            mergedRoomIds.add(candidate.id);
+            mergedAnotherRoom = true;
+          }
+        }
+      }
+
+      mergedRoomCount = mergedRoomIds.size;
+      finalAreaM2 = calculatePolygonAreaM2(mergedPolygon);
+      const nextRoomName =
+        roomToolName.trim().length > 0
+          ? roomToolName.trim()
+          : `Room ${current.rooms.length + 1}`;
+      const withoutMergedRooms = {
+        ...current,
+        rooms: current.rooms.filter((room) => !mergedRoomIds.has(room.id)),
+      };
+      const nextProject = createRoom(withoutMergedRooms, {
+        levelId: activeLevelId,
+        name: nextRoomName,
+        polygon: mergedPolygon,
+      });
+      createdRoomId = nextProject.rooms[nextProject.rooms.length - 1]?.id ?? null;
+      return nextProject;
+    });
+    if (createdRoomId) {
+      setSingleSelection({ kind: "room", id: createdRoomId });
+    }
+    reportSuccess(
+      mergedRoomCount > 0
+        ? `Created room "${roomToolName.trim() || "Room"}" and joined ${mergedRoomCount} connected room(s) (${formatNumber(finalAreaM2)} m2).`
+        : `Created room "${roomToolName.trim() || "Room"}" (${formatNumber(finalAreaM2)} m2).`,
+    );
+  }
+
+  function handleDiscoverRooms() {
+    if (!activeLevelId) {
+      reportError("Select an active level before discovering rooms.");
+      return;
+    }
+
+    const discoveredPolygons = discoverRoomPolygonsFromWalls(project, activeLevelId);
+    if (discoveredPolygons.length === 0) {
+      reportError("No closed wall-bounded rooms were found on the active level.");
+      return;
+    }
+
+    const existingKeys = new Set(
+      project.rooms
+        .filter((room) => room.levelId === activeLevelId)
+        .map((room) => getRoomPolygonKey(room.polygon)),
+    );
+    const newPolygons = discoveredPolygons.filter(
+      (polygon) => !existingKeys.has(getRoomPolygonKey(polygon)),
+    );
+
+    if (newPolygons.length === 0) {
+      reportSuccess("All discovered rooms already exist.");
+      return;
+    }
+
+    const newSelections: EditorSelection[] = [];
+    applyCommand((current) => {
+      let nextProject = current;
+      for (const polygon of newPolygons) {
+        nextProject = createRoom(nextProject, {
+          levelId: activeLevelId,
+          name: `${roomToolName.trim() || "Room"} ${nextProject.rooms.length + 1}`,
+          polygon,
+        });
+        const createdRoom = nextProject.rooms[nextProject.rooms.length - 1];
+        if (createdRoom) {
+          newSelections.push({ kind: "room", id: createdRoom.id });
+        }
+      }
+
+      return nextProject;
+    });
+
+    setSelectionSet(newSelections, newSelections[0] ?? null);
+    reportSuccess(`Discovered ${newPolygons.length} room(s) from closed walls.`);
   }
 
   function getManualRoofSketch(projectToSearch: Project): RoofSketch | null {
@@ -2942,37 +4497,70 @@ export default function App() {
         throw new Error("Project has no roof layer.");
       }
 
-      const startVertexId = createId("roof_vertex");
-      const endVertexId = createId("roof_vertex");
+      const existingSketch = getManualRoofSketch(current);
+      const matchToleranceM = Math.max(current.settings.snapToGrid ? current.settings.gridSpacingM * 0.2 : 0.05, 0.02);
+      const matchedStartVertex = existingSketch
+        ? findRoofVertexNear(existingSketch, start, matchToleranceM)
+        : null;
+      const matchedEndVertex = existingSketch
+        ? findRoofVertexNear(existingSketch, end, matchToleranceM)
+        : null;
       const edgeId = createId("roof_edge");
+      const startVertexId = matchedStartVertex?.id ?? createId("roof_vertex");
+      const endVertexId = matchedEndVertex?.id ?? createId("roof_vertex");
+      const incidentStartEdge =
+        existingSketch && matchedStartVertex
+          ? existingSketch.edges.find(
+              (edge) =>
+                edge.startVertexId === matchedStartVertex.id ||
+                edge.endVertexId === matchedStartVertex.id,
+            )
+          : null;
+      const incidentEndEdge =
+        existingSketch && matchedEndVertex
+          ? existingSketch.edges.find(
+              (edge) =>
+                edge.startVertexId === matchedEndVertex.id ||
+                edge.endVertexId === matchedEndVertex.id,
+            )
+          : null;
+      const chainId =
+        incidentStartEdge
+          ? getRoofEdgeChainId(incidentStartEdge)
+          : incidentEndEdge
+            ? getRoofEdgeChainId(incidentEndEdge)
+            : edgeId;
       createdEdgeId = edgeId;
-      const vertices = [
-        {
+      const vertices: RoofSketch["vertices"] = [];
+      if (!matchedStartVertex) {
+        vertices.push({
           id: startVertexId,
           position: createVec2(start.x, start.y),
-          elevationMode: "Explicit" as const,
-          elevationM: roofToolLineElevationM,
-        },
-        {
+          elevationMode: "Explicit",
+          elevationM: roofToolStartElevationM,
+        });
+      }
+      if (!matchedEndVertex) {
+        vertices.push({
           id: endVertexId,
           position: createVec2(end.x, end.y),
-          elevationMode: "Explicit" as const,
-          elevationM: roofToolLineElevationM,
-        },
-      ];
+          elevationMode: "Explicit",
+          elevationM: roofToolEndElevationM,
+        });
+      }
       const edge = {
         id: edgeId,
         startVertexId,
         endVertexId,
         role: "Generic" as const,
+        chainId,
       };
-      const existingSketch = getManualRoofSketch(current);
 
       if (!existingSketch) {
         return createRoofSketch(current, {
           name: "Manual Roof Sketch",
           layerId: roofLayer.id,
-          baseElevationM: roofToolLineElevationM,
+          baseElevationM: Math.min(roofToolStartElevationM, roofToolEndElevationM),
           thicknessM: 0.2,
           vertices,
           edges: [edge],
@@ -2991,7 +4579,7 @@ export default function App() {
       setSelectionSet([{ kind: "roofEdge", id: createdEdgeId }], { kind: "roofEdge", id: createdEdgeId });
     }
     reportSuccess(
-      `Created roof line at ${formatNumber(roofToolLineElevationM)} m, length ${formatNumber(lengthM)} m.`,
+      `Created roof line segment from ${formatNumber(roofToolStartElevationM)} m to ${formatNumber(roofToolEndElevationM)} m, length ${formatNumber(lengthM)} m.`,
     );
   }
 
@@ -3022,8 +4610,8 @@ export default function App() {
   }
 
   function handleLinkSelectedRoofEdges() {
-    if (selectedRoofEdgeIds.length !== 2) {
-      reportError("Select exactly two roof lines before linking them.");
+    if (selectedRoofChainIds.length !== 2) {
+      reportError("Select exactly two roof line chains before linking them.");
       return;
     }
 
@@ -3033,23 +4621,28 @@ export default function App() {
         selectedRoofEdgeIds.every((edgeId) => candidate.edges.some((edge) => edge.id === edgeId)),
       );
       if (!sketch) {
-        throw new Error("Selected roof lines must belong to the same roof sketch.");
+        throw new Error("Selected roof line chains must belong to the same roof sketch.");
       }
 
-      const [firstEdgeId, secondEdgeId] = selectedRoofEdgeIds;
-      const firstEdge = sketch.edges.find((edge) => edge.id === firstEdgeId);
-      const secondEdge = sketch.edges.find((edge) => edge.id === secondEdgeId);
-      if (!firstEdge || !secondEdge) {
-        throw new Error("Selected roof line no longer exists.");
+      const edgeGroups = selectedRoofChainIds.map((chainId) =>
+        sketch.edges.filter(
+          (edge) => selectedRoofEdgeIds.includes(edge.id) && getRoofEdgeChainId(edge) === chainId,
+        ),
+      );
+      const [firstGroup, secondGroup] = edgeGroups;
+      if (!firstGroup || !secondGroup || firstGroup.length === 0 || secondGroup.length === 0) {
+        throw new Error("Selected roof line chain no longer exists.");
       }
 
       const vertexById = new Map(sketch.vertices.map((vertex) => [vertex.id, vertex] as const));
-      const firstStart = vertexById.get(firstEdge.startVertexId);
-      const firstEnd = vertexById.get(firstEdge.endVertexId);
-      const secondStart = vertexById.get(secondEdge.startVertexId);
-      const secondEnd = vertexById.get(secondEdge.endVertexId);
+      const firstVertexIds = getRoofChainVertexIds(sketch, firstGroup.map((edge) => edge.id));
+      const secondVertexIds = getRoofChainVertexIds(sketch, secondGroup.map((edge) => edge.id));
+      const firstStart = vertexById.get(firstVertexIds[0]);
+      const firstEnd = vertexById.get(firstVertexIds[firstVertexIds.length - 1]);
+      const secondStart = vertexById.get(secondVertexIds[0]);
+      const secondEnd = vertexById.get(secondVertexIds[secondVertexIds.length - 1]);
       if (!firstStart || !firstEnd || !secondStart || !secondEnd) {
-        throw new Error("Selected roof line has missing vertices.");
+        throw new Error("Selected roof line chain has missing vertices.");
       }
 
       const sameDirectionCost =
@@ -3060,8 +4653,8 @@ export default function App() {
         distanceSquared(firstEnd.position, secondStart.position);
       const secondEdgeVertexIds =
         sameDirectionCost <= oppositeDirectionCost
-          ? [secondEdge.endVertexId, secondEdge.startVertexId]
-          : [secondEdge.startVertexId, secondEdge.endVertexId];
+          ? [...secondVertexIds].reverse()
+          : secondVertexIds;
       const faceId = createId("roof_face");
       linkedFaceId = faceId;
       return updateRoofSketch(current, sketch.id, {
@@ -3069,12 +4662,11 @@ export default function App() {
           ...sketch.faces,
           {
             id: faceId,
-            vertexIds: [
-              firstEdge.startVertexId,
-              firstEdge.endVertexId,
+            vertexIds: compactRoofFaceVertexIds([
+              ...firstVertexIds,
               ...secondEdgeVertexIds,
-            ],
-            edgeIds: [firstEdge.id, secondEdge.id],
+            ]),
+            edgeIds: [...firstGroup, ...secondGroup].map((edge) => edge.id),
             constraintIds: [],
             thicknessM: sketch.thicknessM,
           },
@@ -3163,6 +4755,63 @@ export default function App() {
       linkedFaceId
         ? `Linked selected roof line to endpoint into triangular face ${linkedFaceId}.`
         : "Linked selected roof line to endpoint into a triangular roof face.",
+    );
+  }
+
+  function handleLinkSelectedRoofChainToVertex() {
+    if (selectedRoofChainIds.length !== 1 || selectedRoofVertexIds.length !== 1) {
+      reportError("Select exactly one roof line chain and one roof node before linking them.");
+      return;
+    }
+
+    let linkedFaceId: string | null = null;
+    applyCommand((current) => {
+      const selectedVertexId = selectedRoofVertexIds[0];
+      const chainId = selectedRoofChainIds[0];
+      const sketch = current.roofSketches.find((candidate) => {
+        const hasSelectedVertex = candidate.vertices.some((vertex) => vertex.id === selectedVertexId);
+        const hasSelectedChain = candidate.edges.some(
+          (edge) => selectedRoofEdgeIds.includes(edge.id) && getRoofEdgeChainId(edge) === chainId,
+        );
+        return hasSelectedVertex && hasSelectedChain;
+      });
+      if (!sketch) {
+        throw new Error("Selected roof line chain and roof node must belong to the same roof sketch.");
+      }
+
+      const chainEdges = sketch.edges.filter(
+        (edge) => selectedRoofEdgeIds.includes(edge.id) && getRoofEdgeChainId(edge) === chainId,
+      );
+      const chainVertexIds = getRoofChainVertexIds(sketch, chainEdges.map((edge) => edge.id));
+      if (chainVertexIds.length < 2) {
+        throw new Error("Selected roof line chain has too few vertices.");
+      }
+
+      if (chainVertexIds.includes(selectedVertexId)) {
+        throw new Error("Selected roof node is already part of the selected roof line chain.");
+      }
+
+      const faceId = createId("roof_face");
+      linkedFaceId = faceId;
+      return updateRoofSketch(current, sketch.id, {
+        faces: [
+          ...sketch.faces,
+          {
+            id: faceId,
+            vertexIds: compactRoofFaceVertexIds([...chainVertexIds, selectedVertexId]),
+            edgeIds: chainEdges.map((edge) => edge.id),
+            constraintIds: [],
+            thicknessM: sketch.thicknessM,
+          },
+        ],
+      });
+    });
+
+    clearSelection();
+    reportSuccess(
+      linkedFaceId
+        ? `Linked selected roof line chain to roof node into face ${linkedFaceId}.`
+        : "Linked selected roof line chain to roof node.",
     );
   }
 
@@ -3316,30 +4965,86 @@ export default function App() {
   }
 
   const showToolWindow =
+    editorMode === "Building" &&
     floatingWindowVisibility.tool &&
     (activeTool === "Measure" ||
       activeTool === "Door" ||
       activeTool === "Window" ||
+      activeTool === "ExternalShading" ||
       activeTool === "Shape" ||
       activeTool === "Stair" ||
       activeTool === "Slab" ||
+      activeTool === "Ground" ||
+      activeTool === "Rooms" ||
       activeTool === "Roof" ||
       activeTool === "RoofOpening" ||
       activeTool === "RoofWindow" ||
+      activeTool === "SolarPanels" ||
       viewportMode === "3d");
 
   const showContextWindow =
+    editorMode === "Building" &&
     floatingWindowVisibility.context &&
     currentSelection !== null &&
     !(
       viewportMode === "3d" &&
       ((activeTool === "Window" && currentSelection.kind === "window") ||
         (activeTool === "Door" && currentSelection.kind === "door") ||
-        (activeTool === "RoofWindow" && currentSelection.kind === "roofOpening"))
+        (activeTool === "RoofWindow" && currentSelection.kind === "roofOpening") ||
+        (activeTool === "SolarPanels" && currentSelection.kind === "solarPanelArray"))
     );
 
   function renderToolWindowContent() {
     if (viewportMode === "3d") {
+      if (activeTool === "ExternalShading") {
+        return (
+          <div className="field-grid">
+            <label className="field-label field-grid-wide">
+              <span>Shading Type</span>
+              <select
+                value={externalShadingKind}
+                onChange={(event) =>
+                  setExternalShadingKind(event.target.value as ExternalShadingToolDesign["kind"])
+                }
+              >
+                <option value="ExternalBlinds">External Blinds</option>
+                <option value="RollerShutter">Roller Shutter</option>
+              </select>
+            </label>
+            <label className="field-label field-grid-wide">
+              <span>Width</span>
+              <button
+                type="button"
+                className={externalShadingFitOpeningWidth ? "is-active" : undefined}
+                onClick={() => setExternalShadingFitOpeningWidth((current) => !current)}
+              >
+                {externalShadingFitOpeningWidth ? "Fit Opening Width" : "Use Preset Width"}
+              </button>
+            </label>
+            {externalShadingKind === "ExternalBlinds" ? (
+              <ExternalBlindsControls
+                blinds={externalBlindsToolDesign}
+                subtitle="Preset for clicked openings"
+                onChange={(patch) =>
+                  setExternalBlindsToolDesign((current) => ({ ...current, ...patch }))
+                }
+              />
+            ) : (
+              <ExternalRollerShutterControls
+                shutter={externalRollerShutterToolDesign}
+                subtitle="Preset for clicked openings"
+                onChange={(patch) =>
+                  setExternalRollerShutterToolDesign((current) => ({ ...current, ...patch }))
+                }
+              />
+            )}
+            <p className="muted field-grid-wide">
+              Hover an existing wall opening to preview the preset, then left-click to apply it.
+            </p>
+          </div>
+        );
+      }
+
       if (activeTool === "Measure") {
         return (
           <div className="field-stack">
@@ -3405,6 +5110,23 @@ export default function App() {
                 <option value="HSPortal">HS Portal</option>
               </select>
             </label>
+            {effectiveDoor3DDesign.kind === "Garage" ? (
+              <label className="field-label">
+                <span>Garage Door Style</span>
+                <select
+                  value={effectiveDoor3DDesign.garageDoorStyle ?? "SinglePanel"}
+                  onChange={(event) =>
+                    handleCommitDoor3DToolDesign(
+                      { garageDoorStyle: event.target.value as GarageDoorStyle },
+                      "Updated garage door style.",
+                    )
+                  }
+                >
+                  <option value="SinglePanel">Single Panel</option>
+                  <option value="Sectional">Sectional</option>
+                </select>
+              </label>
+            ) : null}
             <label className="field-label">
               <span>State</span>
               <select
@@ -3552,23 +5274,106 @@ export default function App() {
                 </select>
               </label>
             ) : null}
+            {effectiveDoor3DDesign.kind === "Garage" ? (
+              <label className="field-label">
+                <span>Open Direction</span>
+                <select
+                  value={effectiveDoor3DDesign.swingDirection}
+                  onChange={(event) =>
+                    handleCommitDoor3DToolDesign(
+                      { swingDirection: event.target.value as Door3DSwingDirection },
+                      "Updated garage door opening direction.",
+                    )
+                  }
+                >
+                  <option value="Inward">Inward</option>
+                  <option value="Outward">Outward</option>
+                </select>
+              </label>
+            ) : null}
             {selectedDoor ? (
-              <div className="window-tool-action-row">
-                <button
-                  type="button"
-                  className="toolbar-button"
-                  onClick={() => handleRemoveDoor3DInsert(selectedDoor.id)}
-                >
-                  Delete Door
-                </button>
-                <button
-                  type="button"
-                  className="toolbar-button"
-                  onClick={() => handleDeleteDoor(selectedDoor.id)}
-                >
-                  Delete Opening
-                </button>
-              </div>
+              <>
+                <ExternalBlindsControls
+                  blinds={effectiveDoor3DDesign.externalBlinds}
+                  onAdd={() =>
+                    handleCommitDoor3DToolDesign(
+                      {
+                        externalBlinds: createDefaultExternalBlindsDesign3D(selectedDoor.widthM),
+                        externalRollerShutter: null,
+                      },
+                      "Added external blinds to the selected door.",
+                    )
+                  }
+                  onChange={(patch) =>
+                    handleCommitDoor3DToolDesign(
+                      {
+                        externalBlinds: {
+                          ...(effectiveDoor3DDesign.externalBlinds ??
+                            createDefaultExternalBlindsDesign3D(selectedDoor.widthM)),
+                          ...patch,
+                        },
+                        externalRollerShutter: null,
+                      },
+                      "Updated external door blinds.",
+                    )
+                  }
+                  onRemove={() =>
+                    handleCommitDoor3DToolDesign(
+                      { externalBlinds: null },
+                      "Removed external blinds from the selected door.",
+                    )
+                  }
+                />
+                <ExternalRollerShutterControls
+                  shutter={effectiveDoor3DDesign.externalRollerShutter}
+                  onAdd={() =>
+                    handleCommitDoor3DToolDesign(
+                      {
+                        externalBlinds: null,
+                        externalRollerShutter: createDefaultExternalRollerShutterDesign3D(
+                          selectedDoor.widthM,
+                        ),
+                      },
+                      "Added a roller shutter to the selected door.",
+                    )
+                  }
+                  onChange={(patch) =>
+                    handleCommitDoor3DToolDesign(
+                      {
+                        externalBlinds: null,
+                        externalRollerShutter: {
+                          ...(effectiveDoor3DDesign.externalRollerShutter ??
+                            createDefaultExternalRollerShutterDesign3D(selectedDoor.widthM)),
+                          ...patch,
+                        },
+                      },
+                      "Updated the external door roller shutter.",
+                    )
+                  }
+                  onRemove={() =>
+                    handleCommitDoor3DToolDesign(
+                      { externalRollerShutter: null },
+                      "Removed the roller shutter from the selected door.",
+                    )
+                  }
+                />
+                <div className="window-tool-action-row">
+                  <button
+                    type="button"
+                    className="toolbar-button"
+                    onClick={() => handleRemoveDoor3DInsert(selectedDoor.id)}
+                  >
+                    Delete Door
+                  </button>
+                  <button
+                    type="button"
+                    className="toolbar-button"
+                    onClick={() => handleDeleteDoor(selectedDoor.id)}
+                  >
+                    Delete Opening
+                  </button>
+                </div>
+              </>
             ) : null}
           </div>
         );
@@ -3701,22 +5506,88 @@ export default function App() {
               />
             </label>
             {selectedWindow ? (
-              <div className="window-tool-action-row">
-                <button
-                  type="button"
-                  className="toolbar-button"
-                  onClick={() => handleRemoveWindow3DInsert(selectedWindow.id)}
-                >
-                  Delete Window
-                </button>
-                <button
-                  type="button"
-                  className="toolbar-button"
-                  onClick={() => handleDeleteWindow(selectedWindow.id)}
-                >
-                  Delete Opening
-                </button>
-              </div>
+              <>
+                <ExternalBlindsControls
+                  blinds={effectiveWindow3DDesign.externalBlinds}
+                  onAdd={() =>
+                    handleCommitWindow3DToolDesign(
+                      {
+                        externalBlinds: createDefaultExternalBlindsDesign3D(selectedWindow.widthM),
+                        externalRollerShutter: null,
+                      },
+                      "Added external blinds to the selected window.",
+                    )
+                  }
+                  onChange={(patch) =>
+                    handleCommitWindow3DToolDesign(
+                      {
+                        externalBlinds: {
+                          ...(effectiveWindow3DDesign.externalBlinds ??
+                            createDefaultExternalBlindsDesign3D(selectedWindow.widthM)),
+                          ...patch,
+                        },
+                        externalRollerShutter: null,
+                      },
+                      "Updated external window blinds.",
+                    )
+                  }
+                  onRemove={() =>
+                    handleCommitWindow3DToolDesign(
+                      { externalBlinds: null },
+                      "Removed external blinds from the selected window.",
+                    )
+                  }
+                />
+                <ExternalRollerShutterControls
+                  shutter={effectiveWindow3DDesign.externalRollerShutter}
+                  onAdd={() =>
+                    handleCommitWindow3DToolDesign(
+                      {
+                        externalBlinds: null,
+                        externalRollerShutter: createDefaultExternalRollerShutterDesign3D(
+                          selectedWindow.widthM,
+                        ),
+                      },
+                      "Added a roller shutter to the selected window.",
+                    )
+                  }
+                  onChange={(patch) =>
+                    handleCommitWindow3DToolDesign(
+                      {
+                        externalBlinds: null,
+                        externalRollerShutter: {
+                          ...(effectiveWindow3DDesign.externalRollerShutter ??
+                            createDefaultExternalRollerShutterDesign3D(selectedWindow.widthM)),
+                          ...patch,
+                        },
+                      },
+                      "Updated the external window roller shutter.",
+                    )
+                  }
+                  onRemove={() =>
+                    handleCommitWindow3DToolDesign(
+                      { externalRollerShutter: null },
+                      "Removed the roller shutter from the selected window.",
+                    )
+                  }
+                />
+                <div className="window-tool-action-row">
+                  <button
+                    type="button"
+                    className="toolbar-button"
+                    onClick={() => handleRemoveWindow3DInsert(selectedWindow.id)}
+                  >
+                    Delete Window
+                  </button>
+                  <button
+                    type="button"
+                    className="toolbar-button"
+                    onClick={() => handleDeleteWindow(selectedWindow.id)}
+                  >
+                    Delete Opening
+                  </button>
+                </div>
+              </>
             ) : null}
           </div>
         );
@@ -3846,6 +5717,189 @@ export default function App() {
                   {selectedRoofOpening.design3D ? "Remove 3D Window" : "Insert 3D Window"}
                 </button>
               </div>
+            ) : null}
+          </div>
+        );
+      }
+
+      if (activeTool === "SolarPanels") {
+        const effectiveDesign = selectedSolarPanelArray
+          ? getSolarPanelToolDesign(selectedSolarPanelArray)
+          : solarPanelToolDesign;
+        return (
+          <div className="field-grid">
+            {selectedSolarPanelArray ? (
+              <div className="stat-row field-grid-wide">
+                <span>Selected Array</span>
+                <strong>{selectedSolarPanelArray.id}</strong>
+              </div>
+            ) : (
+              <p className="muted field-grid-wide">
+                Move over a roof face for a preview, then click to place the array.
+              </p>
+            )}
+            <label className="field-label">
+              <span>Rows</span>
+              <DraftNumberInput
+                value={effectiveDesign.rows}
+                min="1"
+                max="40"
+                step="1"
+                onCommit={(value) =>
+                  handleCommitSolarPanelToolDesign(
+                    { rows: clampValue(Math.round(value), 1, 40) },
+                    "Updated solar panel rows.",
+                  )
+                }
+              />
+            </label>
+            <label className="field-label">
+              <span>Columns</span>
+              <DraftNumberInput
+                value={effectiveDesign.columns}
+                min="1"
+                max="40"
+                step="1"
+                onCommit={(value) =>
+                  handleCommitSolarPanelToolDesign(
+                    { columns: clampValue(Math.round(value), 1, 40) },
+                    "Updated solar panel columns.",
+                  )
+                }
+              />
+            </label>
+            <label className="field-label">
+              <span>Orientation</span>
+              <select
+                value={effectiveDesign.orientation}
+                onChange={(event) =>
+                  handleCommitSolarPanelToolDesign(
+                    { orientation: event.target.value as SolarPanelArray["orientation"] },
+                    "Updated solar panel orientation.",
+                  )
+                }
+              >
+                <option value="Portrait">Portrait</option>
+                <option value="Landscape">Landscape</option>
+              </select>
+            </label>
+            <label className="field-label">
+              <span>Module Width (m)</span>
+              <DraftNumberInput
+                value={effectiveDesign.panelWidthM}
+                min="0.1"
+                step="0.01"
+                onCommit={(value) => {
+                  if (value > 0) {
+                    handleCommitSolarPanelToolDesign(
+                      { panelWidthM: value },
+                      "Updated solar module width.",
+                    );
+                  }
+                }}
+              />
+            </label>
+            <label className="field-label">
+              <span>Module Height (m)</span>
+              <DraftNumberInput
+                value={effectiveDesign.panelHeightM}
+                min="0.1"
+                step="0.01"
+                onCommit={(value) => {
+                  if (value > 0) {
+                    handleCommitSolarPanelToolDesign(
+                      { panelHeightM: value },
+                      "Updated solar module height.",
+                    );
+                  }
+                }}
+              />
+            </label>
+            <label className="field-label">
+              <span>Module Gap (cm)</span>
+              <DraftNumberInput
+                value={toCentimeters(effectiveDesign.gapM)}
+                min="0"
+                step="0.5"
+                onCommit={(value) =>
+                  handleCommitSolarPanelToolDesign(
+                    { gapM: Math.max(0, toMetersFromCentimeters(value)) },
+                    "Updated solar module gap.",
+                  )
+                }
+              />
+            </label>
+            <label className="field-label">
+              <span>Mounting Offset (cm)</span>
+              <DraftNumberInput
+                value={toCentimeters(effectiveDesign.mountingOffsetM)}
+                min="0"
+                step="0.5"
+                onCommit={(value) =>
+                  handleCommitSolarPanelToolDesign(
+                    { mountingOffsetM: Math.max(0, toMetersFromCentimeters(value)) },
+                    "Updated solar mounting offset.",
+                  )
+                }
+              />
+            </label>
+            <label className="field-label">
+              <span>Panel Thickness (cm)</span>
+              <DraftNumberInput
+                value={toCentimeters(effectiveDesign.panelThicknessM)}
+                min="0.1"
+                step="0.5"
+                onCommit={(value) => {
+                  if (value > 0) {
+                    handleCommitSolarPanelToolDesign(
+                      { panelThicknessM: toMetersFromCentimeters(value) },
+                      "Updated solar panel thickness.",
+                    );
+                  }
+                }}
+              />
+            </label>
+            <label className="field-label">
+              <span>Panel Color</span>
+              <input
+                type="color"
+                value={effectiveDesign.panelColorHex}
+                onChange={(event) =>
+                  handleCommitSolarPanelToolDesign(
+                    { panelColorHex: event.target.value },
+                    "Updated solar panel color.",
+                  )
+                }
+              />
+            </label>
+            <label className="field-label">
+              <span>Frame Color</span>
+              <input
+                type="color"
+                value={effectiveDesign.frameColorHex}
+                onChange={(event) =>
+                  handleCommitSolarPanelToolDesign(
+                    { frameColorHex: event.target.value },
+                    "Updated solar panel frame color.",
+                  )
+                }
+              />
+            </label>
+            <button
+              type="button"
+              className={project.settings.showSolarPanels2D ? "is-active field-grid-wide" : "field-grid-wide"}
+              onClick={handleToggleSolarPanels2D}
+            >
+              {project.settings.showSolarPanels2D ? "Shown In 2D Plan" : "Hidden From 2D Plan"}
+            </button>
+            {selectedSolarPanelArray ? (
+              <button
+                type="button"
+                className="toolbar-button field-grid-wide"
+                onClick={() => handleDeleteSolarPanelArray(selectedSolarPanelArray.id)}
+              >
+                Delete Solar Panel Array
+              </button>
             ) : null}
           </div>
         );
@@ -4069,21 +6123,119 @@ export default function App() {
 
     if (activeTool === "Slab") {
       return (
-        <div className="button-row">
+        <div className="field-stack">
+          <div className="button-row">
+            <button
+              type="button"
+              className={slabMode === "Rectangle" ? "is-active" : undefined}
+              onClick={() => setSlabMode("Rectangle")}
+            >
+              Rectangle
+            </button>
+            <button
+              type="button"
+              className={slabMode === "Circle" ? "is-active" : undefined}
+              onClick={() => setSlabMode("Circle")}
+            >
+              Circle
+            </button>
+            <button
+              type="button"
+              className={slabMode === "Freeform" ? "is-active" : undefined}
+              onClick={() => setSlabMode("Freeform")}
+            >
+              Freeform
+            </button>
+          </div>
           <button
             type="button"
-            className={slabMode === "Rectangle" ? "is-active" : undefined}
-            onClick={() => setSlabMode("Rectangle")}
+            className={slabConnectEnabled ? "is-active" : undefined}
+            onClick={() => setSlabConnectEnabled((enabled) => !enabled)}
           >
-            Rectangle
+            Connect With Other Slabs
           </button>
-          <button
-            type="button"
-            className={slabMode === "Circle" ? "is-active" : undefined}
-            onClick={() => setSlabMode("Circle")}
-          >
-            Circle
-          </button>
+          {slabMode === "Freeform" ? (
+            <p className="muted">Click corners and click the first point to close the slab.</p>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (activeTool === "Ground") {
+      return (
+        <div className="field-stack">
+          <p className="muted">
+            Drag in the 2D plan to paint a zero-height ground rectangle at world elevation 0.
+          </p>
+          <label className="field-label">
+            <span>Ground Surface</span>
+            <select
+              value={groundToolKind}
+              onChange={(event) => setGroundToolKind(event.target.value as GroundSurface["kind"])}
+            >
+              <option value="Floor">Floor - gray indoor surface</option>
+              <option value="Grass">Grass - green outdoor surface</option>
+            </select>
+          </label>
+        </div>
+      );
+    }
+
+    if (activeTool === "Rooms") {
+      return (
+        <div className="field-stack">
+          <p className="muted">
+            Draw a rectangular or freeform room, or discover closed wall-bounded rooms on the active level.
+          </p>
+          <div className="button-row">
+            <button
+              type="button"
+              className={roomToolMode === "Rectangle" ? "is-active" : undefined}
+              onClick={() => setRoomToolMode("Rectangle")}
+            >
+              Rectangle
+            </button>
+            <button
+              type="button"
+              className={roomToolMode === "Freeform" ? "is-active" : undefined}
+              onClick={() => setRoomToolMode("Freeform")}
+            >
+              Freeform
+            </button>
+            <button
+              type="button"
+              className={roomToolMode === "Auto" ? "is-active" : undefined}
+              onClick={() => setRoomToolMode("Auto")}
+            >
+              Auto
+            </button>
+          </div>
+          <label className="field-label">
+            <span>{roomToolMode === "Auto" ? "Name Prefix" : "Room Name"}</span>
+            <DraftTextInput
+              value={roomToolName}
+              onCommit={(nextValue) => setRoomToolName(nextValue.trim() || "Room")}
+            />
+          </label>
+          {roomToolMode !== "Auto" ? (
+            <button
+              type="button"
+              className={roomConnectEnabled ? "is-active" : undefined}
+              onClick={() => setRoomConnectEnabled((enabled) => !enabled)}
+            >
+              Connect With Other Rooms
+            </button>
+          ) : null}
+          {roomToolMode === "Freeform" ? (
+            <p className="muted">
+              Click room corners and click the first point to close the outline. Right-click empty space to cancel.
+            </p>
+          ) : null}
+          {roomToolMode === "Auto" ? (
+            <button type="button" onClick={handleDiscoverRooms}>
+              Discover Rooms
+            </button>
+          ) : null}
         </div>
       );
     }
@@ -4094,24 +6246,42 @@ export default function App() {
           <p className="muted">
             Drag in the roof layer to draw a roof line. Click two roof lines and link them into one roof face.
           </p>
-          <label className="field-label">
-            <span>Line Elevation (m)</span>
-            <DraftNumberInput
-              value={roofToolLineElevationM}
-              step="0.1"
-              min="0"
-              onCommit={(nextValue) => {
-                if (Number.isFinite(nextValue)) {
-                  setRoofToolLineElevationM(nextValue);
-                }
-              }}
-            />
-          </label>
+          <div className="field-grid">
+            <label className="field-label">
+              <span>Line Elevation (m)</span>
+              <DraftNumberInput
+                value={roofToolStartElevationM}
+                step="0.1"
+                min="0"
+                onCommit={handleSetRoofToolStartElevation}
+              />
+            </label>
+            {!roofToolEndElevationLocked ? (
+              <label className="field-label">
+                <span>Line End Elevation (m)</span>
+                <DraftNumberInput
+                  value={roofToolEndElevationM}
+                  step="0.1"
+                  min="0"
+                  onCommit={handleSetRoofToolEndElevation}
+                />
+              </label>
+            ) : null}
+          </div>
+          <div className="button-row">
+            <button
+              type="button"
+              className={roofToolEndElevationLocked ? "toggle-button is-active" : "toggle-button"}
+              onClick={handleToggleRoofToolEndElevationLock}
+            >
+              End Follows Start
+            </button>
+          </div>
           <div className="button-row">
             <button
               type="button"
               onClick={handleLinkSelectedRoofEdges}
-              disabled={selectedRoofEdgeIds.length !== 2}
+              disabled={selectedRoofChainIds.length !== 2}
             >
               Link Selected Lines
             </button>
@@ -4122,14 +6292,27 @@ export default function App() {
             >
               Link Line To Endpoint
             </button>
-            <button type="button" onClick={clearSelection} disabled={selectedRoofEdgeIds.length === 0}>
+            <button
+              type="button"
+              onClick={handleLinkSelectedRoofChainToVertex}
+              disabled={selectedRoofChainIds.length !== 1 || selectedRoofVertexIds.length !== 1}
+            >
+              Link Line To Node
+            </button>
+            <button
+              type="button"
+              onClick={clearSelection}
+              disabled={selectedRoofEdgeIds.length === 0 && selectedRoofVertexIds.length === 0}
+            >
               Clear Selection
             </button>
           </div>
           <p className="muted">
-            Selected roof lines: {selectedRoofEdgeIds.length}. Link Selected Lines creates a four-point
-            face. Link Line To Endpoint uses the first selected line as the full edge and the closest
-            free endpoint of the second selected line as a triangular face tip.
+            Selected roof line chains: {selectedRoofChainIds.length} ({selectedRoofEdgeIds.length} segment(s)),
+            roof nodes: {selectedRoofVertexIds.length}.
+            Link Selected Lines creates a face from two selected chains. Link Line To Endpoint uses the first
+            selected segment as the full edge and the closest free endpoint of the second selected segment
+            as a triangular face tip. Link Line To Node connects one selected chain directly to one selected node.
           </p>
         </div>
       );
@@ -4768,34 +6951,43 @@ export default function App() {
               </select>
             </label>
           ) : null}
-          <label className="field-label">
-            <span>Width (m)</span>
-            <input
-              type="number"
-              step="0.1"
-              min="0.1"
-              value={selectedSlab.widthM}
-              onChange={(event) =>
-                commitNumericInput(event.target.valueAsNumber, (value) =>
-                  handleUpdateSelectedSlab({ widthM: value }, "Updated slab width."),
-                )
-              }
-            />
-          </label>
-          <label className="field-label">
-            <span>Depth (m)</span>
-            <input
-              type="number"
-              step="0.1"
-              min="0.1"
-              value={selectedSlab.depthM}
-              onChange={(event) =>
-                commitNumericInput(event.target.valueAsNumber, (value) =>
-                  handleUpdateSelectedSlab({ depthM: value }, "Updated slab depth."),
-                )
-              }
-            />
-          </label>
+          {selectedSlab.kind !== "Freeform" ? (
+            <>
+              <label className="field-label">
+                <span>Width (m)</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  value={selectedSlab.widthM}
+                  onChange={(event) =>
+                    commitNumericInput(event.target.valueAsNumber, (value) =>
+                      handleUpdateSelectedSlab({ widthM: value }, "Updated slab width."),
+                    )
+                  }
+                />
+              </label>
+              <label className="field-label">
+                <span>Depth (m)</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  value={selectedSlab.depthM}
+                  onChange={(event) =>
+                    commitNumericInput(event.target.valueAsNumber, (value) =>
+                      handleUpdateSelectedSlab({ depthM: value }, "Updated slab depth."),
+                    )
+                  }
+                />
+              </label>
+            </>
+          ) : (
+            <div className="stat-row">
+              <span>Editable Corners</span>
+              <strong>{selectedSlab.polygon.length}</strong>
+            </div>
+          )}
           {selectedSlab.kind === "Rectangle" && selectedSlab.roofType !== "Flat" ? (
             <label className="field-label">
               <span>Roof Rise (m)</span>
@@ -4824,6 +7016,96 @@ export default function App() {
       );
     }
 
+    if (selectedGroundSurface) {
+      return (
+        <div className="field-grid">
+          <label className="field-label">
+            <span>Surface</span>
+            <select
+              value={selectedGroundSurface.kind}
+              onChange={(event) =>
+                handleUpdateSelectedGroundSurface(
+                  { kind: event.target.value as GroundSurface["kind"] },
+                  `Updated ground surface to ${event.target.value}.`,
+                )
+              }
+            >
+              <option value="Floor">Floor</option>
+              <option value="Grass">Grass</option>
+            </select>
+          </label>
+          <label className="field-label">
+            <span>Width (m)</span>
+            <input
+              type="number"
+              step="0.1"
+              min="0.1"
+              value={selectedGroundSurface.widthM}
+              onChange={(event) =>
+                commitNumericInput(event.target.valueAsNumber, (value) =>
+                  handleUpdateSelectedGroundSurface({ widthM: value }, "Updated ground width."),
+                )
+              }
+            />
+          </label>
+          <label className="field-label">
+            <span>Depth (m)</span>
+            <input
+              type="number"
+              step="0.1"
+              min="0.1"
+              value={selectedGroundSurface.depthM}
+              onChange={(event) =>
+                commitNumericInput(event.target.valueAsNumber, (value) =>
+                  handleUpdateSelectedGroundSurface({ depthM: value }, "Updated ground depth."),
+                )
+              }
+            />
+          </label>
+          <div className="button-row">
+            <button
+              type="button"
+              onClick={() => handleDeleteGroundSurface(selectedGroundSurface.id)}
+            >
+              Delete Ground
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (selectedRoom) {
+      return (
+        <div className="field-grid">
+          <label className="field-label">
+            <span>Name</span>
+            <DraftTextInput
+              value={selectedRoom.name}
+              onCommit={(nextValue) =>
+                handleUpdateSelectedRoom(
+                  { name: nextValue.trim() || "Room" },
+                  `Renamed room to "${nextValue.trim() || "Room"}".`,
+                )
+              }
+            />
+          </label>
+          <div className="stat-row">
+            <span>Area</span>
+            <strong>{formatNumber(calculatePolygonAreaM2(selectedRoom.polygon))} m2</strong>
+          </div>
+          <div className="stat-row">
+            <span>Points</span>
+            <strong>{selectedRoom.polygon.length}</strong>
+          </div>
+          <div className="button-row">
+            <button type="button" onClick={() => handleDeleteRoom(selectedRoom.id)}>
+              Delete Room
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     if (
       selectedRoofSketch &&
       selectedRoofEdge &&
@@ -4838,7 +7120,35 @@ export default function App() {
       return (
         <div className="field-grid">
           <label className="field-label">
-            <span>Line Elevation (m)</span>
+            <span>Start Elevation (m)</span>
+            <DraftNumberInput
+              step="0.1"
+              value={startElevationM}
+              onCommit={(nextValue) =>
+                handleUpdateSelectedRoofEdgeEndpointElevations(
+                  nextValue,
+                  endElevationM,
+                  `Updated roof line start elevation to ${formatNumber(nextValue)} m.`,
+                )
+              }
+            />
+          </label>
+          <label className="field-label">
+            <span>End Elevation (m)</span>
+            <DraftNumberInput
+              step="0.1"
+              value={endElevationM}
+              onCommit={(nextValue) =>
+                handleUpdateSelectedRoofEdgeEndpointElevations(
+                  startElevationM,
+                  nextValue,
+                  `Updated roof line end elevation to ${formatNumber(nextValue)} m.`,
+                )
+              }
+            />
+          </label>
+          <label className="field-label">
+            <span>Set Both (m)</span>
             <DraftNumberInput
               step="0.1"
               value={commonElevationM}
@@ -4862,7 +7172,8 @@ export default function App() {
             </strong>
           </div>
           <p className="muted">
-            Editing the line elevation sets both roof-line endpoints to the same height and updates connected faces.
+            Start and end elevations can differ, so one roof line can slope along its length.
+            Set Both keeps the line level when you need a classic eave or ridge.
           </p>
         </div>
       );
@@ -4951,16 +7262,132 @@ export default function App() {
         <div className="toolbar-group">
           <span className="brand-mark">WaWoD Studio</span>
           <div className="tool-strip">
-            {availableEditorTools.map((tool) => (
-              <button
-                key={tool}
-                type="button"
-                className={tool === activeTool ? "toolbar-button is-active" : "toolbar-button"}
-                onClick={() => setActiveTool(tool)}
-              >
-                {getEditorToolLabel(tool)}
-              </button>
-            ))}
+            {availableEditorTools.map((tool) => {
+              if (tool === "ExternalShading") {
+                return null;
+              }
+
+              if (otherEditorTools.includes(tool)) {
+                return tool === otherEditorTools[0] ? (
+                  <div key="other-tools" ref={otherToolsMenuRef} className="toolbar-split-menu">
+                    <button
+                      type="button"
+                      className={
+                        otherEditorTools.includes(activeTool)
+                          ? "toolbar-button is-active"
+                          : "toolbar-button"
+                      }
+                      onClick={() => {
+                        setIsOtherToolsMenuOpen((current) => !current);
+                        setOpeningToolsMenuOpen(null);
+                        setIsPreviewMenuOpen(false);
+                        setIsSettingsMenuOpen(false);
+                      }}
+                      aria-haspopup="menu"
+                      aria-expanded={isOtherToolsMenuOpen}
+                    >
+                      Other Tools
+                    </button>
+                    {isOtherToolsMenuOpen ? (
+                      <div className="toolbar-menu-panel">
+                        {otherEditorTools.map((otherTool) => (
+                          <button
+                            key={otherTool}
+                            type="button"
+                            className={
+                              otherTool === activeTool
+                                ? "toolbar-menu-item is-active"
+                                : "toolbar-menu-item"
+                            }
+                            onClick={() => {
+                              setActiveTool(otherTool);
+                              setIsOtherToolsMenuOpen(false);
+                            }}
+                          >
+                            {getEditorToolLabel(otherTool)}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null;
+              }
+
+              if (viewportMode === "3d" && (tool === "Door" || tool === "Window")) {
+                const isShadingAnchor =
+                  activeTool === "ExternalShading" && externalShadingToolbarAnchor === tool;
+                return (
+                  <div
+                    key={tool}
+                    ref={tool === "Door" ? doorToolsMenuRef : windowToolsMenuRef}
+                    className="toolbar-split-menu"
+                  >
+                    <button
+                      type="button"
+                      className={tool === activeTool ? "toolbar-button is-active" : "toolbar-button"}
+                      onClick={() => {
+                        setActiveTool(tool);
+                        setOpeningToolsMenuOpen(null);
+                      }}
+                    >
+                      {getEditorToolLabel(tool)}
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        isShadingAnchor
+                          ? "toolbar-button toolbar-split-toggle is-active"
+                          : "toolbar-button toolbar-split-toggle"
+                      }
+                      onClick={() => {
+                        setOpeningToolsMenuOpen((current) => (current === tool ? null : tool));
+                        setIsOtherToolsMenuOpen(false);
+                        setIsPreviewMenuOpen(false);
+                        setIsSettingsMenuOpen(false);
+                      }}
+                      aria-label={`${tool} related tools`}
+                      aria-haspopup="menu"
+                      aria-expanded={openingToolsMenuOpen === tool}
+                    >
+                      v
+                    </button>
+                    {openingToolsMenuOpen === tool ? (
+                      <div className="toolbar-menu-panel">
+                        <button
+                          type="button"
+                          className={
+                            activeTool === "ExternalShading"
+                              ? "toolbar-menu-item is-active"
+                              : "toolbar-menu-item"
+                          }
+                          onClick={() => {
+                            setExternalShadingToolbarAnchor(tool);
+                            setActiveTool("ExternalShading");
+                            setOpeningToolsMenuOpen(null);
+                          }}
+                        >
+                          External Shading
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              }
+
+              return (
+                <button
+                  key={tool}
+                  type="button"
+                  className={tool === activeTool ? "toolbar-button is-active" : "toolbar-button"}
+                  onClick={() => setActiveTool(tool)}
+                >
+                  {getEditorToolLabel(tool)}
+                </button>
+              );
+            })}
+            {editorMode !== "Building" ? (
+              <span className="toolbar-empty-state">Tools will be added here</span>
+            ) : null}
           </div>
         </div>
 
@@ -4998,12 +7425,16 @@ export default function App() {
               className={viewportMode === "3d" ? "toolbar-button is-active" : "toolbar-button ghost"}
               onClick={handleTogglePreviewMode}
             >
-              {viewportMode === "3d" ? "Back To 2D" : "Open 3D Preview"}
+              {viewportMode === "3d" ? "Back To 2D" : "Open 3D View"}
             </button>
             <button
               type="button"
               className="toolbar-button ghost toolbar-split-toggle"
-              onClick={() => setIsPreviewMenuOpen((current) => !current)}
+              onClick={() => {
+                setIsPreviewMenuOpen((current) => !current);
+                setIsOtherToolsMenuOpen(false);
+                setIsSettingsMenuOpen(false);
+              }}
               aria-label="Preview options"
               aria-expanded={isPreviewMenuOpen}
             >
@@ -5016,16 +7447,76 @@ export default function App() {
                   className="toolbar-menu-item"
                   onClick={handleOpenPreviewInNewTab}
                 >
-                  Open In New Tab
+                  Detached Preview
                 </button>
-                </div>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
+          </div>
+          <div ref={editorMenuRef} className="toolbar-split-menu editor-mode-menu">
+            <button
+              type="button"
+              className="toolbar-button is-active editor-mode-button"
+              onClick={() => {
+                setIsEditorMenuOpen((current) => !current);
+                setIsOtherToolsMenuOpen(false);
+                setOpeningToolsMenuOpen(null);
+                setIsPreviewMenuOpen(false);
+                setIsSettingsMenuOpen(false);
+              }}
+              aria-haspopup="menu"
+              aria-expanded={isEditorMenuOpen}
+            >
+              {editorMode} Editor
+            </button>
+            <button
+              type="button"
+              className="toolbar-button toolbar-split-toggle is-active"
+              onClick={() => {
+                setIsEditorMenuOpen((current) => !current);
+                setIsOtherToolsMenuOpen(false);
+                setOpeningToolsMenuOpen(null);
+                setIsPreviewMenuOpen(false);
+                setIsSettingsMenuOpen(false);
+              }}
+              aria-label="Choose editor"
+              aria-haspopup="menu"
+              aria-expanded={isEditorMenuOpen}
+            >
+              v
+            </button>
+            {isEditorMenuOpen ? (
+              <div className="toolbar-menu-panel editor-mode-menu-panel">
+                {editorModes.map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={
+                      mode === editorMode
+                        ? "toolbar-menu-item is-active"
+                        : "toolbar-menu-item"
+                    }
+                    onClick={() => {
+                      setEditorMode(mode);
+                      setIsEditorMenuOpen(false);
+                      reportSuccess(`Switched to ${mode} Editor.`);
+                    }}
+                  >
+                    <strong>{mode} Editor</strong>
+                    <span>{getEditorModeDescription(mode)}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
             <div ref={settingsMenuRef} className="toolbar-split-menu">
               <button
                 type="button"
                 className="toolbar-button ghost toolbar-icon-button"
-                onClick={() => setIsSettingsMenuOpen((current) => !current)}
+                onClick={() => {
+                  setIsSettingsMenuOpen((current) => !current);
+                  setIsOtherToolsMenuOpen(false);
+                  setIsPreviewMenuOpen(false);
+                }}
                 aria-label="Project settings"
                 aria-expanded={isSettingsMenuOpen}
               >
@@ -5159,9 +7650,10 @@ export default function App() {
             </div>
             <div className="viewport-meta">
               <span>{projectSummary}</span>
-              <span>Tool: {activeTool}</span>
-              <span>Level: {activeLevelName}</span>
-              <span>Wall Type: {activeWallTypeName}</span>
+              <span>Editor: {editorMode}</span>
+              {editorMode === "Building" ? <span>Tool: {activeTool}</span> : null}
+              {editorMode === "Building" ? <span>Level: {activeLevelName}</span> : null}
+              {editorMode === "Building" ? <span>Wall Type: {activeWallTypeName}</span> : null}
             </div>
           </div>
 
@@ -5170,10 +7662,13 @@ export default function App() {
               <>
                 <ViewportScene
                   project={visibleProject2D}
+                  readOnly={editorMode !== "Building"}
                   activeTool={activeTool}
                   wallAuthoringMode={wallAuthoringMode}
                   activeLevelId={activeLevelId}
                   slabMode={slabMode}
+                  groundToolKind={groundToolKind}
+                  roomToolMode={roomToolMode}
                   pendingWallStartNodeId={pendingWallStartNodeId}
                   currentSelection={currentSelection}
                   selectionSet={selectionSet}
@@ -5193,6 +7688,9 @@ export default function App() {
                   onCreateStair={handleCreateStair}
                   onCreateShapeAt={handleCreateShapeAt}
                   onCreateSlabAt={handleCreateSlabAt}
+                  onCreateSlabFromPolygon={handleCreateSlabFromPolygon}
+                  onCreateGroundSurfaceAt={handleCreateGroundSurfaceAt}
+                  onCreateRoomFromPolygon={handleCreateRoomFromPolygon}
                   onCreateRoofLine={handleCreateRoofLine}
                   onCreateRoofOpening={handleCreateRoofOpening}
                   onCreateExternalModelAt={handleCreateExternalModelAt}
@@ -5203,11 +7701,14 @@ export default function App() {
                   onDeleteDoor={handleDeleteDoor}
                   onDeleteWindow={handleDeleteWindow}
                   onDeleteRoofOpening={handleDeleteRoofOpening}
+                  onDeleteRoofEdge={handleDeleteRoofEdge}
                   onDeleteMeasurement={handleDeleteMeasurement}
                   onDeleteStair={handleDeleteStair}
                   onDeleteWallsConnectedToNode={handleDeleteWallsConnectedToNode}
                   onDeleteShape={handleDeleteShape}
                   onDeleteSlab={handleDeleteSlab}
+                  onDeleteGroundSurface={handleDeleteGroundSurface}
+                  onDeleteRoom={handleDeleteRoom}
                   onDeleteExternalModel={handleDeleteExternalModel}
                   measureToolUnit={measureToolUnit}
                   measureToolPermanent={measureToolPermanent}
@@ -5219,7 +7720,10 @@ export default function App() {
                   onMoveWindow={handleMoveWindow}
                   onMoveShape={handleMoveShape}
                   onMoveSlab={handleMoveSlab}
+                  onMoveGroundSurface={handleMoveGroundSurface}
+                  onMoveRoom={handleMoveRoom}
                   onResizeSlab={handleResizeSlab}
+                  onUpdateSlabPolygon={handleUpdateSlabPolygon}
                   onMoveRoofEdge={handleMoveRoofEdge}
                   onMoveRoofVertex={handleMoveRoofVertex}
                   onMoveRoofOpening={handleMoveRoofOpening}
@@ -5233,22 +7737,46 @@ export default function App() {
                 project={visibleProject3D}
                 preview3D={preview3D}
                 onPreview3DChange={setPreview3D}
-                activeTool={activeTool}
-                selectedDoorId={selectedDoor?.id ?? null}
-                onSelectDoor={handleSelectDoor3D}
-                onInsertDoor3D={handleApplyDoor3DInsert}
-                selectedWindowId={selectedWindow?.id ?? null}
-                onSelectWindow={handleSelectWindow3D}
-                onClearOpeningSelection={handleClear3DOpeningSelection}
-                onInsertWindow3D={handleApplyWindow3DInsert}
-                selectedRoofOpeningId={selectedRoofOpening?.id ?? null}
-                onSelectRoofOpening={handleSelectRoofWindow3D}
-                onInsertRoofWindow3D={handleApplyRoofWindow3DInsert}
+                activeTool={editorMode === "Building" ? activeTool : undefined}
+                selectedDoorId={editorMode === "Building" ? selectedDoor?.id ?? null : null}
+                onSelectDoor={editorMode === "Building" ? handleSelectDoor3D : undefined}
+                onInsertDoor3D={editorMode === "Building" ? handleApplyDoor3DInsert : undefined}
+                onApplyExternalShadingToDoor={editorMode === "Building" ? handleApplyExternalShadingToDoor : undefined}
+                selectedWindowId={editorMode === "Building" ? selectedWindow?.id ?? null : null}
+                onSelectWindow={editorMode === "Building" ? handleSelectWindow3D : undefined}
+                onClearOpeningSelection={editorMode === "Building" ? handleClear3DOpeningSelection : undefined}
+                onInsertWindow3D={editorMode === "Building" ? handleApplyWindow3DInsert : undefined}
+                onApplyExternalShadingToWindow={editorMode === "Building" ? handleApplyExternalShadingToWindow : undefined}
+                selectedRoofOpeningId={editorMode === "Building" ? selectedRoofOpening?.id ?? null : null}
+                onSelectRoofOpening={editorMode === "Building" ? handleSelectRoofWindow3D : undefined}
+                onInsertRoofWindow3D={editorMode === "Building" ? handleApplyRoofWindow3DInsert : undefined}
+                selectedSolarPanelArrayId={editorMode === "Building" ? selectedSolarPanelArray?.id ?? null : null}
+                onSelectSolarPanelArray={editorMode === "Building" ? handleSelectSolarPanelArray : undefined}
+                onCreateSolarPanelArray={editorMode === "Building" ? handleCreateSolarPanelArray : undefined}
+                onMoveSolarPanelArray={editorMode === "Building" ? handleMoveSolarPanelArray : undefined}
+                solarPanelToolDesign={solarPanelToolDesign}
                 door3DToolDesign={createCurrentDoor3DDesign()}
                 window3DToolDesign={createCurrentWindow3DDesign()}
+                externalShadingToolDesign={
+                  externalShadingKind === "ExternalBlinds"
+                    ? { kind: "ExternalBlinds", design: externalBlindsToolDesign }
+                    : { kind: "RollerShutter", design: externalRollerShutterToolDesign }
+                }
+                externalShadingFitOpeningWidth={externalShadingFitOpeningWidth}
                 hiddenRoofLayerIds={hiddenRoofLayerIds3D}
               />
             )}
+
+            {editorMode !== "Building" ? (
+              <div className={`editor-workspace-placeholder is-${editorMode.toLowerCase()}`}>
+                <p className="section-kicker">{editorMode} Editor</p>
+                <h2>Workspace ready for future tools</h2>
+                <p>{getEditorModeDescription(editorMode)}</p>
+                <span>
+                  The building model is a read-only reference. Switch between 2D and 3D without changing structural data.
+                </span>
+              </div>
+            ) : null}
 
             <div className="activity-banner">
               <strong>{activityMessage}</strong>
@@ -5256,11 +7784,11 @@ export default function App() {
             </div>
 
             {panelVisibility.helpCardOpen ? (
-            <div className="viewport-card">
+            <div className="viewport-card viewport-card-overlay">
               <div className="viewport-card-header">
                 <div>
                   <p className="section-kicker">Hint</p>
-                  <h2>Current editor controls</h2>
+                  <h2>{editorMode === "Building" ? "Current editor controls" : `${editorMode} Editor`}</h2>
                 </div>
                 <button
                   type="button"
@@ -5271,6 +7799,8 @@ export default function App() {
                   x
                 </button>
               </div>
+              {editorMode === "Building" ? (
+              <>
               <p>
                 Frontend mode is now tuned around direct viewport editing, grouped history,
                 local import/export and tool-specific left-place or right-delete behavior.
@@ -5284,7 +7814,8 @@ export default function App() {
               <p className="muted">
                 Node Tool: left-click places a node, or hold and drag to measure from the start point
                 and place the node on release. Right-click deletes a node, and duplicate nodes cannot
-                be placed on the same spot.
+                be placed on the same spot. If several entities overlap under a right-click, choose
+                the intended entity from the viewport menu instead.
               </p>
               <p className="muted">
                 Wall Tool: click one node to arm the start point, click a second
@@ -5312,8 +7843,12 @@ export default function App() {
               </p>
               <p className="muted">
                 Shape Tool: click and drag to draw the shape size. Slab Tool: drag to draw
-                a rectangle slab, or in circle mode click for center and drag radius. Model Tool:
-                left-click places a marker.
+                a rectangle slab, in circle mode click for center and drag radius, or in freeform
+                mode click straight-edged corners and close the outline at its first point. Connected
+                slab mode unions touching or overlapping flat outlines. Rooms Tool can draw rectangles,
+                close freeform outlines, or discover wall-bounded rooms automatically. Its optional
+                connected mode unions touching or overlapping rooms on the active level. Ground Tool
+                paints floor or grass rectangles, and Model Tool places a marker.
               </p>
               <p className="muted">
                 Shape, Slab and Model delete: right-click the entity while its matching tool
@@ -5340,9 +7875,9 @@ export default function App() {
                 when the pointer is released.
               </p>
               <p className="muted">
-                3D Preview: swap the main canvas into a read-only orbit view that renders all
+                3D View: swap the main canvas into the shared spatial editor that renders all
                 floors, walls, slabs, shapes and model markers together. Drag to orbit and use
-                the wheel to zoom.
+                the wheel to zoom; available 3D tools depend on the current editor.
               </p>
               <p className="muted">
                 3D Join Mode: use Architectural Join for cleaner house corners, or Node Post
@@ -5357,7 +7892,7 @@ export default function App() {
                   type="button"
                   onClick={() => setViewportMode(viewportMode === "2d" ? "3d" : "2d")}
                 >
-                  {viewportMode === "2d" ? "Open 3D Preview" : "Back To 2D"}
+                  {viewportMode === "2d" ? "Open 3D View" : "Back To 2D"}
                 </button>
                 <button type="button" onClick={resetPreview3D}>
                   Reset 3D Camera
@@ -5415,10 +7950,52 @@ export default function App() {
                   </div>
                 </div>
               </div>
+              </>
+              ) : (
+              <>
+                <p>
+                  The {editorMode} Editor workspace is now part of the shared WaWoD project.
+                </p>
+                <p className="muted">{getEditorModeDescription(editorMode)}</p>
+                <p className="muted">
+                  No authoring tools are enabled yet. The building remains visible as a read-only
+                  reference in both views, so this editor can grow without risking structural data.
+                </p>
+                <div className="quick-actions">
+                  <button
+                    type="button"
+                    onClick={() => setViewportMode(viewportMode === "2d" ? "3d" : "2d")}
+                  >
+                    {viewportMode === "2d" ? "Open 3D View" : "Back To 2D"}
+                  </button>
+                  <button type="button" onClick={resetPreview3D}>
+                    Reset 3D Camera
+                  </button>
+                </div>
+                <div className="viewport-summary-grid">
+                  <div>
+                    <span className="summary-label">Editor</span>
+                    <strong>{editorMode}</strong>
+                  </div>
+                  <div>
+                    <span className="summary-label">View</span>
+                    <strong>{viewportMode === "2d" ? "2D" : "3D"}</strong>
+                  </div>
+                  <div>
+                    <span className="summary-label">Building Reference</span>
+                    <strong>Read Only</strong>
+                  </div>
+                  <div>
+                    <span className="summary-label">Tools</span>
+                    <strong>Coming Next</strong>
+                  </div>
+                </div>
+              </>
+              )}
             </div>
             ) : null}
 
-            {floatingWindowVisibility.levels ? (
+            {editorMode === "Building" && floatingWindowVisibility.levels ? (
               <FloatingWindow
                 title="Levels"
                 kicker="Structure"
@@ -5529,7 +8106,7 @@ export default function App() {
               </FloatingWindow>
             ) : null}
 
-            {editingLevel && floatingWindowVisibility.levelEdit ? (
+            {editorMode === "Building" && editingLevel && floatingWindowVisibility.levelEdit ? (
               <FloatingWindow
                 title="Edit Level"
                 kicker="Structure"
@@ -5574,7 +8151,7 @@ export default function App() {
               </FloatingWindow>
             ) : null}
 
-            {floatingWindowVisibility.wallTypes ? (
+            {editorMode === "Building" && floatingWindowVisibility.wallTypes ? (
               <FloatingWindow
                 title="Wall Types"
                 kicker="Structure"
@@ -5633,7 +8210,7 @@ export default function App() {
               </FloatingWindow>
             ) : null}
 
-            {editingWallType && floatingWindowVisibility.wallTypeEdit ? (
+            {editorMode === "Building" && editingWallType && floatingWindowVisibility.wallTypeEdit ? (
               <FloatingWindow
                 title="Edit Wall Type"
                 kicker="Structure"
@@ -5692,7 +8269,7 @@ export default function App() {
               </FloatingWindow>
             ) : null}
 
-            {floatingWindowVisibility.grid ? (
+            {editorMode === "Building" && floatingWindowVisibility.grid ? (
               <FloatingWindow
                 title="Grid Settings"
                 kicker="Viewport"
@@ -5745,7 +8322,7 @@ export default function App() {
 
             {showToolWindow ? (
               <FloatingWindow
-                title={viewportMode === "3d" ? `${activeTool} Tool` : `${activeTool} Tool`}
+                title={`${getEditorToolLabel(activeTool)} Tool`}
                 kicker="Tool"
                 position={floatingWindowPositions.tool}
                 width={320}
@@ -6316,7 +8893,24 @@ export default function App() {
                     >
                       Circle
                     </button>
+                    <button
+                      type="button"
+                      className={slabMode === "Freeform" ? "is-active" : undefined}
+                      onClick={() => setSlabMode("Freeform")}
+                    >
+                      Freeform
+                    </button>
                   </div>
+                  <button
+                    type="button"
+                    className={slabConnectEnabled ? "is-active" : undefined}
+                    onClick={() => setSlabConnectEnabled((enabled) => !enabled)}
+                  >
+                    Connect With Other Slabs
+                  </button>
+                  {slabMode === "Freeform" ? (
+                    <p className="muted">Click corners and click the first point to close.</p>
+                  ) : null}
                 </section>
               ) : null}
 
@@ -6542,6 +9136,30 @@ export default function App() {
                             <option value="HSPortal">HS Portal</option>
                           </select>
                         </label>
+                        {(selectedDoor.design3D?.kind ?? door3DKind) === "Garage" ? (
+                          <label className="field-label">
+                            <span>Garage Door Style</span>
+                            <select
+                              value={
+                                selectedDoor.design3D?.garageDoorStyle ?? door3DGarageDoorStyle
+                              }
+                              onChange={(event) =>
+                                handleUpdateSelectedDoor(
+                                  {
+                                    design3D: {
+                                      ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
+                                      garageDoorStyle: event.target.value as GarageDoorStyle,
+                                    },
+                                  },
+                                  "Updated garage door style.",
+                                )
+                              }
+                            >
+                              <option value="SinglePanel">Single Panel</option>
+                              <option value="Sectional">Sectional</option>
+                            </select>
+                          </label>
+                        ) : null}
                         <label className="field-label">
                           <span>State</span>
                           <select
@@ -6756,6 +9374,28 @@ export default function App() {
                             >
                               <option value="Left">Left Panel</option>
                               <option value="Right">Right Panel</option>
+                            </select>
+                          </label>
+                        ) : null}
+                        {(selectedDoor.design3D?.kind ?? door3DKind) === "Garage" ? (
+                          <label className="field-label">
+                            <span>Open Direction</span>
+                            <select
+                              value={selectedDoor.design3D?.swingDirection ?? door3DSwingDirection}
+                              onChange={(event) =>
+                                handleUpdateSelectedDoor(
+                                  {
+                                    design3D: {
+                                      ...(selectedDoor.design3D ?? createCurrentDoor3DDesign()),
+                                      swingDirection: event.target.value as Door3DSwingDirection,
+                                    },
+                                  },
+                                  "Updated garage door opening direction.",
+                                )
+                              }
+                            >
+                              <option value="Inward">Inward</option>
+                              <option value="Outward">Outward</option>
                             </select>
                           </label>
                         ) : null}
@@ -7350,20 +9990,30 @@ export default function App() {
                       <span>Kind</span>
                       <select
                         value={selectedSlab.kind}
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          const nextKind = event.target.value as typeof selectedSlab.kind;
                           handleUpdateSelectedSlab(
-                            event.target.value === "Circle"
+                            nextKind === "Freeform"
                               ? {
-                                  kind: event.target.value as typeof selectedSlab.kind,
+                                  kind: nextKind,
                                   roofType: "Flat",
+                                  polygon: [
+                                    createVec2(-selectedSlab.widthM / 2, -selectedSlab.depthM / 2),
+                                    createVec2(selectedSlab.widthM / 2, -selectedSlab.depthM / 2),
+                                    createVec2(selectedSlab.widthM / 2, selectedSlab.depthM / 2),
+                                    createVec2(-selectedSlab.widthM / 2, selectedSlab.depthM / 2),
+                                  ],
                                 }
-                              : { kind: event.target.value as typeof selectedSlab.kind },
-                            `Changed slab kind to ${event.target.value}.`,
-                          )
-                        }
+                              : nextKind === "Circle"
+                                ? { kind: nextKind, roofType: "Flat" }
+                                : { kind: nextKind },
+                            `Changed slab kind to ${nextKind}.`,
+                          );
+                        }}
                       >
                         <option value="Rectangle">Rectangle</option>
                         <option value="Circle">Circle</option>
+                        <option value="Freeform">Freeform</option>
                       </select>
                     </label>
                     {selectedSlab.kind === "Rectangle" ? (
@@ -7429,34 +10079,43 @@ export default function App() {
                         }
                       />
                     </label>
-                    <label className="field-label">
-                      <span>Width (m)</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0.1"
-                        value={selectedSlab.widthM}
-                        onChange={(event) =>
-                          commitNumericInput(event.target.valueAsNumber, (value) =>
-                            handleUpdateSelectedSlab({ widthM: value }, "Updated slab width."),
-                          )
-                        }
-                      />
-                    </label>
-                    <label className="field-label">
-                      <span>Depth (m)</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0.1"
-                        value={selectedSlab.depthM}
-                        onChange={(event) =>
-                          commitNumericInput(event.target.valueAsNumber, (value) =>
-                            handleUpdateSelectedSlab({ depthM: value }, "Updated slab depth."),
-                          )
-                        }
-                      />
-                    </label>
+                    {selectedSlab.kind !== "Freeform" ? (
+                      <>
+                        <label className="field-label">
+                          <span>Width (m)</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0.1"
+                            value={selectedSlab.widthM}
+                            onChange={(event) =>
+                              commitNumericInput(event.target.valueAsNumber, (value) =>
+                                handleUpdateSelectedSlab({ widthM: value }, "Updated slab width."),
+                              )
+                            }
+                          />
+                        </label>
+                        <label className="field-label">
+                          <span>Depth (m)</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0.1"
+                            value={selectedSlab.depthM}
+                            onChange={(event) =>
+                              commitNumericInput(event.target.valueAsNumber, (value) =>
+                                handleUpdateSelectedSlab({ depthM: value }, "Updated slab depth."),
+                              )
+                            }
+                          />
+                        </label>
+                      </>
+                    ) : (
+                      <div className="stat-row">
+                        <span>Editable Corners</span>
+                        <strong>{selectedSlab.polygon.length}</strong>
+                      </div>
+                    )}
                     <label className="field-label">
                       <span>Thickness (m)</span>
                       <input
@@ -7682,10 +10341,11 @@ export default function App() {
 
       {panelVisibility.statusBarVisible ? (
         <footer className="status-line status-line-overlay">
-          <span>View {viewportMode === "2d" ? "2D Editor" : "3D Preview"}</span>
-          <span>Tool {activeTool}</span>
-          <span>Level {activeLevelName}</span>
-          <span>Wall Type {activeWallTypeName}</span>
+          <span>Editor {editorMode}</span>
+          <span>View {viewportMode === "2d" ? "2D" : "3D"}</span>
+          {editorMode === "Building" ? <span>Tool {activeTool}</span> : <span>Tools pending</span>}
+          {editorMode === "Building" ? <span>Level {activeLevelName}</span> : null}
+          {editorMode === "Building" ? <span>Wall Type {activeWallTypeName}</span> : null}
           {viewportMode === "2d" ? (
             <>
               <span>

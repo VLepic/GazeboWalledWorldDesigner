@@ -1,5 +1,7 @@
 export type ShapeKind = "Square" | "Cylinder";
-export type SlabKind = "Rectangle" | "Circle";
+export type SlabKind = "Rectangle" | "Circle" | "Freeform";
+export type GroundSurfaceKind = "Floor" | "Grass";
+export type SiteSurfaceKind = "Grass";
 export type RoofType = "Flat" | "Gable" | "Shed" | "Hip";
 export type WallTopMode = "FixedHeight" | "FollowRoof";
 export type MeasurementUnit = "cm" | "dm" | "m";
@@ -8,6 +10,7 @@ export type RoofEdgeRole = "Generic" | "LowerEave" | "UpperEave" | "Ridge" | "Hi
 export type RoofConstraintDirection = "AwayFromReference" | "TowardReference";
 export type RoofOpeningCutMode = "NormalToRoof" | "Vertical";
 export type RoofOpeningRotationDeg = 0 | 90;
+export type SolarPanelOrientation = "Portrait" | "Landscape";
 
 export interface Vec2 {
   x: number;
@@ -27,6 +30,7 @@ export interface ProjectSettings {
   axisLineWidthPx: number;
   pixelsPerMeter: number;
   snapToGrid: boolean;
+  showSolarPanels2D: boolean;
 }
 
 export const DEFAULT_ROOF_LAYER_ID = "roof_layer_default";
@@ -64,6 +68,7 @@ export interface RoofEdge {
   startVertexId: string;
   endVertexId: string;
   role: RoofEdgeRole;
+  chainId?: string;
 }
 
 export type RoofConstraint =
@@ -120,6 +125,23 @@ export interface RoofOpening {
   design3D?: WindowDesign3D | null;
 }
 
+export interface SolarPanelArray {
+  id: string;
+  roofSketchId: string;
+  roofFaceId: string;
+  center: Vec2;
+  rows: number;
+  columns: number;
+  panelWidthM: number;
+  panelHeightM: number;
+  gapM: number;
+  orientation: SolarPanelOrientation;
+  mountingOffsetM: number;
+  panelThicknessM: number;
+  panelColorHex: string;
+  frameColorHex: string;
+}
+
 export interface NodeData {
   id: string;
   levelId: string;
@@ -148,6 +170,30 @@ export type DoorDesign3DKind = "Normal" | "Garage" | "Glass" | "HSPortal";
 export type Door3DOpenState = "Closed" | "Open";
 export type Door3DHingeSide = "Left" | "Right";
 export type Door3DSwingDirection = "Inward" | "Outward";
+export type GarageDoorStyle = "SinglePanel" | "Sectional";
+
+export type ExternalBlindsSide = "Front" | "Back";
+
+export interface ExternalBlindsDesign3D {
+  colorHex: string;
+  coveragePercent: number;
+  slatAngleDeg: number;
+  slatCount: number;
+  slatDepthM: number;
+  blindWidthM: number;
+  boxWidthM: number;
+  side: ExternalBlindsSide;
+}
+
+export interface ExternalRollerShutterDesign3D {
+  colorHex: string;
+  coveragePercent: number;
+  slatHeightM: number;
+  shutterDepthM: number;
+  shutterWidthM: number;
+  boxWidthM: number;
+  side: ExternalBlindsSide;
+}
 
 export interface DoorDesign3D {
   kind: DoorDesign3DKind;
@@ -159,6 +205,9 @@ export interface DoorDesign3D {
   openPercent: number;
   hingeSide: Door3DHingeSide;
   swingDirection: Door3DSwingDirection;
+  garageDoorStyle?: GarageDoorStyle;
+  externalBlinds?: ExternalBlindsDesign3D | null;
+  externalRollerShutter?: ExternalRollerShutterDesign3D | null;
 }
 
 export interface WindowDesign3D {
@@ -168,6 +217,8 @@ export interface WindowDesign3D {
   horizontalDivisions: number;
   wallDepthOffsetM: number;
   frameColorHex: string;
+  externalBlinds?: ExternalBlindsDesign3D | null;
+  externalRollerShutter?: ExternalRollerShutterDesign3D | null;
 }
 
 export interface WindowOpening {
@@ -215,6 +266,34 @@ export interface Slab {
   thicknessM: number;
   roofRiseM: number;
   zOffsetM: number;
+  polygon: Vec2[];
+  connectWithOtherSlabs: boolean;
+}
+
+export interface GroundSurface {
+  id: string;
+  name: string;
+  kind: GroundSurfaceKind;
+  pose: Pose2D;
+  widthM: number;
+  depthM: number;
+}
+
+export interface Site {
+  id: string;
+  name: string;
+  surfaceKind: SiteSurfaceKind;
+  boundary: Vec2[];
+  elevationM: number;
+  visible2D: boolean;
+  visible3D: boolean;
+}
+
+export interface Room {
+  id: string;
+  levelId: string;
+  name: string;
+  polygon: Vec2[];
 }
 
 export interface ExternalModel {
@@ -240,11 +319,13 @@ export interface Measurement {
 export interface Project {
   projectName: string;
   settings: ProjectSettings;
+  site: Site;
   levels: Level[];
   wallTypes: WallType[];
   roofLayers: RoofLayer[];
   roofSketches: RoofSketch[];
   roofOpenings: RoofOpening[];
+  solarPanelArrays: SolarPanelArray[];
   nodes: NodeData[];
   walls: Wall[];
   doors: DoorOpening[];
@@ -252,6 +333,8 @@ export interface Project {
   stairs: Stair[];
   shapes: Shape[];
   slabs: Slab[];
+  groundSurfaces: GroundSurface[];
+  rooms: Room[];
   externalModels: ExternalModel[];
   measurements: Measurement[];
 }
@@ -264,6 +347,7 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   axisLineWidthPx: 2,
   pixelsPerMeter: 200,
   snapToGrid: true,
+  showSolarPanels2D: false,
 };
 
 function randomToken() {
@@ -337,6 +421,27 @@ export function createRoofOpening(overrides: Partial<RoofOpening> = {}): RoofOpe
     cutMode: overrides.cutMode ?? "NormalToRoof",
     rotationDeg: overrides.rotationDeg ?? 0,
     design3D: overrides.design3D ?? null,
+  };
+}
+
+export function createSolarPanelArray(
+  overrides: Partial<SolarPanelArray> = {},
+): SolarPanelArray {
+  return {
+    id: overrides.id ?? createId("solar_array"),
+    roofSketchId: overrides.roofSketchId ?? "",
+    roofFaceId: overrides.roofFaceId ?? "",
+    center: overrides.center ?? createVec2(),
+    rows: overrides.rows ?? 2,
+    columns: overrides.columns ?? 4,
+    panelWidthM: overrides.panelWidthM ?? 1.134,
+    panelHeightM: overrides.panelHeightM ?? 1.722,
+    gapM: overrides.gapM ?? 0.03,
+    orientation: overrides.orientation ?? "Portrait",
+    mountingOffsetM: overrides.mountingOffsetM ?? 0.08,
+    panelThicknessM: overrides.panelThicknessM ?? 0.04,
+    panelColorHex: overrides.panelColorHex ?? "#173f68",
+    frameColorHex: overrides.frameColorHex ?? "#b8c1ca",
   };
 }
 
@@ -422,7 +527,66 @@ export function createSlab(overrides: Partial<Slab> = {}): Slab {
     thicknessM: overrides.thicknessM ?? 0.2,
     roofRiseM: overrides.roofRiseM ?? 1.2,
     zOffsetM: overrides.zOffsetM ?? 0,
+    polygon: overrides.polygon ?? [],
+    connectWithOtherSlabs: overrides.connectWithOtherSlabs ?? false,
   };
+}
+
+export function createGroundSurface(overrides: Partial<GroundSurface> = {}): GroundSurface {
+  return {
+    id: overrides.id ?? createId("ground"),
+    name: overrides.name ?? "ground",
+    kind: overrides.kind ?? "Floor",
+    pose: overrides.pose ?? createPose2D(),
+    widthM: overrides.widthM ?? 4,
+    depthM: overrides.depthM ?? 4,
+  };
+}
+
+export function createSite(overrides: Partial<Site> = {}): Site {
+  return {
+    id: overrides.id ?? "site_default",
+    name: overrides.name ?? "Property",
+    surfaceKind: overrides.surfaceKind ?? "Grass",
+    boundary: overrides.boundary?.map((point) => createVec2(point.x, point.y)) ?? [
+      createVec2(-20, -20),
+      createVec2(20, -20),
+      createVec2(20, 20),
+      createVec2(-20, 20),
+    ],
+    elevationM: overrides.elevationM ?? 0,
+    visible2D: overrides.visible2D ?? true,
+    visible3D: overrides.visible3D ?? true,
+  };
+}
+
+export function createRoom(overrides: Partial<Room> = {}): Room {
+  return {
+    id: overrides.id ?? createId("room"),
+    levelId: overrides.levelId ?? "",
+    name: overrides.name ?? "Room",
+    polygon: overrides.polygon?.map((point) => createVec2(point.x, point.y)) ?? [
+      createVec2(-1, -1),
+      createVec2(1, -1),
+      createVec2(1, 1),
+      createVec2(-1, 1),
+    ],
+  };
+}
+
+export function calculatePolygonAreaM2(points: readonly Vec2[]) {
+  if (points.length < 3) {
+    return 0;
+  }
+
+  let doubleArea = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    doubleArea += current.x * next.y - next.x * current.y;
+  }
+
+  return Math.abs(doubleArea) / 2;
 }
 
 export function createExternalModel(
@@ -455,11 +619,13 @@ export function createEmptyProject(overrides: Partial<Project> = {}): Project {
   const project: Project = {
     projectName: overrides.projectName ?? "WaWoD Studio",
     settings: overrides.settings ?? { ...DEFAULT_PROJECT_SETTINGS },
+    site: overrides.site ?? createSite(),
     levels: overrides.levels ?? [],
     wallTypes: overrides.wallTypes ?? [],
     roofLayers: overrides.roofLayers ?? [],
     roofSketches: overrides.roofSketches ?? [],
     roofOpenings: overrides.roofOpenings ?? [],
+    solarPanelArrays: overrides.solarPanelArrays ?? [],
     nodes: overrides.nodes ?? [],
     walls: overrides.walls ?? [],
     doors: overrides.doors ?? [],
@@ -467,6 +633,8 @@ export function createEmptyProject(overrides: Partial<Project> = {}): Project {
     stairs: overrides.stairs ?? [],
     shapes: overrides.shapes ?? [],
     slabs: overrides.slabs ?? [],
+    groundSurfaces: overrides.groundSurfaces ?? [],
+    rooms: overrides.rooms ?? [],
     externalModels: overrides.externalModels ?? [],
     measurements: overrides.measurements ?? [],
   };
@@ -515,9 +683,19 @@ export function ensureProjectDefaults(project: Project): Project {
     projectName:
       project.projectName.trim().length > 0 ? project.projectName : "WaWoD Studio",
     settings: { ...DEFAULT_PROJECT_SETTINGS, ...project.settings },
+    site: createSite(project.site),
     levels,
     wallTypes,
     roofLayers,
+    slabs: (project.slabs ?? []).map((slab) =>
+      createSlab({
+        ...slab,
+        polygon: slab.polygon ?? [],
+        connectWithOtherSlabs: slab.connectWithOtherSlabs ?? false,
+      }),
+    ),
+    groundSurfaces: project.groundSurfaces ?? [],
+    rooms: project.rooms ?? [],
     roofSketches,
     roofOpenings: (project.roofOpenings ?? [])
       .filter(
@@ -530,6 +708,20 @@ export function ensureProjectDefaults(project: Project): Project {
           ...opening,
           center: { ...opening.center },
           rotationDeg: opening.rotationDeg ?? 0,
+        }),
+      ),
+    solarPanelArrays: (project.solarPanelArrays ?? [])
+      .filter(
+        (solarPanelArray) =>
+          roofSketchIds.has(solarPanelArray.roofSketchId) &&
+          (roofFaceIdsBySketchId.get(solarPanelArray.roofSketchId)?.has(
+            solarPanelArray.roofFaceId,
+          ) ?? false),
+      )
+      .map((solarPanelArray) =>
+        createSolarPanelArray({
+          ...solarPanelArray,
+          center: { ...solarPanelArray.center },
         }),
       ),
   };
@@ -554,6 +746,7 @@ export function describeProject(project: Project) {
     `${project.roofLayers.length} roof layer(s)`,
     `${project.roofSketches.length} roof sketch(es)`,
     `${project.roofOpenings.length} roof opening(s)`,
+    `${project.solarPanelArrays.length} solar panel array(s)`,
     `${project.nodes.length} node(s)`,
     `${project.walls.length} wall(s)`,
     `${project.doors.length} door(s)`,
@@ -561,6 +754,8 @@ export function describeProject(project: Project) {
     `${project.stairs.length} stair(s)`,
     `${project.shapes.length} shape(s)`,
     `${project.slabs.length} slab(s)`,
+    `${project.groundSurfaces.length} ground surface(s)`,
+    `${project.rooms.length} room(s)`,
     `${project.externalModels.length} external model(s)`,
     `${project.measurements.length} measurement(s)`,
   ].join(" | ");

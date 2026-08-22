@@ -2,12 +2,15 @@ import { cloneProject } from "./project-serialization";
 import {
   createDoorOpening as buildDoorOpening,
   createExternalModel as buildExternalModel,
+  createGroundSurface as buildGroundSurface,
   createLevel as buildLevel,
   createMeasurement as buildMeasurement,
   createNodeData,
   createVec2,
   createRoofOpening as buildRoofOpening,
   createRoofSketch as buildRoofSketch,
+  createSolarPanelArray as buildSolarPanelArray,
+  createRoom as buildRoom,
   createShape as buildShape,
   createSlab as buildSlab,
   createStair as buildStair,
@@ -22,6 +25,7 @@ import {
 import type {
   DoorOpening,
   ExternalModel,
+  GroundSurface,
   Level,
   MeasurementUnit,
   Project,
@@ -29,6 +33,8 @@ import type {
   RoofLayer,
   RoofOpening,
   RoofSketch,
+  SolarPanelArray,
+  Room,
   Shape,
   Slab,
   Stair,
@@ -85,12 +91,25 @@ export type UpdateRoofSketchInput = Partial<Omit<RoofSketch, "id">>;
 export type UpdateRoofLayerInput = Partial<Omit<RoofLayer, "id">>;
 export type CreateRoofOpeningInput = Omit<RoofOpening, "id"> & { id?: string };
 export type UpdateRoofOpeningInput = Partial<Omit<RoofOpening, "id" | "roofSketchId" | "roofFaceId">>;
-export type CreateSlabInput = Omit<Slab, "id" | "roofType" | "roofRiseM"> & {
+export type CreateSolarPanelArrayInput = Omit<SolarPanelArray, "id"> & { id?: string };
+export type UpdateSolarPanelArrayInput = Partial<
+  Omit<SolarPanelArray, "id" | "roofSketchId" | "roofFaceId">
+>;
+export type CreateSlabInput = Omit<
+  Slab,
+  "id" | "roofType" | "roofRiseM" | "polygon" | "connectWithOtherSlabs"
+> & {
   id?: string;
   roofType?: Slab["roofType"];
   roofRiseM?: number;
+  polygon?: Vec2[];
+  connectWithOtherSlabs?: boolean;
 };
 export type UpdateSlabInput = Partial<Omit<Slab, "id">>;
+export type CreateGroundSurfaceInput = Omit<GroundSurface, "id"> & { id?: string };
+export type UpdateGroundSurfaceInput = Partial<Omit<GroundSurface, "id">>;
+export type CreateRoomInput = Omit<Room, "id"> & { id?: string };
+export type UpdateRoomInput = Partial<Omit<Room, "id">>;
 export type CreateExternalModelInput = Omit<ExternalModel, "id"> & { id?: string };
 export type UpdateExternalModelInput = Partial<Omit<ExternalModel, "id">>;
 export interface CreateMeasurementInput {
@@ -163,6 +182,24 @@ function expectSlab(project: Project, slabId: string) {
   return slab;
 }
 
+function expectGroundSurface(project: Project, groundSurfaceId: string) {
+  const groundSurface = project.groundSurfaces.find((item) => item.id === groundSurfaceId);
+  if (!groundSurface) {
+    throw new ProjectCommandError(`Ground surface "${groundSurfaceId}" does not exist.`);
+  }
+
+  return groundSurface;
+}
+
+function expectRoom(project: Project, roomId: string) {
+  const room = project.rooms.find((item) => item.id === roomId);
+  if (!room) {
+    throw new ProjectCommandError(`Room "${roomId}" does not exist.`);
+  }
+
+  return room;
+}
+
 function expectRoofLayer(project: Project, roofLayerId: string) {
   const roofLayer = project.roofLayers.find((item) => item.id === roofLayerId);
   if (!roofLayer) {
@@ -172,12 +209,24 @@ function expectRoofLayer(project: Project, roofLayerId: string) {
   return roofLayer;
 }
 
+function validateRoomPolygon(polygon: readonly Vec2[]) {
+  if (polygon.length < 3) {
+    throw new ProjectCommandError("Room polygon must have at least three points.");
+  }
+
+  for (const point of polygon) {
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+      throw new ProjectCommandError("Room polygon contains an invalid point.");
+    }
+  }
+}
+
 function validateSlabSurface(
   kind: Slab["kind"],
   roofType: Slab["roofType"],
   roofRiseM: number,
 ) {
-  if (kind === "Circle" && roofType !== "Flat") {
+  if (kind !== "Rectangle" && roofType !== "Flat") {
     throw new ProjectCommandError("Only rectangle slabs can use generated roof types.");
   }
 
@@ -216,6 +265,42 @@ function expectRoofOpening(project: Project, roofOpeningId: string) {
   }
 
   return roofOpening;
+}
+
+function expectSolarPanelArray(project: Project, solarPanelArrayId: string) {
+  const solarPanelArray = project.solarPanelArrays.find(
+    (item) => item.id === solarPanelArrayId,
+  );
+  if (!solarPanelArray) {
+    throw new ProjectCommandError(`Solar panel array "${solarPanelArrayId}" does not exist.`);
+  }
+
+  return solarPanelArray;
+}
+
+function validateSolarPanelArrayInput(input: Omit<SolarPanelArray, "id">) {
+  expectFinite(input.center.x, "Solar panel array center X");
+  expectFinite(input.center.y, "Solar panel array center Y");
+  if (!Number.isInteger(input.rows) || input.rows < 1 || input.rows > 40) {
+    throw new ProjectCommandError("Solar panel rows must be an integer between 1 and 40.");
+  }
+  if (!Number.isInteger(input.columns) || input.columns < 1 || input.columns > 40) {
+    throw new ProjectCommandError("Solar panel columns must be an integer between 1 and 40.");
+  }
+  expectPositive(input.panelWidthM, "Solar panel width");
+  expectPositive(input.panelHeightM, "Solar panel height");
+  expectFinite(input.gapM, "Solar panel gap");
+  expectFinite(input.mountingOffsetM, "Solar panel mounting offset");
+  expectPositive(input.panelThicknessM, "Solar panel thickness");
+  if (input.gapM < 0 || input.mountingOffsetM < 0) {
+    throw new ProjectCommandError("Solar panel gap and mounting offset must be non-negative.");
+  }
+  if (input.orientation !== "Portrait" && input.orientation !== "Landscape") {
+    throw new ProjectCommandError("Solar panel orientation is invalid.");
+  }
+  if (!/^#[0-9a-fA-F]{6}$/.test(input.panelColorHex) || !/^#[0-9a-fA-F]{6}$/.test(input.frameColorHex)) {
+    throw new ProjectCommandError("Solar panel colors must use #RRGGBB format.");
+  }
 }
 
 function expectWall(project: Project, wallId: string) {
@@ -1375,6 +1460,57 @@ export function deleteRoofOpening(project: Project, roofOpeningId: string) {
   });
 }
 
+export function createSolarPanelArray(
+  project: Project,
+  input: CreateSolarPanelArrayInput,
+) {
+  const nextProject = normalizeProject(project);
+  expectRoofFace(nextProject, input.roofSketchId, input.roofFaceId);
+  validateSolarPanelArrayInput(input);
+
+  return normalizeProject({
+    ...nextProject,
+    solarPanelArrays: [
+      ...nextProject.solarPanelArrays,
+      buildSolarPanelArray({ ...input, center: { ...input.center } }),
+    ],
+  });
+}
+
+export function updateSolarPanelArray(
+  project: Project,
+  solarPanelArrayId: string,
+  patch: UpdateSolarPanelArrayInput,
+) {
+  const nextProject = normalizeProject(project);
+  const current = expectSolarPanelArray(nextProject, solarPanelArrayId);
+  const candidate: SolarPanelArray = buildSolarPanelArray({
+    ...current,
+    ...patch,
+    center: patch.center ? { ...patch.center } : { ...current.center },
+  });
+  validateSolarPanelArrayInput(candidate);
+
+  return normalizeProject({
+    ...nextProject,
+    solarPanelArrays: nextProject.solarPanelArrays.map((item) =>
+      item.id === solarPanelArrayId ? candidate : item,
+    ),
+  });
+}
+
+export function deleteSolarPanelArray(project: Project, solarPanelArrayId: string) {
+  const nextProject = normalizeProject(project);
+  expectSolarPanelArray(nextProject, solarPanelArrayId);
+
+  return normalizeProject({
+    ...nextProject,
+    solarPanelArrays: nextProject.solarPanelArrays.filter(
+      (item) => item.id !== solarPanelArrayId,
+    ),
+  });
+}
+
 export function updateRoofSketch(
   project: Project,
   roofSketchId: string,
@@ -1428,6 +1564,9 @@ export function deleteRoofSketch(project: Project, roofSketchId: string) {
     roofOpenings: nextProject.roofOpenings.filter(
       (roofOpening) => roofOpening.roofSketchId !== roofSketchId,
     ),
+    solarPanelArrays: nextProject.solarPanelArrays.filter(
+      (solarPanelArray) => solarPanelArray.roofSketchId !== roofSketchId,
+    ),
   });
 }
 
@@ -1439,6 +1578,9 @@ export function createSlab(project: Project, input: CreateSlabInput) {
   expectPositive(input.depthM, "Slab depth");
   expectPositive(input.thicknessM, "Slab thickness");
   validateSlabSurface(input.kind, input.roofType ?? "Flat", input.roofRiseM ?? 1.2);
+  if (input.kind === "Freeform") {
+    validateRoomPolygon(input.polygon ?? []);
+  }
 
   return normalizeProject({
     ...nextProject,
@@ -1472,6 +1614,9 @@ export function updateSlab(project: Project, slabId: string, patch: UpdateSlabIn
   const nextRoofType = patch.roofType ?? currentSlab.roofType;
   const nextRoofRiseM = patch.roofRiseM ?? currentSlab.roofRiseM;
   validateSlabSurface(nextKind, nextRoofType, nextRoofRiseM);
+  if (nextKind === "Freeform") {
+    validateRoomPolygon(patch.polygon ?? currentSlab.polygon);
+  }
 
   return normalizeProject({
     ...nextProject,
@@ -1493,6 +1638,120 @@ export function deleteSlab(project: Project, slabId: string) {
   return normalizeProject({
     ...nextProject,
     slabs: nextProject.slabs.filter((slab) => slab.id !== slabId),
+  });
+}
+
+export function createGroundSurface(project: Project, input: CreateGroundSurfaceInput) {
+  const nextProject = normalizeProject(project);
+  ensureNonEmptyName(input.name, "Ground surface name");
+  expectPositive(input.widthM, "Ground surface width");
+  expectPositive(input.depthM, "Ground surface depth");
+
+  return normalizeProject({
+    ...nextProject,
+    groundSurfaces: [
+      ...nextProject.groundSurfaces,
+      buildGroundSurface(input),
+    ],
+  });
+}
+
+export function updateGroundSurface(
+  project: Project,
+  groundSurfaceId: string,
+  patch: UpdateGroundSurfaceInput,
+) {
+  const nextProject = normalizeProject(project);
+  const currentGroundSurface = expectGroundSurface(nextProject, groundSurfaceId);
+
+  if (patch.name !== undefined) {
+    ensureNonEmptyName(patch.name, "Ground surface name");
+  }
+  if (patch.widthM !== undefined) {
+    expectPositive(patch.widthM, "Ground surface width");
+  }
+  if (patch.depthM !== undefined) {
+    expectPositive(patch.depthM, "Ground surface depth");
+  }
+
+  return normalizeProject({
+    ...nextProject,
+    groundSurfaces: nextProject.groundSurfaces.map((groundSurface) =>
+      groundSurface.id === groundSurfaceId
+        ? {
+            ...currentGroundSurface,
+            ...patch,
+          }
+        : groundSurface,
+    ),
+  });
+}
+
+export function deleteGroundSurface(project: Project, groundSurfaceId: string) {
+  const nextProject = normalizeProject(project);
+  expectGroundSurface(nextProject, groundSurfaceId);
+
+  return normalizeProject({
+    ...nextProject,
+    groundSurfaces: nextProject.groundSurfaces.filter(
+      (groundSurface) => groundSurface.id !== groundSurfaceId,
+    ),
+  });
+}
+
+export function createRoom(project: Project, input: CreateRoomInput) {
+  const nextProject = normalizeProject(project);
+  expectLevel(nextProject, input.levelId);
+  ensureNonEmptyName(input.name, "Room name");
+  validateRoomPolygon(input.polygon);
+
+  return normalizeProject({
+    ...nextProject,
+    rooms: [
+      ...nextProject.rooms,
+      buildRoom(input),
+    ],
+  });
+}
+
+export function updateRoom(
+  project: Project,
+  roomId: string,
+  patch: UpdateRoomInput,
+) {
+  const nextProject = normalizeProject(project);
+  const currentRoom = expectRoom(nextProject, roomId);
+
+  if (patch.levelId !== undefined) {
+    expectLevel(nextProject, patch.levelId);
+  }
+  if (patch.name !== undefined) {
+    ensureNonEmptyName(patch.name, "Room name");
+  }
+  if (patch.polygon !== undefined) {
+    validateRoomPolygon(patch.polygon);
+  }
+
+  return normalizeProject({
+    ...nextProject,
+    rooms: nextProject.rooms.map((room) =>
+      room.id === roomId
+        ? {
+            ...currentRoom,
+            ...patch,
+          }
+        : room,
+    ),
+  });
+}
+
+export function deleteRoom(project: Project, roomId: string) {
+  const nextProject = normalizeProject(project);
+  expectRoom(nextProject, roomId);
+
+  return normalizeProject({
+    ...nextProject,
+    rooms: nextProject.rooms.filter((room) => room.id !== roomId),
   });
 }
 
