@@ -46,6 +46,7 @@ import type {
 
 interface ViewportSceneProps {
   project: Project;
+  readOnly?: boolean;
   activeTool: EditorTool;
   wallAuthoringMode: WallAuthoringMode;
   activeLevelId: string | null;
@@ -742,6 +743,7 @@ function renderSlabOutline(slab: Slab, metrics: Parameters<typeof worldToScreen>
 
 export function ViewportScene({
   project,
+  readOnly = false,
   activeTool,
   wallAuthoringMode,
   activeLevelId,
@@ -980,6 +982,10 @@ export function ViewportScene({
     const rootElement = element;
 
     function handleNativePlacementToolPointerDown(event: PointerEvent) {
+      if (readOnly) {
+        return;
+      }
+
       if (
         (!activeLevelId &&
           activeTool !== "Roof" &&
@@ -1632,6 +1638,7 @@ export function ViewportScene({
     onDeleteGroundSurface,
     onDeleteRoom,
     project,
+    readOnly,
     roomToolMode,
     slabMode,
     wallAuthoringMode,
@@ -1945,7 +1952,7 @@ export function ViewportScene({
     entityPosition: Vec2,
     interactive: boolean,
   ) {
-    if (activeTool !== "Move" || event.button !== 0 || !interactive) {
+    if (readOnly || activeTool !== "Move" || event.button !== 0 || !interactive) {
       return;
     }
 
@@ -1980,7 +1987,7 @@ export function ViewportScene({
     roofVertexId: string,
     vertexPosition: Vec2,
   ) {
-    if (activeTool !== "Move" || event.button !== 0) {
+    if (readOnly || activeTool !== "Move" || event.button !== 0) {
       return;
     }
 
@@ -2014,7 +2021,7 @@ export function ViewportScene({
     movingCornerSignY: -1 | 1,
     interactive: boolean,
   ) {
-    if (activeTool !== "Move" || event.button !== 0 || !interactive || slab.kind !== "Rectangle") {
+    if (readOnly || activeTool !== "Move" || event.button !== 0 || !interactive || slab.kind !== "Rectangle") {
       return;
     }
 
@@ -2051,7 +2058,7 @@ export function ViewportScene({
     vertexIndex: number,
     interactive: boolean,
   ) {
-    if (activeTool !== "Move" || event.button !== 0 || !interactive) {
+    if (readOnly || activeTool !== "Move" || event.button !== 0 || !interactive) {
       return;
     }
 
@@ -2071,6 +2078,10 @@ export function ViewportScene({
   }
 
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (readOnly && event.button !== 1) {
+      return;
+    }
+
     if (activeTool === "Move" && event.button === 2) {
       const pointerWorld = updateCursor(event.clientX, event.clientY);
       if (!pointerWorld) {
@@ -2617,7 +2628,7 @@ export function ViewportScene({
     const selected =
       isSelected(currentSelection, "wall", wall.id) ||
       isIncludedInSelectionSet(selectionSet, "wall", wall.id);
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "wall");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "wall");
 
     return (
       <line
@@ -2679,7 +2690,7 @@ export function ViewportScene({
     const selected =
       isSelected(currentSelection, "door", door.id) ||
       isIncludedInSelectionSet(selectionSet, "door", door.id);
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "door");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "door");
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const lengthPx = Math.hypot(dx, dy);
@@ -2778,7 +2789,7 @@ export function ViewportScene({
     const selected =
       isSelected(currentSelection, "window", windowOpening.id) ||
       isIncludedInSelectionSet(selectionSet, "window", windowOpening.id);
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "window");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "window");
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const lengthPx = Math.hypot(dx, dy);
@@ -2864,7 +2875,7 @@ export function ViewportScene({
     const selected =
       isSelected(currentSelection, "measure", measurement.id) ||
       isIncludedInSelectionSet(selectionSet, "measure", measurement.id);
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "measure");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "measure");
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const lengthPx = Math.hypot(dx, dy);
@@ -2953,7 +2964,7 @@ export function ViewportScene({
     const selected =
       isSelected(currentSelection, "stair", stair.id) ||
       isIncludedInSelectionSet(selectionSet, "stair", stair.id);
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "stair");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "stair");
     const pathData = createSvgPathFromPoints(stair.pathNodes, metrics);
     const stairWidthPx = Math.max(10, stair.widthM * projectScale(metrics));
     const segments = buildStairPlanSegments(stair);
@@ -3117,7 +3128,7 @@ export function ViewportScene({
       isSelected(currentSelection, "node", node.id) ||
       isIncludedInSelectionSet(selectionSet, "node", node.id) ||
       pendingWallStartNodeId === node.id;
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "node");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "node");
 
     return (
       <circle
@@ -3201,7 +3212,7 @@ export function ViewportScene({
     const selected =
       isSelected(currentSelection, "shape", shape.id) ||
       isIncludedInSelectionSet(selectionSet, "shape", shape.id);
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "shape");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "shape");
 
     if (shape.kind === "Cylinder") {
       const center = worldToScreen(shape.pose.position, metrics);
@@ -3290,7 +3301,7 @@ export function ViewportScene({
     const selected =
       isSelected(currentSelection, "groundSurface", groundSurface.id) ||
       isIncludedInSelectionSet(selectionSet, "groundSurface", groundSurface.id);
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "groundSurface");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "groundSurface");
     const center = worldToScreen(groundSurface.pose.position, metrics);
     const widthPx = groundSurface.widthM * projectScale(metrics);
     const heightPx = groundSurface.depthM * projectScale(metrics);
@@ -3344,7 +3355,7 @@ export function ViewportScene({
     const selected =
       isSelected(currentSelection, "room", room.id) ||
       isIncludedInSelectionSet(selectionSet, "room", room.id);
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "room");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "room");
     const center = worldToScreen(getPolygonCenter(room.polygon), metrics);
     const areaLabel = `${calculatePolygonAreaM2(room.polygon).toFixed(2)} m2`;
     const label = room.name.trim().length > 0 ? room.name : "Room";
@@ -3435,7 +3446,7 @@ export function ViewportScene({
     const isToolInteractive =
       activeTool === "Slab" || activeTool === "Roof"
         ? matchesSlabTool || matchesRoofTool
-        : isEntityInteractiveForTool(activeTool, "slab");
+        : !readOnly && isEntityInteractiveForTool(activeTool, "slab");
     const baseFill =
       slab.roofType === "Flat" ? "rgba(96, 181, 127, 0.12)" : "rgba(201, 129, 77, 0.14)";
     const baseStroke = slab.roofType === "Flat" ? "#60b57f" : "#c9814d";
@@ -3489,7 +3500,7 @@ export function ViewportScene({
                 fill="#111827"
                 stroke="#ffd166"
                 strokeWidth={2}
-                pointerEvents="auto"
+                pointerEvents={readOnly ? "none" : "auto"}
                 style={{ cursor: "move" }}
                 onPointerDown={(event) =>
                   startSlabVertexDrag(event, slab, vertexIndex, levelStyle.interactive)
@@ -3614,7 +3625,7 @@ export function ViewportScene({
               stroke="#ffd166"
               strokeWidth={2}
               opacity={levelStyle.opacity}
-              pointerEvents="auto"
+              pointerEvents={readOnly ? "none" : "auto"}
               style={{ cursor: handle.cursor }}
               onPointerDown={(event) =>
                 startSlabResizeDrag(
@@ -3657,7 +3668,9 @@ export function ViewportScene({
             data-viewport-entity="roofFace"
             data-roof-face-id={face.id}
             pointerEvents={
-              activeTool === "Roof" || activeTool === "RoofOpening" ? "auto" : "none"
+              !readOnly && (activeTool === "Roof" || activeTool === "RoofOpening")
+                ? "auto"
+                : "none"
             }
             d={`${createSvgPathFromPoints(points, metrics)} Z`}
             fill={selected ? "rgba(255, 209, 102, 0.20)" : "rgba(201, 129, 77, 0.16)"}
@@ -3733,7 +3746,7 @@ export function ViewportScene({
             key={edge.id}
             data-viewport-entity="roofEdge"
             data-roof-edge-id={edge.id}
-            pointerEvents={activeTool === "Roof" || activeTool === "Move" ? "auto" : "none"}
+            pointerEvents={!readOnly && (activeTool === "Roof" || activeTool === "Move") ? "auto" : "none"}
             onPointerDown={(event) =>
               startMoveDrag(event, "roofEdge", edge.id, worldMidpoint, true)
             }
@@ -3784,7 +3797,7 @@ export function ViewportScene({
               cy={startScreen.y}
               r={11}
               fill="transparent"
-              pointerEvents={activeTool === "Move" || activeTool === "Roof" ? "auto" : "none"}
+              pointerEvents={!readOnly && (activeTool === "Move" || activeTool === "Roof") ? "auto" : "none"}
               onPointerDown={(event) =>
                 startRoofVertexDrag(event, sketch.id, edge.id, edge.startVertexId, start.position)
               }
@@ -3799,7 +3812,7 @@ export function ViewportScene({
               fill={startVertexSelected ? "#ffd166" : selected ? "#ffe0a1" : "#f1b879"}
               stroke={startVertexSelected ? "#fff2bd" : "#7f4a26"}
               strokeWidth={startVertexSelected ? 2.5 : 1.5}
-              pointerEvents={activeTool === "Move" || activeTool === "Roof" ? "auto" : "none"}
+              pointerEvents={!readOnly && (activeTool === "Move" || activeTool === "Roof") ? "auto" : "none"}
               onPointerDown={(event) =>
                 startRoofVertexDrag(event, sketch.id, edge.id, edge.startVertexId, start.position)
               }
@@ -3812,7 +3825,7 @@ export function ViewportScene({
               cy={endScreen.y}
               r={11}
               fill="transparent"
-              pointerEvents={activeTool === "Move" || activeTool === "Roof" ? "auto" : "none"}
+              pointerEvents={!readOnly && (activeTool === "Move" || activeTool === "Roof") ? "auto" : "none"}
               onPointerDown={(event) =>
                 startRoofVertexDrag(event, sketch.id, edge.id, edge.endVertexId, end.position)
               }
@@ -3827,7 +3840,7 @@ export function ViewportScene({
               fill={endVertexSelected ? "#ffd166" : selected ? "#ffe0a1" : "#f1b879"}
               stroke={endVertexSelected ? "#fff2bd" : "#7f4a26"}
               strokeWidth={endVertexSelected ? 2.5 : 1.5}
-              pointerEvents={activeTool === "Move" || activeTool === "Roof" ? "auto" : "none"}
+              pointerEvents={!readOnly && (activeTool === "Move" || activeTool === "Roof") ? "auto" : "none"}
               onPointerDown={(event) =>
                 startRoofVertexDrag(event, sketch.id, edge.id, edge.endVertexId, end.position)
               }
@@ -3870,7 +3883,7 @@ export function ViewportScene({
       const selected =
         isSelected(currentSelection, "roofOpening", opening.id) ||
         isIncludedInSelectionSet(selectionSet, "roofOpening", opening.id);
-      const isToolInteractive = isEntityInteractiveForTool(activeTool, "roofOpening");
+      const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "roofOpening");
       return (
         <g
           key={opening.id}
@@ -3979,7 +3992,7 @@ export function ViewportScene({
     const selected =
       isSelected(currentSelection, "externalModel", model.id) ||
       isIncludedInSelectionSet(selectionSet, "externalModel", model.id);
-    const isToolInteractive = isEntityInteractiveForTool(activeTool, "externalModel");
+    const isToolInteractive = !readOnly && isEntityInteractiveForTool(activeTool, "externalModel");
 
     return (
       <g
@@ -4532,7 +4545,7 @@ export function ViewportScene({
   return (
     <div
       ref={rootRef}
-      className="viewport-scene"
+      className={readOnly ? "viewport-scene is-read-only" : "viewport-scene"}
       onPointerDownCapture={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -4554,6 +4567,21 @@ export function ViewportScene({
     >
       {size.width > 0 && size.height > 0 ? (
         <svg className="viewport-svg" width={size.width} height={size.height}>
+          {project.site.visible2D ? (
+            <polygon
+              className="site-surface-2d"
+              points={project.site.boundary
+                .map((point) => {
+                  const screenPoint = worldToScreen(point, metrics);
+                  return `${screenPoint.x},${screenPoint.y}`;
+                })
+                .join(" ")}
+              fill={readOnly ? "rgba(79, 135, 73, 0.34)" : "rgba(79, 135, 73, 0.2)"}
+              stroke="rgba(122, 169, 100, 0.72)"
+              strokeWidth={1.5}
+              pointerEvents="none"
+            />
+          ) : null}
           {gridLines !== null
             ? gridLines.vertical.map((x) => {
                 const start = worldToScreen(createVec2(x, bounds!.minY), metrics);

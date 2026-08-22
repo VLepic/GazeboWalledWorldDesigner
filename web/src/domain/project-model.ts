@@ -1,6 +1,7 @@
 export type ShapeKind = "Square" | "Cylinder";
 export type SlabKind = "Rectangle" | "Circle" | "Freeform";
 export type GroundSurfaceKind = "Floor" | "Grass";
+export type SiteSurfaceKind = "Grass";
 export type RoofType = "Flat" | "Gable" | "Shed" | "Hip";
 export type WallTopMode = "FixedHeight" | "FollowRoof";
 export type MeasurementUnit = "cm" | "dm" | "m";
@@ -278,6 +279,16 @@ export interface GroundSurface {
   depthM: number;
 }
 
+export interface Site {
+  id: string;
+  name: string;
+  surfaceKind: SiteSurfaceKind;
+  boundary: Vec2[];
+  elevationM: number;
+  visible2D: boolean;
+  visible3D: boolean;
+}
+
 export interface Room {
   id: string;
   levelId: string;
@@ -308,6 +319,7 @@ export interface Measurement {
 export interface Project {
   projectName: string;
   settings: ProjectSettings;
+  site: Site;
   levels: Level[];
   wallTypes: WallType[];
   roofLayers: RoofLayer[];
@@ -531,6 +543,23 @@ export function createGroundSurface(overrides: Partial<GroundSurface> = {}): Gro
   };
 }
 
+export function createSite(overrides: Partial<Site> = {}): Site {
+  return {
+    id: overrides.id ?? "site_default",
+    name: overrides.name ?? "Property",
+    surfaceKind: overrides.surfaceKind ?? "Grass",
+    boundary: overrides.boundary?.map((point) => createVec2(point.x, point.y)) ?? [
+      createVec2(-20, -20),
+      createVec2(20, -20),
+      createVec2(20, 20),
+      createVec2(-20, 20),
+    ],
+    elevationM: overrides.elevationM ?? 0,
+    visible2D: overrides.visible2D ?? true,
+    visible3D: overrides.visible3D ?? true,
+  };
+}
+
 export function createRoom(overrides: Partial<Room> = {}): Room {
   return {
     id: overrides.id ?? createId("room"),
@@ -590,6 +619,7 @@ export function createEmptyProject(overrides: Partial<Project> = {}): Project {
   const project: Project = {
     projectName: overrides.projectName ?? "WaWoD Studio",
     settings: overrides.settings ?? { ...DEFAULT_PROJECT_SETTINGS },
+    site: overrides.site ?? createSite(),
     levels: overrides.levels ?? [],
     wallTypes: overrides.wallTypes ?? [],
     roofLayers: overrides.roofLayers ?? [],
@@ -653,6 +683,7 @@ export function ensureProjectDefaults(project: Project): Project {
     projectName:
       project.projectName.trim().length > 0 ? project.projectName : "WaWoD Studio",
     settings: { ...DEFAULT_PROJECT_SETTINGS, ...project.settings },
+    site: createSite(project.site),
     levels,
     wallTypes,
     roofLayers,

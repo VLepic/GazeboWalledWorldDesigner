@@ -58,6 +58,7 @@ export interface Preview3DMeshPrimitive {
   indices: number[];
   color: string;
   opacity?: number;
+  castShadow?: boolean;
 }
 
 export interface Preview3DSceneData {
@@ -231,7 +232,7 @@ function toWorldPoint2D(position: Vec2, elevationM: number) {
 }
 
 function rgbToCss(color: RgbColor) {
-  return `rgb(${Math.round(color.r)} ${Math.round(color.g)} ${Math.round(color.b)})`;
+  return `rgb(${Math.round(color.r)}, ${Math.round(color.g)}, ${Math.round(color.b)})`;
 }
 
 function shadeColor(color: RgbColor, factor: number) {
@@ -958,6 +959,27 @@ export function buildPreview3DScene(
         : { r: 150, g: 154, b: 160 };
 
     addMeshPrimitive(vertices, [0, 1, 2, 0, 2, 3], color, 1);
+  };
+
+  const addSitePrimitive = () => {
+    if (!project.site.visible3D || project.site.boundary.length < 3) {
+      return;
+    }
+
+    const contour = project.site.boundary.map((point) => new Vector2(point.x, point.y));
+    const vertices = project.site.boundary.map((point) =>
+      vec3(point.x, project.site.elevationM - 0.015, -point.y),
+    );
+    const indices = ShapeUtils.triangulateShape(contour, []).flat();
+
+    meshes.push({
+      kind: "mesh",
+      vertices: vertices.map((vertex) => [vertex.x, vertex.y, vertex.z]),
+      indices,
+      color: rgbToCss({ r: 65, g: 119, b: 67 }),
+      opacity: 1,
+      castShadow: false,
+    });
   };
 
   const addSolvedRoofMesh = (solvedRoof: SolvedRoof, color: RgbColor) => {
@@ -2687,6 +2709,8 @@ export function buildPreview3DScene(
       );
     }
   }
+
+  addSitePrimitive();
 
   for (const groundSurface of project.groundSurfaces) {
     addGroundSurfacePrimitive(groundSurface);

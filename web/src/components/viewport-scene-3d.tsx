@@ -272,7 +272,7 @@ function MeshPrimitive({
   useEffect(() => () => geometry.dispose(), [geometry]);
 
   return (
-    <mesh geometry={geometry} castShadow receiveShadow>
+    <mesh geometry={geometry} castShadow={primitive.castShadow ?? true} receiveShadow>
       <meshStandardMaterial
         color={primitive.color}
         roughness={grayMode ? 0.88 : 0.76}
@@ -2577,7 +2577,7 @@ export function ViewportScene3D({
         </group>
         <gridHelper
           args={[Math.max(scene.radius * 4, 24), 48, "#87603a", "#31415f"]}
-          position={[scene.target[0], 0, scene.target[2]]}
+          position={[scene.target[0], project.site.elevationM + 0.03, scene.target[2]]}
         />
         {cameraMode === "FreeCamera" ? (
           <FreeCameraController

@@ -22,6 +22,7 @@ export type EditorTool =
   | "Ground"
   | "Rooms";
 export type ViewportMode = "2d" | "3d";
+export type EditorMode = "Building" | "Design" | "Terrain";
 export type WallAuthoringMode = "AutoWall" | "Topology";
 export type SelectableEntityKind =
   | "node"
@@ -87,6 +88,7 @@ export interface Preview3DState {
 }
 
 export interface EditorUiState {
+  editorMode: EditorMode;
   viewportMode: ViewportMode;
   wallAuthoringMode: WallAuthoringMode;
   activeTool: EditorTool;
@@ -105,6 +107,7 @@ export interface EditorUiState {
   viewport: ViewportState;
   preview3D: Preview3DState;
   viewportPresets: ViewportPreset[];
+  setEditorMode: (mode: EditorMode) => void;
   setViewportMode: (mode: ViewportMode) => void;
   setWallAuthoringMode: (mode: WallAuthoringMode) => void;
   setActiveTool: (tool: EditorTool) => void;
@@ -141,6 +144,7 @@ export interface EditorUiState {
 
 const DEFAULT_EDITOR_TOOL: EditorTool = "Move";
 const DEFAULT_SLAB_MODE: SlabMode = "Rectangle";
+const DEFAULT_EDITOR_MODE: EditorMode = "Building";
 const DEFAULT_VIEWPORT_MODE: ViewportMode = "2d";
 const DEFAULT_WALL_AUTHORING_MODE: WallAuthoringMode = "AutoWall";
 
@@ -287,6 +291,7 @@ function getValidSelectionSet(selectionSet: EditorSelection[], project: Project)
 export const useEditorUiStore = create<EditorUiState>()(
   persist(
     (set, get) => ({
+      editorMode: DEFAULT_EDITOR_MODE,
       viewportMode: DEFAULT_VIEWPORT_MODE,
       wallAuthoringMode: DEFAULT_WALL_AUTHORING_MODE,
       activeTool: DEFAULT_EDITOR_TOOL,
@@ -305,6 +310,15 @@ export const useEditorUiStore = create<EditorUiState>()(
       viewport: defaultViewport(),
       preview3D: defaultPreview3D(),
       viewportPresets: defaultViewportPresets(),
+
+      setEditorMode: (mode) => {
+        set({
+          editorMode: mode,
+          currentSelection: null,
+          selectionSet: [],
+          pendingWallStartNodeId: null,
+        });
+      },
 
       setViewportMode: (mode) => {
         set({ viewportMode: mode });
@@ -538,6 +552,7 @@ export const useEditorUiStore = create<EditorUiState>()(
 
       resetEditorUi: () => {
         set({
+          editorMode: DEFAULT_EDITOR_MODE,
           viewportMode: DEFAULT_VIEWPORT_MODE,
           wallAuthoringMode: DEFAULT_WALL_AUTHORING_MODE,
           activeTool: DEFAULT_EDITOR_TOOL,
@@ -619,6 +634,7 @@ export const useEditorUiStore = create<EditorUiState>()(
       name: "wawod-studio-ui",
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
+        editorMode: state.editorMode,
         wallAuthoringMode: state.wallAuthoringMode,
         hiddenLevelIds2D: state.hiddenLevelIds2D,
         hiddenLevelIds3D: state.hiddenLevelIds3D,

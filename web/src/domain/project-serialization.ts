@@ -17,6 +17,7 @@ import {
   createSolarPanelArray,
   createRoom,
   createShape,
+  createSite,
   createSlab,
   createStair,
   createVec2,
@@ -51,6 +52,7 @@ import type {
   Room,
   Shape,
   ShapeKind,
+  Site,
   Slab,
   SlabKind,
   Stair,
@@ -415,6 +417,41 @@ function parseSettings(data: unknown, warnings: string[]) {
   }
 
   return settings;
+}
+
+function parseSite(data: unknown, warnings: string[]): Site {
+  if (data === undefined || data === null) {
+    return createSite();
+  }
+
+  const source = asObject(data);
+  if (!source) {
+    warnings.push("site: invalid property definition, restored default property.");
+    return createSite();
+  }
+
+  const boundary = asArray(source.boundary)
+    .map((item) => {
+      const point = asObject(item);
+      const x = point ? pickNumber(point, "x") : undefined;
+      const y = point ? pickNumber(point, "y") : undefined;
+      return x !== undefined && y !== undefined ? createVec2(x, y) : null;
+    })
+    .filter((point): point is Vec2 => point !== null);
+
+  if (boundary.length < 3) {
+    warnings.push("site: property boundary needs at least three points, restored default boundary.");
+  }
+
+  return createSite({
+    id: pickString(source, "id") ?? "site_default",
+    name: pickString(source, "name") ?? "Property",
+    surfaceKind: "Grass",
+    boundary: boundary.length >= 3 ? boundary : undefined,
+    elevationM: pickNumber(source, "elevationM", "elevation_m") ?? 0,
+    visible2D: pickBoolean(source, "visible2D", "visible_2d") ?? true,
+    visible3D: pickBoolean(source, "visible3D", "visible_3d") ?? true,
+  });
 }
 
 function parseLevels(data: unknown, warnings: string[]) {
@@ -2156,6 +2193,7 @@ export function parseProjectData(data: unknown): ProjectParseResult {
   const projectBase = ensureProjectDefaults({
     projectName: pickString(root, "projectName", "project_name", "name") ?? "WaWoD Studio",
     settings,
+    site: parseSite(root.site, warnings),
     levels,
     wallTypes,
     roofLayers,

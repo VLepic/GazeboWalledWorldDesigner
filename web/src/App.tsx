@@ -129,6 +129,7 @@ import {
   type ViewportBounds,
 } from "./domain/viewport";
 import {
+  type EditorMode,
   type EditorSelection,
   type EditorTool,
   type RoomToolMode,
@@ -162,7 +163,20 @@ const editorTools3D: EditorTool[] = [
   "RoofWindow",
   "SolarPanels",
 ];
+const editorModes: EditorMode[] = ["Building", "Design", "Terrain"];
 const BUILT_IN_SAMPLE_URL = `${import.meta.env.BASE_URL}samples/default.wawod`;
+
+function getEditorModeDescription(mode: EditorMode) {
+  if (mode === "Design") {
+    return "Furniture, materials, colors and interior details will be authored here.";
+  }
+
+  if (mode === "Terrain") {
+    return "Terrain, gardens, slopes, paths and water features will be authored here.";
+  }
+
+  return "Structural plans, walls, openings, roofs, slabs and rooms are authored here.";
+}
 
 function getEditorToolLabel(tool: EditorTool) {
   if (tool === "ExternalShading") {
@@ -1124,6 +1138,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const viewportCanvasRef = useRef<HTMLDivElement | null>(null);
   const otherToolsMenuRef = useRef<HTMLDivElement | null>(null);
+  const editorMenuRef = useRef<HTMLDivElement | null>(null);
   const doorToolsMenuRef = useRef<HTMLDivElement | null>(null);
   const windowToolsMenuRef = useRef<HTMLDivElement | null>(null);
   const previewMenuRef = useRef<HTMLDivElement | null>(null);
@@ -1149,6 +1164,7 @@ export default function App() {
   const importProjectJson = useProjectStore((state) => state.importProjectJson);
   const markSaved = useProjectStore((state) => state.markSaved);
 
+  const editorMode = useEditorUiStore((state) => state.editorMode);
   const activeTool = useEditorUiStore((state) => state.activeTool);
   const viewportMode = useEditorUiStore((state) => state.viewportMode);
   const wallAuthoringMode = useEditorUiStore((state) => state.wallAuthoringMode);
@@ -1167,6 +1183,7 @@ export default function App() {
   const viewport = useEditorUiStore((state) => state.viewport);
   const preview3D = useEditorUiStore((state) => state.preview3D);
   const viewportPresets = useEditorUiStore((state) => state.viewportPresets);
+  const setEditorMode = useEditorUiStore((state) => state.setEditorMode);
   const setViewportMode = useEditorUiStore((state) => state.setViewportMode);
   const setWallAuthoringMode = useEditorUiStore((state) => state.setWallAuthoringMode);
   const setActiveTool = useEditorUiStore((state) => state.setActiveTool);
@@ -1205,6 +1222,7 @@ export default function App() {
   const [clipboardPasteCount, setClipboardPasteCount] = useState(0);
   const [projectNameDraft, setProjectNameDraft] = useState(project.projectName);
   const [isOtherToolsMenuOpen, setIsOtherToolsMenuOpen] = useState(false);
+  const [isEditorMenuOpen, setIsEditorMenuOpen] = useState(false);
   const [openingToolsMenuOpen, setOpeningToolsMenuOpen] = useState<"Door" | "Window" | null>(null);
   const [externalShadingToolbarAnchor, setExternalShadingToolbarAnchor] =
     useState<"Door" | "Window">("Window");
@@ -1306,6 +1324,10 @@ export default function App() {
   const projectValidation = validateProject(project);
   const availableEditorTools = useMemo(
     () => {
+      if (editorMode !== "Building") {
+        return [];
+      }
+
       if (viewportMode === "3d") {
         return editorTools3D;
       }
@@ -1318,7 +1340,7 @@ export default function App() {
         ? editorTools.filter((tool) => tool !== "Node")
         : editorTools;
     },
-    [activeRoofLayerId, viewportMode, wallAuthoringMode],
+    [activeRoofLayerId, editorMode, viewportMode, wallAuthoringMode],
   );
   const hiddenLevelIdSet2D = useMemo(() => new Set(hiddenLevelIds2D), [hiddenLevelIds2D]);
   const hiddenLevelIdSet3D = useMemo(() => new Set(hiddenLevelIds3D), [hiddenLevelIds3D]);
@@ -1606,6 +1628,10 @@ export default function App() {
   }, [setCursorWorld, viewportMode]);
 
   useEffect(() => {
+    if (editorMode !== "Building") {
+      return;
+    }
+
     if (viewportMode === "2d" && !editorTools3D.includes(activeTool)) {
       last2DToolRef.current = activeTool;
     }
@@ -1613,10 +1639,15 @@ export default function App() {
     if (viewportMode === "3d" && editorTools3D.includes(activeTool)) {
       last3DToolRef.current = activeTool;
     }
-  }, [activeTool, viewportMode]);
+  }, [activeTool, editorMode, viewportMode]);
 
   const previousViewportModeRef = useRef(viewportMode);
   useEffect(() => {
+    if (editorMode !== "Building") {
+      previousViewportModeRef.current = viewportMode;
+      return;
+    }
+
     const previousMode = previousViewportModeRef.current;
     previousViewportModeRef.current = viewportMode;
 
@@ -1634,15 +1665,23 @@ export default function App() {
     if (editorTools3D.includes(activeTool)) {
       setActiveTool(last2DToolRef.current);
     }
-  }, [activeTool, setActiveTool, viewportMode]);
+  }, [activeTool, editorMode, setActiveTool, viewportMode]);
 
   useEffect(() => {
+    if (editorMode !== "Building") {
+      return;
+    }
+
     if (wallAuthoringMode === "AutoWall" && activeTool === "Node") {
       setActiveTool("Wall");
     }
-  }, [activeTool, setActiveTool, wallAuthoringMode]);
+  }, [activeTool, editorMode, setActiveTool, wallAuthoringMode]);
 
   useEffect(() => {
+    if (editorMode !== "Building" || availableEditorTools.length === 0) {
+      return;
+    }
+
     if (availableEditorTools.includes(activeTool)) {
       return;
     }
@@ -1652,7 +1691,16 @@ export default function App() {
         ? "Roof"
         : availableEditorTools[0],
     );
-  }, [activeRoofLayerId, activeTool, availableEditorTools, setActiveTool]);
+  }, [activeRoofLayerId, activeTool, availableEditorTools, editorMode, setActiveTool]);
+
+  useEffect(() => {
+    setIsOtherToolsMenuOpen(false);
+    setOpeningToolsMenuOpen(null);
+    setIsPreviewMenuOpen(false);
+    setIsSettingsMenuOpen(false);
+    setEditingLevelId(null);
+    setEditingWallTypeId(null);
+  }, [editorMode]);
 
   useEffect(() => {
     setProjectNameDraft(project.projectName);
@@ -1679,6 +1727,9 @@ export default function App() {
       const target = event.target as Node;
       if (!otherToolsMenuRef.current?.contains(target)) {
         setIsOtherToolsMenuOpen(false);
+      }
+      if (!editorMenuRef.current?.contains(target)) {
+        setIsEditorMenuOpen(false);
       }
       if (
         !doorToolsMenuRef.current?.contains(target) &&
@@ -1798,6 +1849,10 @@ export default function App() {
       }
 
       if (key === "c") {
+        if (editorMode !== "Building") {
+          return;
+        }
+
         if (selectionSet.length === 0) {
           return;
         }
@@ -1808,6 +1863,10 @@ export default function App() {
       }
 
       if (key === "v") {
+        if (editorMode !== "Building") {
+          return;
+        }
+
         if (!clipboardPayload) {
           return;
         }
@@ -1831,7 +1890,7 @@ export default function App() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [canRedo, canUndo, clipboardPayload, isHistoryTransactionOpen, redo, selectionSet, undo]);
+  }, [canRedo, canUndo, clipboardPayload, editorMode, isHistoryTransactionOpen, redo, selectionSet, undo]);
 
   useEffect(() => {
     const element = viewportCanvasRef.current;
@@ -4906,6 +4965,7 @@ export default function App() {
   }
 
   const showToolWindow =
+    editorMode === "Building" &&
     floatingWindowVisibility.tool &&
     (activeTool === "Measure" ||
       activeTool === "Door" ||
@@ -4923,6 +4983,7 @@ export default function App() {
       viewportMode === "3d");
 
   const showContextWindow =
+    editorMode === "Building" &&
     floatingWindowVisibility.context &&
     currentSelection !== null &&
     !(
@@ -7324,6 +7385,9 @@ export default function App() {
                 </button>
               );
             })}
+            {editorMode !== "Building" ? (
+              <span className="toolbar-empty-state">Tools will be added here</span>
+            ) : null}
           </div>
         </div>
 
@@ -7361,7 +7425,7 @@ export default function App() {
               className={viewportMode === "3d" ? "toolbar-button is-active" : "toolbar-button ghost"}
               onClick={handleTogglePreviewMode}
             >
-              {viewportMode === "3d" ? "Back To 2D" : "Open 3D Preview"}
+              {viewportMode === "3d" ? "Back To 2D" : "Open 3D View"}
             </button>
             <button
               type="button"
@@ -7385,9 +7449,65 @@ export default function App() {
                 >
                   Detached Preview
                 </button>
-                </div>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
+          </div>
+          <div ref={editorMenuRef} className="toolbar-split-menu editor-mode-menu">
+            <button
+              type="button"
+              className="toolbar-button is-active editor-mode-button"
+              onClick={() => {
+                setIsEditorMenuOpen((current) => !current);
+                setIsOtherToolsMenuOpen(false);
+                setOpeningToolsMenuOpen(null);
+                setIsPreviewMenuOpen(false);
+                setIsSettingsMenuOpen(false);
+              }}
+              aria-haspopup="menu"
+              aria-expanded={isEditorMenuOpen}
+            >
+              {editorMode} Editor
+            </button>
+            <button
+              type="button"
+              className="toolbar-button toolbar-split-toggle is-active"
+              onClick={() => {
+                setIsEditorMenuOpen((current) => !current);
+                setIsOtherToolsMenuOpen(false);
+                setOpeningToolsMenuOpen(null);
+                setIsPreviewMenuOpen(false);
+                setIsSettingsMenuOpen(false);
+              }}
+              aria-label="Choose editor"
+              aria-haspopup="menu"
+              aria-expanded={isEditorMenuOpen}
+            >
+              v
+            </button>
+            {isEditorMenuOpen ? (
+              <div className="toolbar-menu-panel editor-mode-menu-panel">
+                {editorModes.map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={
+                      mode === editorMode
+                        ? "toolbar-menu-item is-active"
+                        : "toolbar-menu-item"
+                    }
+                    onClick={() => {
+                      setEditorMode(mode);
+                      setIsEditorMenuOpen(false);
+                      reportSuccess(`Switched to ${mode} Editor.`);
+                    }}
+                  >
+                    <strong>{mode} Editor</strong>
+                    <span>{getEditorModeDescription(mode)}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
             <div ref={settingsMenuRef} className="toolbar-split-menu">
               <button
                 type="button"
@@ -7530,9 +7650,10 @@ export default function App() {
             </div>
             <div className="viewport-meta">
               <span>{projectSummary}</span>
-              <span>Tool: {activeTool}</span>
-              <span>Level: {activeLevelName}</span>
-              <span>Wall Type: {activeWallTypeName}</span>
+              <span>Editor: {editorMode}</span>
+              {editorMode === "Building" ? <span>Tool: {activeTool}</span> : null}
+              {editorMode === "Building" ? <span>Level: {activeLevelName}</span> : null}
+              {editorMode === "Building" ? <span>Wall Type: {activeWallTypeName}</span> : null}
             </div>
           </div>
 
@@ -7541,6 +7662,7 @@ export default function App() {
               <>
                 <ViewportScene
                   project={visibleProject2D}
+                  readOnly={editorMode !== "Building"}
                   activeTool={activeTool}
                   wallAuthoringMode={wallAuthoringMode}
                   activeLevelId={activeLevelId}
@@ -7615,23 +7737,23 @@ export default function App() {
                 project={visibleProject3D}
                 preview3D={preview3D}
                 onPreview3DChange={setPreview3D}
-                activeTool={activeTool}
-                selectedDoorId={selectedDoor?.id ?? null}
-                onSelectDoor={handleSelectDoor3D}
-                onInsertDoor3D={handleApplyDoor3DInsert}
-                onApplyExternalShadingToDoor={handleApplyExternalShadingToDoor}
-                selectedWindowId={selectedWindow?.id ?? null}
-                onSelectWindow={handleSelectWindow3D}
-                onClearOpeningSelection={handleClear3DOpeningSelection}
-                onInsertWindow3D={handleApplyWindow3DInsert}
-                onApplyExternalShadingToWindow={handleApplyExternalShadingToWindow}
-                selectedRoofOpeningId={selectedRoofOpening?.id ?? null}
-                onSelectRoofOpening={handleSelectRoofWindow3D}
-                onInsertRoofWindow3D={handleApplyRoofWindow3DInsert}
-                selectedSolarPanelArrayId={selectedSolarPanelArray?.id ?? null}
-                onSelectSolarPanelArray={handleSelectSolarPanelArray}
-                onCreateSolarPanelArray={handleCreateSolarPanelArray}
-                onMoveSolarPanelArray={handleMoveSolarPanelArray}
+                activeTool={editorMode === "Building" ? activeTool : undefined}
+                selectedDoorId={editorMode === "Building" ? selectedDoor?.id ?? null : null}
+                onSelectDoor={editorMode === "Building" ? handleSelectDoor3D : undefined}
+                onInsertDoor3D={editorMode === "Building" ? handleApplyDoor3DInsert : undefined}
+                onApplyExternalShadingToDoor={editorMode === "Building" ? handleApplyExternalShadingToDoor : undefined}
+                selectedWindowId={editorMode === "Building" ? selectedWindow?.id ?? null : null}
+                onSelectWindow={editorMode === "Building" ? handleSelectWindow3D : undefined}
+                onClearOpeningSelection={editorMode === "Building" ? handleClear3DOpeningSelection : undefined}
+                onInsertWindow3D={editorMode === "Building" ? handleApplyWindow3DInsert : undefined}
+                onApplyExternalShadingToWindow={editorMode === "Building" ? handleApplyExternalShadingToWindow : undefined}
+                selectedRoofOpeningId={editorMode === "Building" ? selectedRoofOpening?.id ?? null : null}
+                onSelectRoofOpening={editorMode === "Building" ? handleSelectRoofWindow3D : undefined}
+                onInsertRoofWindow3D={editorMode === "Building" ? handleApplyRoofWindow3DInsert : undefined}
+                selectedSolarPanelArrayId={editorMode === "Building" ? selectedSolarPanelArray?.id ?? null : null}
+                onSelectSolarPanelArray={editorMode === "Building" ? handleSelectSolarPanelArray : undefined}
+                onCreateSolarPanelArray={editorMode === "Building" ? handleCreateSolarPanelArray : undefined}
+                onMoveSolarPanelArray={editorMode === "Building" ? handleMoveSolarPanelArray : undefined}
                 solarPanelToolDesign={solarPanelToolDesign}
                 door3DToolDesign={createCurrentDoor3DDesign()}
                 window3DToolDesign={createCurrentWindow3DDesign()}
@@ -7645,6 +7767,17 @@ export default function App() {
               />
             )}
 
+            {editorMode !== "Building" ? (
+              <div className={`editor-workspace-placeholder is-${editorMode.toLowerCase()}`}>
+                <p className="section-kicker">{editorMode} Editor</p>
+                <h2>Workspace ready for future tools</h2>
+                <p>{getEditorModeDescription(editorMode)}</p>
+                <span>
+                  The building model is a read-only reference. Switch between 2D and 3D without changing structural data.
+                </span>
+              </div>
+            ) : null}
+
             <div className="activity-banner">
               <strong>{activityMessage}</strong>
               {errorMessage ? <span className="error-text">{errorMessage}</span> : null}
@@ -7655,7 +7788,7 @@ export default function App() {
               <div className="viewport-card-header">
                 <div>
                   <p className="section-kicker">Hint</p>
-                  <h2>Current editor controls</h2>
+                  <h2>{editorMode === "Building" ? "Current editor controls" : `${editorMode} Editor`}</h2>
                 </div>
                 <button
                   type="button"
@@ -7666,6 +7799,8 @@ export default function App() {
                   x
                 </button>
               </div>
+              {editorMode === "Building" ? (
+              <>
               <p>
                 Frontend mode is now tuned around direct viewport editing, grouped history,
                 local import/export and tool-specific left-place or right-delete behavior.
@@ -7740,9 +7875,9 @@ export default function App() {
                 when the pointer is released.
               </p>
               <p className="muted">
-                3D Preview: swap the main canvas into a read-only orbit view that renders all
+                3D View: swap the main canvas into the shared spatial editor that renders all
                 floors, walls, slabs, shapes and model markers together. Drag to orbit and use
-                the wheel to zoom.
+                the wheel to zoom; available 3D tools depend on the current editor.
               </p>
               <p className="muted">
                 3D Join Mode: use Architectural Join for cleaner house corners, or Node Post
@@ -7757,7 +7892,7 @@ export default function App() {
                   type="button"
                   onClick={() => setViewportMode(viewportMode === "2d" ? "3d" : "2d")}
                 >
-                  {viewportMode === "2d" ? "Open 3D Preview" : "Back To 2D"}
+                  {viewportMode === "2d" ? "Open 3D View" : "Back To 2D"}
                 </button>
                 <button type="button" onClick={resetPreview3D}>
                   Reset 3D Camera
@@ -7815,10 +7950,52 @@ export default function App() {
                   </div>
                 </div>
               </div>
+              </>
+              ) : (
+              <>
+                <p>
+                  The {editorMode} Editor workspace is now part of the shared WaWoD project.
+                </p>
+                <p className="muted">{getEditorModeDescription(editorMode)}</p>
+                <p className="muted">
+                  No authoring tools are enabled yet. The building remains visible as a read-only
+                  reference in both views, so this editor can grow without risking structural data.
+                </p>
+                <div className="quick-actions">
+                  <button
+                    type="button"
+                    onClick={() => setViewportMode(viewportMode === "2d" ? "3d" : "2d")}
+                  >
+                    {viewportMode === "2d" ? "Open 3D View" : "Back To 2D"}
+                  </button>
+                  <button type="button" onClick={resetPreview3D}>
+                    Reset 3D Camera
+                  </button>
+                </div>
+                <div className="viewport-summary-grid">
+                  <div>
+                    <span className="summary-label">Editor</span>
+                    <strong>{editorMode}</strong>
+                  </div>
+                  <div>
+                    <span className="summary-label">View</span>
+                    <strong>{viewportMode === "2d" ? "2D" : "3D"}</strong>
+                  </div>
+                  <div>
+                    <span className="summary-label">Building Reference</span>
+                    <strong>Read Only</strong>
+                  </div>
+                  <div>
+                    <span className="summary-label">Tools</span>
+                    <strong>Coming Next</strong>
+                  </div>
+                </div>
+              </>
+              )}
             </div>
             ) : null}
 
-            {floatingWindowVisibility.levels ? (
+            {editorMode === "Building" && floatingWindowVisibility.levels ? (
               <FloatingWindow
                 title="Levels"
                 kicker="Structure"
@@ -7929,7 +8106,7 @@ export default function App() {
               </FloatingWindow>
             ) : null}
 
-            {editingLevel && floatingWindowVisibility.levelEdit ? (
+            {editorMode === "Building" && editingLevel && floatingWindowVisibility.levelEdit ? (
               <FloatingWindow
                 title="Edit Level"
                 kicker="Structure"
@@ -7974,7 +8151,7 @@ export default function App() {
               </FloatingWindow>
             ) : null}
 
-            {floatingWindowVisibility.wallTypes ? (
+            {editorMode === "Building" && floatingWindowVisibility.wallTypes ? (
               <FloatingWindow
                 title="Wall Types"
                 kicker="Structure"
@@ -8033,7 +8210,7 @@ export default function App() {
               </FloatingWindow>
             ) : null}
 
-            {editingWallType && floatingWindowVisibility.wallTypeEdit ? (
+            {editorMode === "Building" && editingWallType && floatingWindowVisibility.wallTypeEdit ? (
               <FloatingWindow
                 title="Edit Wall Type"
                 kicker="Structure"
@@ -8092,7 +8269,7 @@ export default function App() {
               </FloatingWindow>
             ) : null}
 
-            {floatingWindowVisibility.grid ? (
+            {editorMode === "Building" && floatingWindowVisibility.grid ? (
               <FloatingWindow
                 title="Grid Settings"
                 kicker="Viewport"
@@ -10164,10 +10341,11 @@ export default function App() {
 
       {panelVisibility.statusBarVisible ? (
         <footer className="status-line status-line-overlay">
-          <span>View {viewportMode === "2d" ? "2D Editor" : "3D Preview"}</span>
-          <span>Tool {activeTool}</span>
-          <span>Level {activeLevelName}</span>
-          <span>Wall Type {activeWallTypeName}</span>
+          <span>Editor {editorMode}</span>
+          <span>View {viewportMode === "2d" ? "2D" : "3D"}</span>
+          {editorMode === "Building" ? <span>Tool {activeTool}</span> : <span>Tools pending</span>}
+          {editorMode === "Building" ? <span>Level {activeLevelName}</span> : null}
+          {editorMode === "Building" ? <span>Wall Type {activeWallTypeName}</span> : null}
           {viewportMode === "2d" ? (
             <>
               <span>

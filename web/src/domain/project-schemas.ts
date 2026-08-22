@@ -30,6 +30,8 @@ import type {
   Room,
   Shape,
   ShapeKind,
+  Site,
+  SiteSurfaceKind,
   Slab,
   SlabKind,
   Stair,
@@ -48,6 +50,7 @@ const nonEmptyStringSchema = z.string().trim().min(1);
 export const shapeKindSchema = z.enum(["Square", "Cylinder"]) satisfies z.ZodType<ShapeKind>;
 export const slabKindSchema = z.enum(["Rectangle", "Circle", "Freeform"]) satisfies z.ZodType<SlabKind>;
 export const groundSurfaceKindSchema = z.enum(["Floor", "Grass"]) satisfies z.ZodType<GroundSurfaceKind>;
+export const siteSurfaceKindSchema = z.enum(["Grass"]) satisfies z.ZodType<SiteSurfaceKind>;
 export const roofTypeSchema = z.enum(["Flat", "Gable", "Shed", "Hip"]) satisfies z.ZodType<RoofType>;
 export const wallTopModeSchema = z.enum(["FixedHeight", "FollowRoof"]) satisfies z.ZodType<WallTopMode>;
 export const measurementUnitSchema = z.enum(["cm", "dm", "m"]) satisfies z.ZodType<MeasurementUnit>;
@@ -330,6 +333,16 @@ export const groundSurfaceSchema = z.object({
   depthM: positiveNumberSchema,
 }) satisfies z.ZodType<GroundSurface>;
 
+export const siteSchema = z.object({
+  id: nonEmptyStringSchema,
+  name: nonEmptyStringSchema,
+  surfaceKind: siteSurfaceKindSchema,
+  boundary: z.array(vec2Schema).min(3),
+  elevationM: finiteNumberSchema,
+  visible2D: z.boolean(),
+  visible3D: z.boolean(),
+}) satisfies z.ZodType<Site>;
+
 export const roomSchema = z.object({
   id: nonEmptyStringSchema,
   levelId: nonEmptyStringSchema,
@@ -360,6 +373,7 @@ export const measurementSchema = z.object({
 export const projectSchema = z.object({
   projectName: nonEmptyStringSchema,
   settings: projectSettingsSchema,
+  site: siteSchema,
   levels: z.array(levelSchema).min(1),
   wallTypes: z.array(wallTypeSchema).min(1),
   roofLayers: z.array(roofLayerSchema).min(1),
